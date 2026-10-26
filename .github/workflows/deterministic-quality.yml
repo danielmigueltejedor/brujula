@@ -1,0 +1,60 @@
+name: Deterministic Quality Gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify patch integrity
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+          else
+            git show --format= --check HEAD
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Parse changed Python, JSON, TOML and shell sources
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import tomllib
+          base = os.environ.get("BASE_SHA", "")
+          cmd = ["git", "diff", "--name-only", "-z", "--diff-filter=ACM", base, "HEAD"] if base else ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "HEAD"]
+          files = [x.decode() for x in subprocess.check_output(cmd).split(b"\0") if x]
+          tested = 0
+          for name in files:
+              p = Path(name)
+              if not p.is_file():
+                  continue
+              if p.suffix == ".py":
+                  ast.parse(p.read_text(encoding="utf-8-sig"), filename=name)
+              elif p.suffix == ".json":
+                  json.loads(p.read_text(encoding="utf-8-sig"))
+              elif p.suffix == ".toml":
+                  tomllib.loads(p.read_text(encoding="utf-8-sig"))
+              elif p.suffix == ".sh":
+                  subprocess.run(["bash", "-n", str(p)], check=True)
+              else:
+                  continue
+              tested += 1
+          print(f"Validated {tested} changed source/configuration files")
+          PY
