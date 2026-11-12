@@ -35,7 +35,3 @@ row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
 
 .brujula-progress trough { min-height: 2px; }
 .brujula-progress progress { min-height: 2px; }
-/* The theme's progress bar carries margins that can make GTK compute a negative minimum width
-   (GtkGizmo "reported min width -2"); a 2px strip needs none. */
-progressbar.brujula-progress > trough { margin: 0; padding: 0; border-width: 0; min-width: 0; }
-progressbar.brujula-progress > trough > progress { margin: 0; padding: 0; border-width: 0; min-width: 0; }
