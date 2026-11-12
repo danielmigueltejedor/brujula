@@ -707,7 +707,7 @@ Ephy.formControlsAssociated = function(pageID, frameID, elements, serializer)
         // Anything in formElements has already been processed.
         const formElement = element.closest('form');
         if (formElement && !formElements.includes(formElement)) {
-            if (!formElement instanceof HTMLFormElement) {
+            if (!(formElement instanceof HTMLFormElement)) {
                 Ephy.log('Attempted to find parent HTMLFormElement, but found something else instead; this is probably an Epiphany bug');
                 continue;
             }

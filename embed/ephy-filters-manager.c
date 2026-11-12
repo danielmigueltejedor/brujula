@@ -77,10 +77,10 @@ struct _FilterInfo {
   gint64 last_update;    /* Saved, seconds since the Epoch. */
   guint index;           /* Not saved. Index in the list of filters. */
 
-  gboolean found : 1;    /* WebKitUserContentFilter found during lookup. */
-  gboolean local : 1;    /* The source_uri is a local file URI. */
-  gboolean done  : 1;    /* Filter setup done (successfully or errored). */
-  gboolean is_hush : 1;  /* Used for hush cookie banner blocking. */
+  guint    found : 1;    /* WebKitUserContentFilter found during lookup. */
+  guint    local : 1;    /* The source_uri is a local file URI. */
+  guint    done  : 1;    /* Filter setup done (successfully or errored). */
+  guint    is_hush : 1;  /* Used for hush cookie banner blocking. */
 };
 
 /* The "saved" fields from the struct above are stored as versioned sidecar
