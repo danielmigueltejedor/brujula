@@ -276,13 +276,16 @@ impl Filters {
         }
     }
 
-    async fn apply(self: &Rc<Self>, texts: Vec<String>) {
+    async fn apply(self: &Rc<Self>, texts: Vec<(String, bool)>) {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
         let allow = self.allow.borrow().clone();
         let allow_for_manifest = allow.clone();
         let compiled = gio::spawn_blocking(move || {
-            let c = adblock::compile(texts.iter().map(String::as_str), &allow);
+            let c = adblock::compile_lists(
+                texts.iter().map(|(t, trusted)| (t.as_str(), *trusted)),
+                &allow,
+            );
             let engine = c.cosmetic.serialize();
             (c, engine)
         })
@@ -343,11 +346,17 @@ impl Filters {
     }
 }
 
-async fn read_cached(lists: &[FilterList]) -> Vec<String> {
-    let ids: Vec<&'static str> = lists.iter().map(|l| l.id).collect();
+/// The lists found on disk, each with whether it may use the `trusted-*` scriptlets.
+async fn read_cached(lists: &[FilterList]) -> Vec<(String, bool)> {
+    let wanted: Vec<(&'static str, bool)> = lists.iter().map(|l| (l.id, l.trusted)).collect();
     gio::spawn_blocking(move || {
-        ids.iter()
-            .filter_map(|id| read_text(&paths::lists_dir().join(format!("{id}.txt"))).ok())
+        wanted
+            .iter()
+            .filter_map(|(id, trusted)| {
+                read_text(&paths::lists_dir().join(format!("{id}.txt")))
+                    .ok()
+                    .map(|t| (t, *trusted))
+            })
             .collect()
     })
     .await

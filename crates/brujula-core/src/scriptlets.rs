@@ -35,11 +35,19 @@ struct Exception {
     token: Option<(String, Vec<String>)>,
 }
 
-/// Reads the scriptlet rules out of filter lists.
-pub fn parse<'a>(lists: impl IntoIterator<Item = &'a str>) -> Scriptlets {
+/// Scriptlets that can change cookies, storage and responses. Like uBlock Origin, they are
+/// accepted only from lists the browser itself ships from uBlock Origin's repository: any other
+/// list is downloaded over HTTPS without a signature and must not be able to run them.
+pub fn is_trusted_only(name: &str) -> bool {
+    normalise(name).starts_with("trusted-")
+}
+
+/// Reads the scriptlet rules out of filter lists given as `(text, trusted)`. A list that is not
+/// trusted cannot use the `trusted-*` scriptlets: those rules are dropped.
+pub fn parse<'a>(lists: impl IntoIterator<Item = (&'a str, bool)>) -> Scriptlets {
     let mut rules = Vec::new();
     let mut exceptions = Vec::new();
-    for text in lists {
+    for (text, trusted) in lists {
         for line in text.lines() {
             let line = line.trim();
             if line.starts_with('!') || !line.contains("+js(") {
@@ -96,6 +104,9 @@ pub fn parse<'a>(lists: impl IntoIterator<Item = &'a str>) -> Scriptlets {
                 continue;
             };
             if !usable || positive.is_empty() {
+                continue;
+            }
+            if !trusted && is_trusted_only(name) {
                 continue;
             }
             rules.push(Rule {
@@ -268,7 +279,7 @@ mod tests {
     use super::*;
 
     fn one(rule: &str) -> Scriptlets {
-        parse([rule])
+        parse([(rule, true)])
     }
 
     #[test]
@@ -329,10 +340,40 @@ mod tests {
     }
 
     #[test]
+    fn trusted_scriptlets_run_only_from_trusted_lists() {
+        let text = "y.com##+js(trusted-set-cookie, a, b)\n\
+                    y.com##+js(trusted-replace-xhr-response.js, x, y)\n\
+                    y.com##+js(set, x, 1)\n";
+        let from_third_party = parse([(text, false)]);
+        assert_eq!(from_third_party.rules.len(), 1);
+        assert_eq!(from_third_party.rules[0].name, "set");
+        let from_ublock = parse([(text, true)]);
+        assert_eq!(from_ublock.rules.len(), 3);
+        // A trusted and an untrusted list together: each rule is judged by its own list.
+        let both = parse([
+            (text, true),
+            ("z.com##+js(trusted-set-local-storage-item, k, v)\n", false),
+        ]);
+        assert_eq!(both.rules.len(), 3);
+        assert!(!both.rules.iter().any(|r| r.domains == ["z.com"]));
+    }
+
+    #[test]
+    fn trusted_only_names_are_recognised_with_or_without_the_js_suffix() {
+        assert!(is_trusted_only("trusted-set-cookie"));
+        assert!(is_trusted_only(" trusted-set-cookie.js "));
+        assert!(!is_trusted_only("set"));
+        assert!(!is_trusted_only("untrusted-thing"));
+    }
+
+    #[test]
     fn exceptions_switch_a_rule_off_on_their_sites() {
         let s = parse([
-            "a.com,b.com##+js(set, x, 1)\nb.com#@#+js(set, x, 1)\n",
-            "c.com##+js(set, y, 2)\nc.com#@#+js()\n",
+            (
+                "a.com,b.com##+js(set, x, 1)\nb.com#@#+js(set, x, 1)\n",
+                true,
+            ),
+            ("c.com##+js(set, y, 2)\nc.com#@#+js()\n", true),
         ]);
         assert_eq!(s.rules[0].except, ["b.com"]);
         assert_eq!(s.rules[1].except, ["c.com"]);
@@ -340,13 +381,13 @@ mod tests {
 
     #[test]
     fn a_global_exception_removes_the_rule() {
-        let s = parse(["a.com##+js(set, x, 1)\n#@#+js(set, x, 1)\n"]);
+        let s = parse([("a.com##+js(set, x, 1)\n#@#+js(set, x, 1)\n", true)]);
         assert!(s.rules.is_empty());
     }
 
     #[test]
     fn patterns_cover_each_site_once() {
-        let s = parse(["a.com,b.com##+js(set, x, 1)\na.com##+js(set, y, 2)\n"]);
+        let s = parse([("a.com,b.com##+js(set, x, 1)\na.com##+js(set, y, 2)\n", true)]);
         assert_eq!(s.url_patterns(), ["*://*.a.com/*", "*://*.b.com/*"]);
     }
 
@@ -370,7 +411,7 @@ mod tests {
             .unwrap()
             .filter_map(|e| std::fs::read_to_string(e.unwrap().path()).ok())
             .collect();
-        let s = parse(texts.iter().map(String::as_str));
+        let s = parse(texts.iter().map(|t| (t.as_str(), true)));
         eprintln!(
             "{} scriptlet rules, {} sites, table {} bytes",
             s.rules.len(),
