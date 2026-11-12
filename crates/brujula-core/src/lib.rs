@@ -3,7 +3,10 @@
 #![forbid(unsafe_code)]
 
 pub mod adblock;
+pub mod newtab;
 pub mod omnibox;
+pub mod search;
 pub mod session;
 pub mod settings;
+pub mod suggest;
 pub mod tabs;

@@ -23,7 +23,10 @@ pub struct Session {
 /// Only these schemes are restored: a session file must not be able to make the browser open
 /// `file:` paths or `javascript:` URLs on its own.
 fn restorable(url: &str) -> bool {
-    url == "about:blank" || url.starts_with("https://") || url.starts_with("http://")
+    url == "about:blank"
+        || url == crate::newtab::NEWTAB_URI
+        || url.starts_with("https://")
+        || url.starts_with("http://")
 }
 
 impl Session {

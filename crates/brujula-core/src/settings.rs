@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::omnibox::DEFAULT_SEARCH;
+use crate::search::{self, DEFAULT_ENGINE};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -14,8 +14,10 @@ pub struct Settings {
     pub adblock_enabled: bool,
     /// Ids of the filter lists turned off by the user (so new default lists are enabled).
     pub disabled_lists: Vec<String>,
-    /// Search URL, `%s` is the query.
-    pub search_template: String,
+    /// Id of the chosen search engine (see `search::ENGINES`).
+    pub search_engine: String,
+    /// False until the user has picked one; the new-tab page asks on first run.
+    pub search_engine_chosen: bool,
     pub homepage: String,
 }
 
@@ -25,7 +27,8 @@ impl Default for Settings {
             sidebar_visible: true,
             adblock_enabled: true,
             disabled_lists: Vec::new(),
-            search_template: DEFAULT_SEARCH.to_owned(),
+            search_engine: DEFAULT_ENGINE.to_owned(),
+            search_engine_chosen: false,
             homepage: "about:blank".to_owned(),
         }
     }
@@ -38,6 +41,11 @@ impl Settings {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_owned())
+    }
+
+    /// Search URL of the chosen engine, `%s` is the query.
+    pub fn search_template(&self) -> &'static str {
+        search::engine_or_default(&self.search_engine).template
     }
 
     pub fn list_enabled(&self, id: &str, default: bool) -> bool {
@@ -76,6 +84,17 @@ mod tests {
     fn unknown_fields_are_ignored() {
         let s = Settings::from_json(r#"{"future_option": 1, "sidebar_visible": false}"#);
         assert!(!s.sidebar_visible);
+    }
+
+    #[test]
+    fn search_defaults_to_google_and_unknown_ids_fall_back() {
+        let s = Settings::default();
+        assert!(!s.search_engine_chosen);
+        assert!(s.search_template().contains("google.com"));
+        let s = Settings::from_json(r#"{"search_engine": "gone"}"#);
+        assert!(s.search_template().contains("google.com"));
+        let s = Settings::from_json(r#"{"search_engine": "bing", "search_engine_chosen": true}"#);
+        assert!(s.search_template().contains("bing.com"));
     }
 
     #[test]

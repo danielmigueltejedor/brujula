@@ -14,8 +14,16 @@ retirarlo.
 
 ## Decisiones
 
-- **Pestañas verticales por defecto.** La barra lateral es la lista de pestañas (isla NDL), con
-  ancladas arriba, cierre con clic central y menú contextual. `Ctrl+B` la oculta.
+- **Todo en vertical, como Zen o Arc.** La barra lateral (isla NDL) lleva los controles de la
+  ventana arriba a la izquierda, atrás/adelante/recargar, el escudo del bloqueador, el menú, la
+  "píldora" de dirección y la lista de pestañas (ancladas arriba, cierre con clic central, menú
+  contextual). `Ctrl+B` la oculta; entonces aparece una barra fina con los mismos controles.
+- **Spotlight.** Pulsar la píldora (o `Ctrl+L`) abre un buscador centrado sobre la página: una
+  búsqueda con el buscador elegido, "ir a" si es una dirección, y las pestañas abiertas que
+  coinciden. Flechas para moverse, Enter para ir, Esc para cerrar.
+- **Nueva pestaña.** Página propia, limpia, sin scripts, con un cuadro de búsqueda conectado al
+  buscador elegido. En el primer arranque pide elegir entre Google, DuckDuckGo, Bing, Brave
+  Search, Ecosia, Startpage y Qwant; se puede cambiar desde la propia página o el menú.
 - **Bloqueador.** Las listas en sintaxis ABP/uBlock (EasyList, EasyPrivacy, uBlock filters,
   privacidad, badware, cookies, español) son la única fuente. De ellas se derivan:
   - reglas de bloqueo de red en formato *content blocker*, que WebKit aplica dentro del proceso
@@ -42,7 +50,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
 
 ## Qué está verificado
 
-- Núcleo: 40 tests unitarios.
+- Núcleo: 56 tests unitarios.
 - App: compilada con GTK 4.22, libadwaita 1.9 (solo como dependencia de WebKit) y WebKitGTK 2.52 y
   ejecutada bajo Xvfb: abre, restaura pestañas, abre y cierra, cambia de pestaña, oculta y muestra
   la barra lateral, y con 139 126 reglas reales WebKit bloquea una petición y se ocultan elementos
@@ -58,4 +66,5 @@ compila listas reales y comprueba que el JSON resultante es válido.
   interfaz, modo privado, buscador configurable.
 - Página de nueva pestaña, página de error, traducciones (hoy, textos en español).
 - Excepciones del bloqueador por sitio y contador de bloqueados.
+- Historial y marcadores en el Spotlight (hoy solo busca en las pestañas abiertas).
 - Fijar `nodalia-gtk` a una versión estable cuando NDL la publique.

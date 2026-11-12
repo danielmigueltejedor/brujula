@@ -1,6 +1,7 @@
 mod browser;
 mod filters;
 mod paths;
+mod spotlight;
 
 use gtk::prelude::*;
 use ndl::gtk;
@@ -16,6 +17,10 @@ fn main() -> gtk::glib::ExitCode {
         .build();
 
     app.connect_startup(|app| {
+        // Window controls at the left, over the sidebar, like Zen and Arc.
+        if let Some(settings) = gtk::Settings::default() {
+            settings.set_gtk_decoration_layout(Some("close,minimize,maximize:"));
+        }
         ndl::init();
         browser::install_css();
         browser::install_app_actions(app);

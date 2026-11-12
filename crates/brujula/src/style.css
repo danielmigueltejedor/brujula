@@ -1,12 +1,37 @@
-/* Brújula only adds layout to what NDL already styles. Every value is an NDL token. */
-.brujula-tabs { padding: var(--ndl-space-2); }
-.brujula-tabs row { padding: 0; }
-.brujula-tab { padding: var(--ndl-space-2) var(--ndl-space-2); }
+/* Brújula only adds layout to what NDL already styles. */
+.brujula-side { padding-bottom: var(--ndl-space-2); }
+
+/* The address pill: a button that looks like a field and opens the Spotlight. */
+.brujula-urlbutton {
+  min-height: 36px;
+  padding: 0 var(--ndl-space-3);
+  border-radius: 999px;
+  background: alpha(currentColor, 0.07);
+}
+.brujula-urlbutton:hover { background: alpha(currentColor, 0.12); }
+
+/* Tabs: tall enough to read, with room around the favicon and the close button. */
+.brujula-tabs { padding: 0; }
+.brujula-tabs > row { margin: 2px 0; padding: 0; min-height: 40px; }
+.brujula-tab { padding: 0 var(--ndl-space-3); min-height: 40px; }
 .brujula-tab .brujula-tab-title { font-size: var(--ndl-font-size-sm); }
-.brujula-tab-close { min-width: 24px; min-height: 24px; padding: 0; opacity: 0; color: inherit; }
+.brujula-tab-favicon { opacity: 0.95; }
+.brujula-tab-close {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  opacity: 0;
+  color: inherit;
+}
 .brujula-tab-close:hover { background: alpha(currentColor, 0.15); }
 row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
-.brujula-tab-favicon { opacity: 0.9; }
-.brujula-url { min-width: 280px; }
+.brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-2); }
+
+/* Spotlight */
+.brujula-scrim { background: alpha(black, 0.35); }
+.brujula-spotlight { padding: var(--ndl-space-3); box-shadow: 0 16px 48px alpha(black, 0.35); }
+.brujula-spotlight-entry { min-height: 44px; }
+.brujula-spotlight row { min-height: 44px; }
+
 .brujula-progress trough { min-height: 2px; }
 .brujula-progress progress { min-height: 2px; }

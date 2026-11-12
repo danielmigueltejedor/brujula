@@ -4,9 +4,12 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use brujula_core::newtab;
 use brujula_core::omnibox;
+use brujula_core::search;
 use brujula_core::session::Session;
 use brujula_core::settings::Settings;
+use brujula_core::suggest::{self, Action};
 use brujula_core::tabs::{Change, TabId, TabModel};
 use gtk::gdk;
 use gtk::gio;
@@ -14,10 +17,14 @@ use gtk::glib;
 use ndl::gtk;
 use nodalia_gtk as ndl;
 use webkit6::prelude::*;
-use webkit6::{LoadEvent, NetworkSession, UserContentManager, WebView};
+use webkit6::{
+    LoadEvent, NavigationPolicyDecision, NetworkSession, PolicyDecisionType, UserContentManager,
+    WebView,
+};
 
 use crate::filters::Filters;
 use crate::paths;
+use crate::spotlight::{Item, Spotlight};
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -39,7 +46,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.new-tab", &["<Ctrl>t"]);
     app.set_accels_for_action("win.close-tab", &["<Ctrl>w"]);
     app.set_accels_for_action("win.reopen-tab", &["<Ctrl><Shift>t"]);
-    app.set_accels_for_action("win.focus-url", &["<Ctrl>l", "F6"]);
+    app.set_accels_for_action("win.open-spotlight", &["<Ctrl>l", "F6"]);
     app.set_accels_for_action("win.reload", &["<Ctrl>r", "F5"]);
     app.set_accels_for_action("win.back", &["<Alt>Left"]);
     app.set_accels_for_action("win.forward", &["<Alt>Right"]);
@@ -79,18 +86,82 @@ struct Row {
     spinner: gtk::Spinner,
 }
 
-pub struct Browser {
-    window: ndl::ApplicationWindow,
-    split: ndl::OverlaySplitView,
-    list: gtk::ListBox,
-    stack: gtk::Stack,
-    entry: gtk::Entry,
-    progress: gtk::ProgressBar,
+/// The buttons that sit above the page. Built twice: in the sidebar, and in a slim bar that
+/// shows only while the sidebar is hidden. They share actions, so they stay in step.
+struct Chrome {
     back: gtk::Button,
     forward: gtk::Button,
     reload: gtk::Button,
     shield: gtk::ToggleButton,
+    toggle: gtk::ToggleButton,
+    menu: gtk::MenuButton,
+    url_button: gtk::Button,
+    url_icon: gtk::Image,
+    url_label: gtk::Label,
+}
 
+fn build_chrome() -> Chrome {
+    let url_icon = gtk::Image::from_icon_name("ndl-search-symbolic");
+    url_icon.set_pixel_size(14);
+    let url_label = gtk::Label::builder()
+        .label(URL_PLACEHOLDER)
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let url_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    url_content.append(&url_icon);
+    url_content.append(&url_label);
+    let url_button = gtk::Button::builder()
+        .child(&url_content)
+        .action_name("win.open-spotlight")
+        .css_classes(["flat", "brujula-urlbutton"])
+        .hexpand(true)
+        .build();
+    url_button.set_tooltip_text(Some("Buscar o escribir una dirección (Ctrl+L)"));
+
+    let shield = gtk::ToggleButton::builder()
+        .icon_name("ndl-shield-check-symbolic")
+        .action_name("win.toggle-adblock")
+        .css_classes(["flat"])
+        .build();
+    shield.set_tooltip_text(Some("Bloqueador de anuncios (Ctrl+Mayús+B)"));
+    let toggle = gtk::ToggleButton::builder()
+        .icon_name("sidebar-show-symbolic")
+        .tooltip_text("Barra lateral (Ctrl+B)")
+        .action_name("win.toggle-sidebar")
+        .css_classes(["flat"])
+        .build();
+    let menu = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .menu_model(&main_menu())
+        .css_classes(["flat"])
+        .build();
+    Chrome {
+        back: icon_button("go-previous-symbolic", "Atrás (Alt+←)", "win.back"),
+        forward: icon_button("go-next-symbolic", "Adelante (Alt+→)", "win.forward"),
+        reload: icon_button("view-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload"),
+        shield,
+        toggle,
+        menu,
+        url_button,
+        url_icon,
+        url_label,
+    }
+}
+
+const URL_PLACEHOLDER: &str = "Buscar o escribir una dirección";
+
+pub struct Browser {
+    window: ndl::ApplicationWindow,
+    split: ndl::OverlaySplitView,
+    toolbar: ndl::ToolbarView,
+    list: gtk::ListBox,
+    stack: gtk::Stack,
+    progress: gtk::ProgressBar,
+    chromes: Vec<Chrome>,
+    spotlight: Rc<Spotlight>,
+    /// Where the Spotlight sends its result: the current tab, or a new one.
     session: NetworkSession,
     ucm: UserContentManager,
     filters: Rc<Filters>,
@@ -124,7 +195,32 @@ impl Browser {
         window.set_default_size(1280, 800);
         window.set_icon_name(Some(paths::APP_ID));
 
-        // Sidebar: new tab button above the tab list.
+        let side_chrome = build_chrome();
+        let slim_chrome = build_chrome();
+
+        // Sidebar, top to bottom: window controls, navigation, address, tabs, new tab.
+        let side_header = ndl::HeaderBar::new();
+        side_header.set_show_end_title_buttons(false);
+        side_header.pack_end(&side_chrome.toggle);
+
+        let nav = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        nav.add_css_class("brujula-nav");
+        nav.set_margin_start(8);
+        nav.set_margin_end(8);
+        nav.set_margin_bottom(6);
+        nav.append(&side_chrome.back);
+        nav.append(&side_chrome.forward);
+        nav.append(&side_chrome.reload);
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        nav.append(&spacer);
+        nav.append(&side_chrome.shield);
+        nav.append(&side_chrome.menu);
+
+        side_chrome.url_button.set_margin_start(8);
+        side_chrome.url_button.set_margin_end(8);
+        side_chrome.url_button.set_margin_bottom(6);
+
         let list = gtk::ListBox::new();
         list.set_selection_mode(gtk::SelectionMode::Single);
         list.add_css_class("navigation-sidebar");
@@ -132,6 +228,8 @@ impl Browser {
         let scroller = gtk::ScrolledWindow::builder()
             .child(&list)
             .vexpand(true)
+            .margin_start(8)
+            .margin_end(8)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
         let new_tab_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -140,52 +238,33 @@ impl Browser {
         new_tab_content.append(&gtk::Label::new(Some("Nueva pestaña")));
         let new_tab = gtk::Button::builder()
             .child(&new_tab_content)
-            .css_classes(["flat"])
+            .css_classes(["flat", "brujula-newtab"])
             .action_name("win.new-tab")
             .build();
         new_tab.set_tooltip_text(Some("Nueva pestaña (Ctrl+T)"));
+
         let side = gtk::Box::new(gtk::Orientation::Vertical, 0);
         side.add_css_class("ndl-island");
-        side.set_size_request(240, -1);
+        side.add_css_class("brujula-side");
+        side.set_size_request(260, -1);
+        side.append(&side_header);
+        side.append(&nav);
+        side.append(&side_chrome.url_button);
         side.append(&scroller);
         side.append(&new_tab);
 
-        // Content: header bar + page.
-        let back = icon_button("go-previous-symbolic", "Atrás", "win.back");
-        let forward = icon_button("go-next-symbolic", "Adelante", "win.forward");
-        let reload = icon_button("view-refresh-symbolic", "Recargar", "win.reload");
-        let sidebar_toggle = gtk::ToggleButton::builder()
-            .icon_name("sidebar-show-symbolic")
-            .tooltip_text("Pestañas laterales (Ctrl+B)")
-            .action_name("win.toggle-sidebar")
-            .css_classes(["flat"])
-            .build();
-        let entry = gtk::Entry::builder()
-            .placeholder_text("Buscar o escribir una dirección")
-            .hexpand(true)
-            .input_purpose(gtk::InputPurpose::Url)
-            .build();
-        entry.add_css_class("brujula-url");
-        let shield = gtk::ToggleButton::builder()
-            .icon_name("ndl-shield-check-symbolic")
-            .action_name("win.toggle-adblock")
-            .css_classes(["flat"])
-            .build();
-        shield.set_tooltip_text(Some("Bloqueador de anuncios (Ctrl+Mayús+B)"));
-        let menu = gtk::MenuButton::builder()
-            .icon_name("open-menu-symbolic")
-            .menu_model(&main_menu())
-            .css_classes(["flat"])
-            .build();
-
-        let header = ndl::HeaderBar::new();
-        header.pack_start(&sidebar_toggle);
-        header.pack_start(&back);
-        header.pack_start(&forward);
-        header.pack_start(&reload);
-        header.set_title_widget(Some(&entry));
-        header.pack_end(&menu);
-        header.pack_end(&shield);
+        // Content: the page, with a slim bar above it only while the sidebar is hidden.
+        let slim = ndl::HeaderBar::new();
+        slim.set_show_end_title_buttons(false);
+        slim.pack_start(&slim_chrome.toggle);
+        slim.pack_start(&slim_chrome.back);
+        slim.pack_start(&slim_chrome.forward);
+        slim.pack_start(&slim_chrome.reload);
+        slim_chrome.url_button.set_size_request(380, -1);
+        slim_chrome.url_button.set_hexpand(false);
+        slim.set_title_widget(Some(&slim_chrome.url_button));
+        slim.pack_end(&slim_chrome.menu);
+        slim.pack_end(&slim_chrome.shield);
 
         let progress = gtk::ProgressBar::new();
         progress.add_css_class("osd");
@@ -201,26 +280,50 @@ impl Browser {
         page.add_overlay(&progress);
 
         let toolbar = ndl::ToolbarView::new();
-        toolbar.add_top_bar(&header);
+        toolbar.add_top_bar(&slim);
         toolbar.set_content(Some(&page));
+        toolbar.set_reveal_top_bars(!settings.sidebar_visible);
 
         let split = ndl::OverlaySplitView::new();
+        split.set_min_sidebar_width(260.0);
+        split.set_max_sidebar_width(320.0);
         split.set_sidebar(Some(&side));
         split.set_content(Some(&toolbar));
         split.set_show_sidebar(settings.sidebar_visible);
-        window.set_content(Some(&split));
+
+        // The Spotlight sits over everything. Its query and result are wired in `wire`, once
+        // there is an `Rc<Browser>` to hold on to.
+        let weak: Rc<RefCell<Option<std::rc::Weak<Browser>>>> = Rc::new(RefCell::new(None));
+        let w1 = weak.clone();
+        let w2 = weak.clone();
+        let spotlight = Spotlight::new(
+            move |text| {
+                w1.borrow()
+                    .as_ref()
+                    .and_then(std::rc::Weak::upgrade)
+                    .map(|b| b.spotlight_items(text))
+                    .unwrap_or_default()
+            },
+            move |action| {
+                if let Some(b) = w2.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                    b.run_action(action);
+                }
+            },
+        );
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&split));
+        overlay.add_overlay(&spotlight.root);
+        window.set_content(Some(&overlay));
 
         let this = Rc::new(Self {
             window,
             split,
+            toolbar,
             list,
             stack,
-            entry,
             progress,
-            back,
-            forward,
-            reload,
-            shield,
+            chromes: vec![side_chrome, slim_chrome],
+            spotlight,
             session,
             ucm,
             filters,
@@ -230,11 +333,12 @@ impl Browser {
             rows: RefCell::new(HashMap::new()),
             syncing: Cell::new(false),
         });
-        this.wire(&sidebar_toggle);
+        *weak.borrow_mut() = Some(Rc::downgrade(&this));
+        this.wire();
         this
     }
 
-    fn wire(self: &Rc<Self>, sidebar_toggle: &gtk::ToggleButton) {
+    fn wire(self: &Rc<Self>) {
         let w = self.window.upcast_ref::<gtk::ApplicationWindow>().clone();
 
         let action = |name: &str, f: Handler| {
@@ -250,9 +354,7 @@ impl Browser {
         action(
             "new-tab",
             Box::new(|b| {
-                let home = b.settings.borrow().homepage.clone();
-                b.open_tab(&home, None, true);
-                b.entry.grab_focus();
+                b.open_tab(newtab::NEWTAB_URI, None, true);
             }),
         );
         action(
@@ -280,10 +382,29 @@ impl Browser {
             }),
         );
         action(
-            "focus-url",
+            "open-spotlight",
             Box::new(|b| {
-                b.entry.grab_focus();
-                b.entry.select_region(0, -1);
+                let current = b
+                    .model
+                    .borrow()
+                    .selected()
+                    .and_then(|id| b.model.borrow().get(id).map(|t| t.url.clone()))
+                    .unwrap_or_default();
+                let shown = if current == "about:blank" || current.starts_with("brujula://") {
+                    String::new()
+                } else {
+                    current
+                };
+                b.spotlight.open(&shown);
+            }),
+        );
+        action(
+            "change-engine",
+            Box::new(|b| {
+                b.open_tab(newtab::NEWTAB_URI, None, true);
+                if let Some(v) = b.current_view() {
+                    b.render_newtab(&v, true);
+                }
             }),
         );
         action(
@@ -340,13 +461,13 @@ impl Browser {
             if let Some(b) = this.upgrade() {
                 let show = !b.split.shows_sidebar();
                 b.split.set_show_sidebar(show);
+                b.toolbar.set_reveal_top_bars(!show);
                 a.set_state(&show.to_variant());
                 b.settings.borrow_mut().sidebar_visible = show;
                 b.save_settings();
             }
         });
         w.add_action(&toggle);
-        sidebar_toggle.set_active(self.split.shows_sidebar());
 
         let adblock = gio::SimpleAction::new_stateful(
             "toggle-adblock",
@@ -372,19 +493,19 @@ impl Browser {
             }
         });
         w.add_action(&adblock);
-        self.shield
-            .set_active(self.settings.borrow().adblock_enabled);
 
-        // Address bar.
+        // Back and forward are enabled by what the page can do; the buttons follow.
+        for name in ["back", "forward"] {
+            if let Some(a) = w.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+                a.set_enabled(false);
+            }
+        }
+
+        // Closing the Spotlight hands the keyboard back to the page.
         let this = Rc::downgrade(self);
-        self.entry.connect_activate(move |e| {
-            let Some(b) = this.upgrade() else { return };
-            let template = b.settings.borrow().search_template.clone();
-            if let Some(url) = omnibox::resolve(&e.text(), &template) {
-                if b.model.borrow().selected().is_none() {
-                    b.open_tab(url.as_str(), None, true);
-                } else if let Some(v) = b.current_view() {
-                    v.load_uri(url.as_str());
+        self.spotlight.set_on_closed(move || {
+            if let Some(b) = this.upgrade() {
+                if let Some(v) = b.current_view() {
                     v.grab_focus();
                 }
             }
@@ -415,10 +536,7 @@ impl Browser {
         let this = Rc::downgrade(self);
         self.filters.set_on_applied(move |first| {
             let Some(b) = this.upgrade() else { return };
-            b.shield.set_tooltip_text(Some(&format!(
-                "Bloqueador de anuncios activo: {} reglas (Ctrl+Mayús+B)",
-                b.filters.rule_count()
-            )));
+            b.set_shield_tooltip();
             let views: Vec<WebView> = b.views.borrow().values().cloned().collect();
             for v in &views {
                 hide_elements(&b.filters, v);
@@ -446,10 +564,7 @@ impl Browser {
         glib::spawn_future_local(async move {
             // Rules compiled last time go in first, so no page loads unfiltered.
             if this.settings.borrow().adblock_enabled && this.filters.load_compiled().await {
-                this.shield.set_tooltip_text(Some(&format!(
-                    "Bloqueador de anuncios activo: {} reglas (Ctrl+Mayús+B)",
-                    this.filters.rule_count()
-                )));
+                this.set_shield_tooltip();
             }
             this.restore(&urls);
             if this.settings.borrow().adblock_enabled {
@@ -485,9 +600,7 @@ impl Browser {
             self.open_tab(u, None, true);
         }
         if self.model.borrow().is_empty() {
-            let home = self.settings.borrow().homepage.clone();
-            self.open_tab(&home, None, true);
-            self.entry.grab_focus();
+            self.open_tab(newtab::NEWTAB_URI, None, true);
         }
     }
 
@@ -508,8 +621,10 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
+        } else if url == newtab::NEWTAB_URI {
+            url.to_owned()
         } else {
-            let template = self.settings.borrow().search_template.clone();
+            let template = self.settings.borrow().search_template().to_owned();
             omnibox::resolve(url, &template)
                 .map_or_else(|| "about:blank".to_owned(), |u| u.to_string())
         };
@@ -619,6 +734,44 @@ impl Browser {
             b.apply(changes);
             Some(nv.upcast())
         });
+        // brujula:// addresses are the new-tab page talking to the browser. They never load.
+        let this = Rc::downgrade(self);
+        view.connect_decide_policy(move |v, decision, kind| {
+            if kind != PolicyDecisionType::NavigationAction {
+                return false;
+            }
+            let Some(nav) = decision.downcast_ref::<NavigationPolicyDecision>() else {
+                return false;
+            };
+            let uri = nav
+                .navigation_action()
+                .and_then(|a| a.request())
+                .and_then(|r| r.uri())
+                .map(|u| u.to_string())
+                .unwrap_or_default();
+            if !uri.starts_with("brujula://") || uri == newtab::NEWTAB_URI {
+                return false;
+            }
+            decision.ignore();
+            // Only the new-tab page may change settings; a web page linking here does nothing.
+            let from_newtab = v.uri().is_some_and(|u| u.as_str() == newtab::NEWTAB_URI);
+            let Some(b) = this.upgrade() else { return true };
+            if !from_newtab {
+                return true;
+            }
+            if uri == newtab::CHOOSE_ENGINE_URI {
+                b.render_newtab(v, true);
+            } else if let Some(engine) = newtab::parse_set_engine(&uri) {
+                {
+                    let mut s = b.settings.borrow_mut();
+                    s.search_engine = engine.id.to_owned();
+                    s.search_engine_chosen = true;
+                }
+                b.save_settings();
+                b.render_newtab(v, false);
+            }
+            true
+        });
         // Downloads go to the user's Downloads folder, without a prompt.
         let this = Rc::downgrade(self);
         self.session.connect_download_started(move |_, download| {
@@ -645,7 +798,9 @@ impl Browser {
 
         self.stack.add_named(&view, Some(&format!("tab-{}", id.0)));
         self.views.borrow_mut().insert(id, view.clone());
-        if !url.is_empty() && url != "about:blank" {
+        if url == newtab::NEWTAB_URI {
+            self.render_newtab(&view, false);
+        } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
         view
@@ -802,7 +957,7 @@ impl Browser {
         let Some(r) = rows.get(&id) else { return };
         let title = if !tab.title.is_empty() {
             tab.title.clone()
-        } else if tab.url.is_empty() || tab.url == "about:blank" {
+        } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
             host_of(&tab.url)
@@ -829,34 +984,135 @@ impl Browser {
         let Some(tab) = model.selected().and_then(|id| model.get(id)) else {
             return;
         };
-        if !self.entry.has_focus() {
-            let shown = if tab.url == "about:blank" {
-                ""
-            } else {
-                tab.url.as_str()
-            };
-            self.entry.set_text(shown);
-        }
+        let on_newtab =
+            tab.url == newtab::NEWTAB_URI || tab.url.is_empty() || tab.url == "about:blank";
+        let (label, icon) = if on_newtab {
+            (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
+        } else if tab.url.starts_with("https://") {
+            (host_of(&tab.url), "ndl-lock-symbolic")
+        } else {
+            (host_of(&tab.url), "ndl-unlock-symbolic")
+        };
         let title = if tab.title.is_empty() {
             "Brújula".to_owned()
         } else {
             format!("{} – Brújula", tab.title)
         };
-        self.window.set_title(Some(&title));
-        self.reload.set_icon_name(if tab.loading {
+        let reload_icon = if tab.loading {
             "ndl-stop-symbolic"
         } else {
             "view-refresh-symbolic"
-        });
+        };
         drop(model);
+        self.window.set_title(Some(&title));
+        for c in &self.chromes {
+            c.url_label.set_label(&label);
+            c.url_label.set_tooltip_text(Some(&label));
+            c.url_icon.set_icon_name(Some(icon));
+            c.reload.set_icon_name(reload_icon);
+        }
         self.update_nav();
         self.sync_progress();
     }
 
+    fn set_action_enabled(&self, name: &str, enabled: bool) {
+        let a = self.window.lookup_action(name);
+        if let Some(a) = a.and_downcast::<gio::SimpleAction>() {
+            a.set_enabled(enabled);
+        }
+    }
+
     fn update_nav(&self) {
         if let Some(v) = self.current_view() {
-            self.back.set_sensitive(v.can_go_back());
-            self.forward.set_sensitive(v.can_go_forward());
+            self.set_action_enabled("back", v.can_go_back());
+            self.set_action_enabled("forward", v.can_go_forward());
+        }
+    }
+
+    fn set_shield_tooltip(&self) {
+        let text = if self.settings.borrow().adblock_enabled {
+            format!(
+                "Bloqueador de anuncios activo: {} reglas (Ctrl+Mayús+B)",
+                self.filters.rule_count()
+            )
+        } else {
+            "Bloqueador de anuncios desactivado (Ctrl+Mayús+B)".to_owned()
+        };
+        for c in &self.chromes {
+            c.shield.set_tooltip_text(Some(&text));
+        }
+    }
+
+    /// Fills the new-tab page. `choosing` shows the search-engine picker instead of the search
+    /// box (first run, or when the user asked to change it).
+    fn render_newtab(&self, view: &WebView, choosing: bool) {
+        let settings = self.settings.borrow();
+        let engine = search::engine_or_default(&settings.search_engine);
+        let choosing = choosing || !settings.search_engine_chosen;
+        let lang = glib::language_names()
+            .first()
+            .map(|l| l.to_string())
+            .unwrap_or_default();
+        let html = newtab::render(engine, choosing, &lang);
+        view.load_html(&html, Some(newtab::NEWTAB_URI));
+    }
+
+    /// What the Spotlight lists for `text`.
+    fn spotlight_items(&self, text: &str) -> Vec<Item> {
+        let settings = self.settings.borrow();
+        let engine = search::engine_or_default(&settings.search_engine);
+        let model = self.model.borrow();
+        let tabs: Vec<_> = model
+            .tabs()
+            .iter()
+            .filter(|t| t.url != newtab::NEWTAB_URI)
+            .cloned()
+            .collect();
+        suggest::suggestions(text, &tabs, settings.search_template())
+            .into_iter()
+            .map(|s| match &s.action {
+                Action::Search(q) => Item {
+                    title: format!("Buscar con {}: {q}", engine.name),
+                    detail: String::new(),
+                    icon: "ndl-search-symbolic",
+                    action: s.action,
+                },
+                Action::Go(url) => Item {
+                    title: format!("Ir a {}", s.title),
+                    detail: url.clone(),
+                    icon: "web-browser-symbolic",
+                    action: s.action,
+                },
+                Action::SwitchTab(_) => Item {
+                    title: s.title,
+                    detail: s.detail,
+                    icon: "ndl-arrow-right-symbolic",
+                    action: s.action,
+                },
+            })
+            .collect()
+    }
+
+    /// Carries out what the user chose in the Spotlight, in the tab in front.
+    fn run_action(self: &Rc<Self>, action: Action) {
+        match action {
+            Action::SwitchTab(id) => {
+                let c = self.model.borrow_mut().select(id);
+                self.apply(c);
+            }
+            Action::Go(url) => self.navigate(&url),
+            Action::Search(q) => {
+                let template = self.settings.borrow().search_template().to_owned();
+                let url = omnibox::search_url(&q, &template);
+                self.navigate(url.as_str());
+            }
+        }
+    }
+
+    fn navigate(self: &Rc<Self>, url: &str) {
+        match self.current_view() {
+            Some(v) => v.load_uri(url),
+            None => self.open_tab(url, None, true),
         }
     }
 
@@ -994,8 +1250,9 @@ fn main_menu() -> gio::Menu {
     tabs.append(Some("Reabrir pestaña cerrada"), Some("win.reopen-tab"));
     m.append_section(None, &tabs);
     let opts = gio::Menu::new();
-    opts.append(Some("Pestañas laterales"), Some("win.toggle-sidebar"));
+    opts.append(Some("Barra lateral"), Some("win.toggle-sidebar"));
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
+    opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     m.append_section(None, &opts);
     m
 }

@@ -34,6 +34,15 @@ pub fn resolve(input: &str, search_template: &str) -> Option<Url> {
     Some(search_url(text, search_template))
 }
 
+/// True when `input` is a URL or a host, false when it would be searched for.
+pub fn looks_like_address(input: &str) -> bool {
+    let text = input.trim();
+    if text.is_empty() || text.contains(char::is_whitespace) {
+        return false;
+    }
+    (has_scheme(text) && Url::parse(text).is_ok()) || host_like(text).is_some()
+}
+
 fn has_scheme(text: &str) -> bool {
     // "localhost:3000" and "example.com:8080" parse as a scheme followed by a port, so a
     // scheme only counts when what follows the colon is not a port number.
@@ -177,6 +186,16 @@ mod tests {
     fn file_name_like_input_is_not_a_domain_with_numeric_tld() {
         // "v1.2.3" must be a search, not https://v1.2.3
         assert!(r("v1.2.3").starts_with("https://duckduckgo.com/"));
+    }
+
+    #[test]
+    fn address_or_search() {
+        assert!(looks_like_address("example.com"));
+        assert!(looks_like_address("https://example.com/x"));
+        assert!(looks_like_address("localhost:3000"));
+        assert!(!looks_like_address("hola mundo"));
+        assert!(!looks_like_address("nodalix"));
+        assert!(!looks_like_address(""));
     }
 
     #[test]
