@@ -31,8 +31,8 @@ use ndl::gtk;
 use nodalia_gtk as ndl;
 use webkit6::prelude::*;
 use webkit6::{
-    LoadEvent, NavigationPolicyDecision, NetworkSession, PolicyDecisionType, UserContentManager,
-    WebView,
+    LoadEvent, NavigationPolicyDecision, NavigationType, NetworkSession, PolicyDecisionType,
+    UserContentManager, WebView,
 };
 
 use crate::favicons;
@@ -44,6 +44,7 @@ mod archive;
 mod cloudsync;
 mod extras;
 mod folders;
+mod peek;
 mod split;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
@@ -216,6 +217,9 @@ pub struct Browser {
     folder_button: gtk::Button,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// The card that shows a link in a preview, and the page in it.
+    peek: peek::PeekCard,
+    peek_view: RefCell<Option<WebView>>,
     /// The two tabs shown side by side, and the `Paned` that holds their pages.
     paired: RefCell<Option<(TabId, TabId)>>,
     split_paned: gtk::Paned,
@@ -414,6 +418,8 @@ impl Browser {
         page.set_child(Some(&stack));
         progress.set_valign(gtk::Align::Start);
         page.add_overlay(&progress);
+        let peek = peek::build_peek();
+        page.add_overlay(&peek.layer);
 
         // The tab bar for the horizontal layout: the tabs and the window controls on one row, the
         // navigation and the address on the next. Hidden while the tabs are in the sidebar.
@@ -521,6 +527,8 @@ impl Browser {
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
             save_queued: Cell::new(false),
+            peek,
+            peek_view: RefCell::new(None),
             paired: RefCell::new(None),
             split_paned,
             archive: RefCell::new(
@@ -572,6 +580,7 @@ impl Browser {
 
     fn wire(self: &Rc<Self>) {
         let w = self.window.upcast_ref::<gtk::ApplicationWindow>().clone();
+        self.wire_peek();
 
         let action = |name: &str, f: Handler| {
             let a = gio::SimpleAction::new(name, None);
@@ -1214,22 +1223,7 @@ impl Browser {
             b = b.related_view(r);
         }
         let view = b.build();
-        if let Some(s) = WebViewExt::settings(&view) {
-            s.set_enable_developer_extras(true);
-            s.set_enable_back_forward_navigation_gestures(true);
-            // Hardening. Pages may not open windows on their own or read local files.
-            s.set_javascript_can_open_windows_automatically(false);
-            s.set_allow_file_access_from_file_urls(false);
-            s.set_allow_universal_access_from_file_urls(false);
-            s.set_allow_modal_dialogs(false);
-            s.set_enable_write_console_messages_to_stdout(false);
-        }
-        // Camera, microphone, location, notifications and the like are refused until there is
-        // a prompt to ask the user.
-        view.connect_permission_request(|_, request| {
-            request.deny();
-            true
-        });
+        harden(&view);
 
         let this = Rc::downgrade(self);
         view.connect_title_notify(move |v| {
@@ -1332,6 +1326,18 @@ impl Browser {
                 .and_then(|r| r.uri())
                 .map(|u| u.to_string())
                 .unwrap_or_default();
+            // Shift+click on a link: have a look at it in a card over this page.
+            if let Some(action) = nav.navigation_action() {
+                let shift = action.modifiers() & gdk::ModifierType::SHIFT_MASK.bits() != 0;
+                let web = uri.starts_with("https://") || uri.starts_with("http://");
+                if shift && web && action.navigation_type() == NavigationType::LinkClicked {
+                    decision.ignore();
+                    if let Some(b) = this.upgrade() {
+                        b.peek(&uri);
+                    }
+                    return true;
+                }
+            }
             // A web page never gets to point the browser at a local file.
             let from_web = v
                 .uri()
@@ -2333,6 +2339,25 @@ impl Browser {
         pop.connect_closed(move |_| pop2.unparent());
         pop.popup();
     }
+}
+
+/// The settings every page of the browser gets: no windows of its own, no local files, no
+/// permissions. Camera, microphone, location, notifications and the like are refused until there
+/// is a prompt to ask the user.
+fn harden(view: &WebView) {
+    if let Some(s) = WebViewExt::settings(view) {
+        s.set_enable_developer_extras(true);
+        s.set_enable_back_forward_navigation_gestures(true);
+        s.set_javascript_can_open_windows_automatically(false);
+        s.set_allow_file_access_from_file_urls(false);
+        s.set_allow_universal_access_from_file_urls(false);
+        s.set_allow_modal_dialogs(false);
+        s.set_enable_write_console_messages_to_stdout(false);
+    }
+    view.connect_permission_request(|_, request| {
+        request.deny();
+        true
+    });
 }
 
 fn icon_button(icon: &str, tip: &str, action: &str) -> gtk::Button {
