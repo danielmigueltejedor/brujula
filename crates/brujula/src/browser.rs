@@ -168,6 +168,11 @@ pub struct Browser {
     /// Wakes the sidebar when it is not pinned.
     left_hot: gtk::Box,
     side: gtk::Box,
+    /// Restored tabs that have not been opened yet: their page loads when they are selected, so
+    /// starting with many tabs does not start many page loads.
+    lazy: RefCell<HashMap<TabId, String>>,
+    /// True while the saved tabs are being put back; the tab that ends up in front loads then.
+    restoring: Cell<bool>,
     hide_bar: RefCell<Option<glib::SourceId>>,
     hide_side: RefCell<Option<glib::SourceId>>,
     list: gtk::ListBox,
@@ -363,6 +368,8 @@ impl Browser {
             top_hot,
             left_hot,
             side,
+            lazy: RefCell::new(HashMap::new()),
+            restoring: Cell::new(false),
             hide_bar: RefCell::new(None),
             hide_side: RefCell::new(None),
             list,
@@ -773,6 +780,7 @@ impl Browser {
             .map(|t| Session::from_json(&t))
             .unwrap_or_default();
 
+        self.restoring.set(true);
         let mut opened = Vec::new();
         for t in &session.tabs {
             let (id, ch) = self.model.borrow_mut().open(&t.url, None, false);
@@ -782,7 +790,12 @@ impl Browser {
             self.model
                 .borrow_mut()
                 .update(id, |tab| tab.title = t.title.clone());
-            self.create_view(id, &t.url, None);
+            if t.url == newtab::NEWTAB_URI || t.url.is_empty() {
+                self.create_view(id, &t.url, None);
+            } else {
+                self.create_view(id, "", None);
+                self.lazy.borrow_mut().insert(id, t.url.clone());
+            }
             self.apply(ch);
             opened.push(id);
         }
@@ -790,11 +803,27 @@ impl Browser {
             let c = self.model.borrow_mut().select(*id);
             self.apply(c);
         }
+        self.restoring.set(false);
+        self.load_if_lazy();
         for u in urls {
             self.open_tab(u, None, true);
         }
         if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
+        }
+    }
+
+    /// Loads the page of the tab in front if it was restored but never opened.
+    fn load_if_lazy(&self) {
+        if self.restoring.get() {
+            return;
+        }
+        let Some(id) = self.model.borrow().selected() else {
+            return;
+        };
+        let url = self.lazy.borrow_mut().remove(&id);
+        if let (Some(url), Some(v)) = (url, self.views.borrow().get(&id)) {
+            v.load_uri(&url);
         }
     }
 
@@ -849,13 +878,11 @@ impl Browser {
         if let Some(s) = WebViewExt::settings(&view) {
             s.set_enable_developer_extras(true);
             s.set_enable_back_forward_navigation_gestures(true);
-            // Hardening. Pages may not open windows on their own, read local files, or resolve
-            // links in advance behind the user's back.
+            // Hardening. Pages may not open windows on their own or read local files.
             s.set_javascript_can_open_windows_automatically(false);
             s.set_allow_file_access_from_file_urls(false);
             s.set_allow_universal_access_from_file_urls(false);
             s.set_allow_modal_dialogs(false);
-            s.set_enable_dns_prefetching(false);
             s.set_enable_write_console_messages_to_stdout(false);
         }
         // Camera, microphone, location, notifications and the like are refused until there is
@@ -1049,6 +1076,7 @@ impl Browser {
             match change {
                 Change::Opened(id) => self.add_row(id),
                 Change::Closed(id) => {
+                    self.lazy.borrow_mut().remove(&id);
                     if let Some(r) = self.rows.borrow_mut().remove(&id) {
                         self.list.remove(&r.row);
                     }
@@ -1070,6 +1098,7 @@ impl Browser {
                         self.list.select_row(Some(&r.row));
                     }
                     self.syncing.set(false);
+                    self.load_if_lazy();
                     self.sync_chrome();
                     if let Some(v) = self.views.borrow().get(&id) {
                         v.grab_focus();
