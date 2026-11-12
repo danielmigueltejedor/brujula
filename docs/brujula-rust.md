@@ -37,7 +37,7 @@ retirarlo.
   - *scriptlets* (`sitio##+js(nombre, args)`): scripts que se ejecutan en la página antes que los
     suyos, para quitar por ejemplo los anuncios de vídeo de YouTube. El código es el de uBlock
     Origin (GPL-3.0), empaquetado por `scripts/bundle-ubo-scriptlets.py` en
-    `crates/brujula/resources/ubo-scriptlets.js` (el resultado se versiona: compilar no necesita
+    `crates/brujula/resources/ubo-scriptlets.js.txt` (el resultado se versiona: compilar no necesita
     red). Solo se usan reglas con sitio, y el script solo se inyecta en esos sitios.
   Lo compilado se guarda en caché, así que desde la segunda vez las reglas están puestas antes de
   cargar la primera página. Las listas se refrescan cada 24 h (14 días con conexión de pago).

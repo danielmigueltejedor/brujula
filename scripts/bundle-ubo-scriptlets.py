@@ -6,7 +6,7 @@ script cannot import modules, so this walks the imports from `scriptlets.js`, pu
 in dependency order, drops the `import`/`export` keywords and wraps the result so nothing leaks
 into the page's global scope. The output is committed, so building Brújula needs no network.
 
-    scripts/bundle-ubo-scriptlets.py [commit] > crates/brujula/resources/ubo-scriptlets.js
+    scripts/bundle-ubo-scriptlets.py [commit] > crates/brujula/resources/ubo-scriptlets.js.txt
 
 uBlock Origin is GPL-3.0-or-later, like Brújula.
 """
@@ -21,7 +21,7 @@ BASE = "https://raw.githubusercontent.com/gorhill/uBlock/{commit}/src/js/{name}"
 
 # `import { a, b as c } from './x.js';`, also over several lines, and `import './x.js';`
 IMPORT = re.compile(
-    r"^import\s+(?:(?P<what>[^'\";]*?)\s+from\s+)?['\"](?P<path>\.{1,2}/[^'\"]+)['\"];?[ \t]*$",
+    r"^import(?P<what>[^'\";]*)['\"](?P<path>\.{1,2}/[^'\"]+)['\"];?[ \t]*$",
     re.M,
 )
 
@@ -48,12 +48,15 @@ def strip(source, base):
 
     def drop(match):
         deps.append(resolve(base, match.group("path")))
-        for spec in re.findall(r"(\w+)\s+as\s+(\w+)", match.group("what") or ""):
-            aliases.append(spec)
+        what = match.group("what").strip().removesuffix("from").strip(" {}\t\r\n")
+        for spec in what.split(","):
+            words = spec.split()
+            if len(words) == 3 and words[1] == "as":
+                aliases.append((words[0], words[2]))
         return ""
 
     source = IMPORT.sub(drop, source)
-    source = re.sub(r"^export\s*\{[^}]*\}\s*(?:from\s*['\"][^'\"]+['\"])?;?[ \t]*$", "", source, flags=re.M)
+    source = re.sub(r"^export[ \t]*\{[^}]*\}(?:[ \t]*from[ \t]*['\"][^'\"]+['\"])?;?[ \t]*$", "", source, flags=re.M)
     source = re.sub(r"^export\s+default\s+", "", source, flags=re.M)
     source = re.sub(r"^export\s+(?=(?:async\s+)?(?:function|const|let|var|class)\b)", "", source, flags=re.M)
     # `import { a as b }` becomes a constant, after the module that defines `a`. Everything is

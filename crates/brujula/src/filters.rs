@@ -56,8 +56,26 @@ fn scriptlets_path() -> std::path::PathBuf {
     paths::cache_dir().join("filters-scriptlets.json")
 }
 
+/// The scriptlet rules saved with the engine, or none if the cache is missing or unreadable.
+fn load_scriptlets() -> Scriptlets {
+    std::fs::read_to_string(scriptlets_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Scriptlets>(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Saves the cosmetic engine and the scriptlet rules next to the manifest.
+fn store_cache(engine_bytes: &[u8], scriptlets: &Scriptlets) -> std::io::Result<()> {
+    std::fs::create_dir_all(paths::cache_dir())?;
+    std::fs::write(engine_path(), engine_bytes)?;
+    std::fs::write(
+        scriptlets_path(),
+        serde_json::to_string(scriptlets).unwrap_or_default(),
+    )
+}
+
 /// uBlock Origin's scriptlets as one script (see `scripts/bundle-ubo-scriptlets.py`).
-const UBO_SCRIPTLETS: &str = include_str!("../resources/ubo-scriptlets.js");
+const UBO_SCRIPTLETS: &str = include_str!("../resources/ubo-scriptlets.js.txt");
 
 fn engine_path() -> std::path::PathBuf {
     paths::cache_dir().join("filters-engine.bin")
@@ -142,10 +160,7 @@ impl Filters {
         }
         *self.cosmetic.borrow_mut() = Some(Arc::new(cosmetic));
         *self.rule_count.borrow_mut() = manifest.rules;
-        let scriptlets = std::fs::read_to_string(scriptlets_path())
-            .ok()
-            .and_then(|t| serde_json::from_str::<Scriptlets>(&t).ok())
-            .unwrap_or_default();
+        let scriptlets = load_scriptlets();
         self.install_scriptlets(&scriptlets);
         true
     }
@@ -299,16 +314,7 @@ impl Filters {
             rules: compiled.rule_count,
             allow: allow_for_manifest,
         };
-        if std::fs::create_dir_all(paths::cache_dir())
-            .and_then(|_| std::fs::write(engine_path(), &engine_bytes))
-            .and_then(|_| {
-                std::fs::write(
-                    scriptlets_path(),
-                    serde_json::to_string(&compiled.scriptlets).unwrap_or_default(),
-                )
-            })
-            .is_ok()
-        {
+        if store_cache(&engine_bytes, &compiled.scriptlets).is_ok() {
             let _ = paths::write_atomic(
                 &manifest_path(),
                 &serde_json::to_string(&manifest).unwrap_or_default(),
