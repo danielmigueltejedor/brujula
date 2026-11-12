@@ -22,6 +22,7 @@
 
 #include <glib.h>
 #include <gtk/gtk.h>
+#include <locale.h>
 
 #include "ephy-string.h"
 
@@ -57,6 +58,20 @@ test_ephy_string_get_hostname (void)
   }
 }
 
+static void
+test_ephy_string_invalid_commandline_arg (void)
+{
+  char *arguments[] = { "about:blank", "\xff", "about:applications", NULL };
+  g_autofree char *saved_locale = g_strdup (setlocale (LC_CTYPE, NULL));
+  g_autoptr(GError) error = NULL;
+
+  g_assert_nonnull (setlocale (LC_CTYPE, "C"));
+  g_assert_null (ephy_string_commandline_args_to_uris (arguments, &error));
+  g_assert_nonnull (error);
+  g_assert_null (ephy_string_commandline_args_to_uris (arguments, NULL));
+  g_assert_nonnull (setlocale (LC_CTYPE, saved_locale));
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -67,6 +82,8 @@ main (int   argc,
 
   g_test_add_func ("/lib/ephy-string/get_hostname",
                    test_ephy_string_get_hostname);
+  g_test_add_func ("/lib/ephy-string/invalid_commandline_arg",
+                   test_ephy_string_invalid_commandline_arg);
 
   ret = g_test_run ();
 
