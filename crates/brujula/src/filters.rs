@@ -129,19 +129,23 @@ impl Filters {
     /// Loads the rules compiled in a previous run. Takes milliseconds, so the browser can do it
     /// before loading any page. Returns whether anything was loaded.
     pub async fn load_compiled(self: &Rc<Self>) -> bool {
-        let Ok(text) = std::fs::read_to_string(manifest_path()) else {
-            return false;
-        };
-        let Ok(manifest) = serde_json::from_str::<Manifest>(&text) else {
+        // File reads stay off the main loop: the compiled engine is megabytes.
+        let manifest = gio::spawn_blocking(|| {
+            let text = std::fs::read_to_string(manifest_path()).ok()?;
+            serde_json::from_str::<Manifest>(&text).ok()
+        })
+        .await;
+        let Ok(Some(manifest)) = manifest else {
             return false;
         };
         if manifest.format != adblock::CACHE_FORMAT || manifest.allow != *self.allow.borrow() {
             return false;
         }
-        let Ok(engine_bytes) = std::fs::read(engine_path()) else {
-            return false;
-        };
-        let cosmetic = gio::spawn_blocking(move || Cosmetic::deserialize(&engine_bytes)).await;
+        let cosmetic = gio::spawn_blocking(|| {
+            let engine_bytes = std::fs::read(engine_path()).ok()?;
+            Cosmetic::deserialize(&engine_bytes)
+        })
+        .await;
         let Ok(Some(cosmetic)) = cosmetic else {
             return false;
         };
