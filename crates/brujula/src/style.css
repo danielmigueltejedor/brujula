@@ -6,13 +6,13 @@
   min-height: 36px;
   padding: 0 var(--ndl-space-md);
   border-radius: 999px;
-  background: alpha(currentColor, 0.07);
+  background: rgba(127, 127, 127, 0.12);
 }
-.brujula-urlbutton:hover { background: alpha(currentColor, 0.12); }
+.brujula-urlbutton:hover { background: rgba(127, 127, 127, 0.2); }
 
 /* Tabs: tall enough to read, with room around the favicon and the close button. */
 .brujula-tabs { padding: 0; }
-.brujula-tabs > row { margin: 2px 0; padding: 0; min-height: 40px; }
+.brujula-row { margin: 2px 0; padding: 0; min-height: 40px; }
 .brujula-tab { padding: 0 var(--ndl-space-md); min-height: 40px; }
 .brujula-tab .brujula-tab-title { font-size: var(--ndl-font-size-small); }
 .brujula-tab-favicon { opacity: 0.95; }
@@ -23,18 +23,17 @@
   opacity: 0;
   color: inherit;
 }
-.brujula-tab-close:hover { background: alpha(currentColor, 0.15); }
-row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
+.brujula-tab-close:hover { background: rgba(127, 127, 127, 0.25); }
+.brujula-row:hover .brujula-tab-close, .brujula-current .brujula-tab-close { opacity: 1; }
 .brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
 
 /* Spotlight */
 .brujula-scrim { background: rgba(0, 0, 0, 0.35); }
 .brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
-.brujula-spotlight row { min-height: 44px; }
+.brujula-spotlight-row { min-height: 44px; }
 
-.brujula-progress trough { min-height: 2px; }
-.brujula-progress progress { min-height: 2px; }
+.brujula-progress { min-height: 2px; }
 
 /* The window-controls bar over the page, and the sidebar when it floats. */
 .brujula-floatbar {

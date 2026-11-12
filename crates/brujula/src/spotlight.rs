@@ -251,6 +251,7 @@ fn row(item: &Item) -> gtk::ListBoxRow {
     content.append(&icon);
     content.append(&text);
     let row = gtk::ListBoxRow::new();
+    row.add_css_class("brujula-spotlight-row");
     row.set_child(Some(&content));
     row
 }

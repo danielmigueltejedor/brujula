@@ -11,6 +11,8 @@ pub enum Action {
     Search(String),
     /// Switch to an open tab.
     SwitchTab(TabId),
+    /// Open the preferences at this section (see `prefs::SECTIONS`).
+    Settings(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +23,46 @@ pub struct Suggestion {
 }
 
 const MAX_TABS: usize = 6;
+const MAX_SETTINGS: usize = 4;
+
+/// Preferences whose name or keywords contain every word typed.
+fn settings_matches(query: &str) -> Vec<Suggestion> {
+    let words: Vec<String> = query
+        .split_whitespace()
+        .map(|w| fold(&w.to_lowercase()))
+        .collect();
+    if words.is_empty() || words.iter().all(|w| w.chars().count() < 2) {
+        return Vec::new();
+    }
+    crate::prefs::SECTIONS
+        .iter()
+        .filter(|(title, keywords, _)| {
+            let hay = fold(&format!("{title} {keywords}").to_lowercase());
+            words.iter().all(|w| hay.contains(w.as_str()))
+        })
+        .take(MAX_SETTINGS)
+        .map(|(title, _, id)| Suggestion {
+            action: Action::Settings((*id).to_owned()),
+            title: (*title).to_owned(),
+            detail: format!("Preferencias · {}", crate::prefs::section_title(id)),
+        })
+        .collect()
+}
+
+/// Lowercase text without the accents of Spanish, so "pestanas" finds "pestañas".
+fn fold(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            'á' => 'a',
+            'é' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ú' | 'ü' => 'u',
+            'ñ' => 'n',
+            other => other,
+        })
+        .collect()
+}
 
 /// The first suggestion is what Enter does. Open tabs that match come after it.
 pub fn suggestions(query: &str, tabs: &[Tab], search_template: &str) -> Vec<Suggestion> {
@@ -63,6 +105,7 @@ pub fn suggestions(query: &str, tabs: &[Tab], search_template: &str) -> Vec<Sugg
         })
         .collect::<Vec<_>>();
     out.append(&mut matches);
+    out.append(&mut settings_matches(q));
     out
 }
 
@@ -106,6 +149,28 @@ mod tests {
         let s = suggestions("youtu", &tabs, T);
         assert_eq!(s.len(), 2);
         assert_eq!(s[1].action, Action::SwitchTab(TabId(1)));
+    }
+
+    #[test]
+    fn preferences_are_found_by_name_or_keyword_without_accents() {
+        let s = suggestions("pestanas arriba", &[], T);
+        assert!(s
+            .iter()
+            .any(|x| x.action == Action::Settings("layout".into())));
+        let s = suggestions("transparencia", &[], T);
+        assert!(s
+            .iter()
+            .any(|x| matches!(&x.action, Action::Settings(id) if id == "appearance")));
+        assert!(suggestions("zzzz qqqq", &[], T)
+            .iter()
+            .all(|x| !matches!(x.action, Action::Settings(_))));
+    }
+
+    #[test]
+    fn one_letter_does_not_flood_the_list_with_preferences() {
+        assert!(suggestions("a", &[], T)
+            .iter()
+            .all(|x| !matches!(x.action, Action::Settings(_))));
     }
 
     #[test]

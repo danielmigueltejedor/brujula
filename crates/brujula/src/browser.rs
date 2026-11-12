@@ -5,12 +5,15 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use brujula_core::adblock;
+use brujula_core::appearance;
 use brujula_core::downloads;
+use brujula_core::edge::EdgeDetector;
 use brujula_core::newtab;
 use brujula_core::omnibox;
+use brujula_core::prefs;
 use brujula_core::search;
 use brujula_core::session::Session;
-use brujula_core::settings::Settings;
+use brujula_core::settings::{text_on, Layout, Settings, Theme, ACCENT_DEFAULT};
 use brujula_core::suggest::{self, Action};
 use brujula_core::tabs::{Change, TabId, TabModel};
 use gtk::gdk;
@@ -55,6 +58,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-tab", &["<Ctrl>Tab", "<Ctrl>Page_Down"]);
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
+    app.set_accels_for_action("win.open-settings", &["<Ctrl>comma"]);
     app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
 }
 
@@ -168,6 +172,14 @@ pub struct Browser {
     /// Wakes the sidebar when it is not pinned.
     left_hot: gtk::Box,
     side: gtk::Box,
+    /// The page's column; its width keeps the split view's minimum honest.
+    content: ndl::ToolbarView,
+    /// Colours, radius, gap and transparency the user chose, on top of the built-in sheet.
+    appearance_css: gtk::CssProvider,
+    /// Tells a pointer heading for the left edge from one just passing by.
+    edge: RefCell<EdgeDetector>,
+    /// The preferences section to scroll to once the page has loaded.
+    pending_section: RefCell<Option<String>>,
     /// Restored tabs that have not been opened yet: their page loads when they are selected, so
     /// starting with many tabs does not start many page loads.
     lazy: RefCell<HashMap<TabId, String>>,
@@ -368,6 +380,10 @@ impl Browser {
             top_hot,
             left_hot,
             side,
+            content: toolbar,
+            appearance_css: gtk::CssProvider::new(),
+            edge: RefCell::new(EdgeDetector::default()),
+            pending_section: RefCell::new(None),
             lazy: RefCell::new(HashMap::new()),
             restoring: Cell::new(false),
             hide_bar: RefCell::new(None),
@@ -388,6 +404,15 @@ impl Browser {
             pending_reload: Cell::new(false),
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
+        if let Some(display) = gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &this.appearance_css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+        this.apply_appearance();
+        this.apply_layout();
         this.wire();
         this
     }
@@ -468,11 +493,12 @@ impl Browser {
                     if v.is_loading() {
                         v.stop_loading()
                     } else {
-                        v.reload()
+                        b.reload_view(&v);
                     }
                 }
             }),
         );
+        action("open-settings", Box::new(|b| b.open_settings(None)));
         action(
             "back",
             Box::new(|b| {
@@ -514,11 +540,9 @@ impl Browser {
         toggle.connect_activate(move |a, _| {
             if let Some(b) = this.upgrade() {
                 let pinned = !b.settings.borrow().sidebar_visible;
-                b.split.set_collapsed(!pinned);
-                b.split.set_show_sidebar(pinned);
-                b.left_hot.set_visible(!pinned);
-                a.set_state(&pinned.to_variant());
                 b.settings.borrow_mut().sidebar_visible = pinned;
+                a.set_state(&pinned.to_variant());
+                b.apply_layout();
                 b.save_settings();
             }
         });
@@ -544,7 +568,7 @@ impl Browser {
                 }
                 b.refresh_site_action();
                 if let Some(v) = b.current_view() {
-                    v.reload()
+                    b.reload_view(&v);
                 }
             }
         });
@@ -631,7 +655,7 @@ impl Browser {
             let site_switch = b.pending_reload.take();
             if site_switch || first {
                 if let Some(v) = b.current_view() {
-                    v.reload();
+                    b.reload_view(&v);
                 }
             }
         });
@@ -685,6 +709,49 @@ impl Browser {
             }
         });
         self.bar_revealer.add_controller(bar_motion);
+
+        // Heading for the left edge: a quick move to the side shows the sidebar before the
+        // pointer gets there. Seen first (capture), so the page cannot swallow it.
+        let motion = gtk::EventControllerMotion::new();
+        motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let this = Rc::downgrade(self);
+        motion.connect_motion(move |_, x, _| {
+            let Some(b) = this.upgrade() else { return };
+            let (floating, wakes, width) = {
+                let s = b.settings.borrow();
+                (
+                    !s.sidebar_visible,
+                    s.edge_reveal,
+                    f64::from(s.appearance.sidebar_width) + 24.0,
+                )
+            };
+            if !floating {
+                return;
+            }
+            if b.split.shows_sidebar() {
+                // Over the sidebar it stays; out on the page it goes away after a moment.
+                if x <= width {
+                    if let Some(s) = b.hide_side.take() {
+                        s.remove();
+                    }
+                } else if b.hide_side.borrow().is_none() {
+                    b.schedule_hide_side();
+                }
+            } else if wakes && b.edge.borrow_mut().feed(x, glib::monotonic_time()) {
+                b.split.set_show_sidebar(true);
+                // The pointer has not entered the sidebar yet: give it time to get there.
+                b.schedule_hide_side_after(1500);
+            }
+        });
+        let this = Rc::downgrade(self);
+        motion.connect_leave(move |_| {
+            if let Some(b) = this.upgrade() {
+                b.edge.borrow_mut().reset();
+            }
+        });
+        if let Some(root) = self.left_hot.parent() {
+            root.add_controller(motion);
+        }
 
         // Left edge: the sidebar, when it is not pinned.
         let edge = gtk::EventControllerMotion::new();
@@ -740,20 +807,25 @@ impl Browser {
     }
 
     fn schedule_hide_side(self: &Rc<Self>) {
+        self.schedule_hide_side_after(450);
+    }
+
+    fn schedule_hide_side_after(self: &Rc<Self>, millis: u64) {
         if let Some(old) = self.hide_side.take() {
             old.remove();
         }
         let this = Rc::downgrade(self);
-        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(450), move || {
-            if let Some(b) = this.upgrade() {
-                b.hide_side.take();
-                // The Spotlight and the tab menu take the pointer: keep the sidebar open
-                // while one is up, or the page flickers.
-                if !b.settings.borrow().sidebar_visible && !b.spotlight.is_open() {
-                    b.split.set_show_sidebar(false);
+        let id =
+            glib::timeout_add_local_once(std::time::Duration::from_millis(millis), move || {
+                if let Some(b) = this.upgrade() {
+                    b.hide_side.take();
+                    // The Spotlight and the tab menu take the pointer: keep the sidebar open
+                    // while one is up, or the page flickers.
+                    if !b.settings.borrow().sidebar_visible && !b.spotlight.is_open() {
+                        b.split.set_show_sidebar(false);
+                    }
                 }
-            }
-        });
+            });
         *self.hide_side.borrow_mut() = Some(id);
     }
 
@@ -844,7 +916,7 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
-        } else if url == newtab::NEWTAB_URI {
+        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI {
             url.to_owned()
         } else {
             let template = self.settings.borrow().search_template().to_owned();
@@ -956,6 +1028,7 @@ impl Browser {
                 }
                 if ev == LoadEvent::Finished {
                     hide_elements(&b.filters, v);
+                    b.scroll_settings(v);
                 }
             }
         });
@@ -992,14 +1065,24 @@ impl Browser {
                 decision.ignore();
                 return true;
             }
-            if !uri.starts_with("brujula://") || uri == newtab::NEWTAB_URI {
+            if !uri.starts_with("brujula://")
+                || uri == newtab::NEWTAB_URI
+                || uri == prefs::SETTINGS_URI
+            {
                 return false;
             }
             decision.ignore();
-            // Only the new-tab page may change settings; a web page linking here does nothing.
-            let from_newtab = v.uri().is_some_and(|u| u.as_str() == newtab::NEWTAB_URI);
+            // Only the browser's own pages may change settings; a web page linking here does
+            // nothing.
+            let page = v.uri().map(|u| u.to_string()).unwrap_or_default();
             let Some(b) = this.upgrade() else { return true };
-            if !from_newtab {
+            if page == prefs::SETTINGS_URI {
+                if let Some((key, value)) = prefs::parse_change(&uri) {
+                    b.change_setting(&key, &value);
+                }
+                return true;
+            }
+            if page != newtab::NEWTAB_URI {
                 return true;
             }
             if uri == newtab::CHOOSE_ENGINE_URI {
@@ -1056,6 +1139,8 @@ impl Browser {
         self.views.borrow_mut().insert(id, view.clone());
         if url == newtab::NEWTAB_URI {
             self.render_newtab(&view, false);
+        } else if url == prefs::SETTINGS_URI {
+            self.render_settings(&view);
         } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
@@ -1094,8 +1179,13 @@ impl Browser {
                 Change::Selected(id) => {
                     self.stack.set_visible_child_name(&format!("tab-{}", id.0));
                     self.syncing.set(true);
-                    if let Some(r) = self.rows.borrow().get(&id) {
-                        self.list.select_row(Some(&r.row));
+                    for (rid, r) in self.rows.borrow().iter() {
+                        if *rid == id {
+                            r.row.add_css_class("brujula-current");
+                            self.list.select_row(Some(&r.row));
+                        } else {
+                            r.row.remove_css_class("brujula-current");
+                        }
                     }
                     self.syncing.set(false);
                     self.load_if_lazy();
@@ -1160,6 +1250,7 @@ impl Browser {
         content.append(&pin);
         content.append(&close);
         let row = gtk::ListBoxRow::new();
+        row.add_css_class("brujula-row");
         row.set_child(Some(&content));
 
         let this = Rc::downgrade(self);
@@ -1230,6 +1321,8 @@ impl Browser {
         let Some(r) = rows.get(&id) else { return };
         let title = if !tab.title.is_empty() {
             tab.title.clone()
+        } else if tab.url == prefs::SETTINGS_URI {
+            "Preferencias".to_owned()
         } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
@@ -1268,6 +1361,8 @@ impl Browser {
             tab.url == newtab::NEWTAB_URI || tab.url.is_empty() || tab.url == "about:blank";
         let (label, icon) = if on_newtab {
             (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
+        } else if tab.url == prefs::SETTINGS_URI {
+            ("Preferencias".to_owned(), "ndl-lock-symbolic")
         } else if tab.url.starts_with("https://") {
             (host_of(&tab.url), "ndl-lock-symbolic")
         } else {
@@ -1354,6 +1449,143 @@ impl Browser {
         }
     }
 
+    /// Reloads a page; the browser's own pages are drawn again instead.
+    fn reload_view(&self, view: &WebView) {
+        match view.uri().as_deref() {
+            Some(prefs::SETTINGS_URI) => self.render_settings(view),
+            Some(newtab::NEWTAB_URI) => self.render_newtab(view, false),
+            _ => view.reload(),
+        }
+    }
+
+    /// The preferences page, in its own tab (one is enough: it is reused).
+    fn open_settings(self: &Rc<Self>, section: Option<&str>) {
+        let existing = self
+            .model
+            .borrow()
+            .tabs()
+            .iter()
+            .find(|t| t.url == prefs::SETTINGS_URI)
+            .map(|t| t.id);
+        *self.pending_section.borrow_mut() = section
+            .filter(|s| s.chars().all(|c| c.is_ascii_alphanumeric()))
+            .map(str::to_owned);
+        match existing {
+            Some(id) => {
+                let c = self.model.borrow_mut().select(id);
+                self.apply(c);
+                if let Some(v) = self.current_view() {
+                    self.scroll_settings(&v);
+                }
+            }
+            None => self.open_tab(prefs::SETTINGS_URI, None, true),
+        }
+    }
+
+    fn render_settings(&self, view: &WebView) {
+        let html = prefs::render(&self.settings.borrow());
+        view.load_html(&html, Some(prefs::SETTINGS_URI));
+    }
+
+    /// Scrolls the preferences page to the section the Spotlight pointed at.
+    fn scroll_settings(&self, view: &WebView) {
+        if view.uri().as_deref() != Some(prefs::SETTINGS_URI) || view.is_loading() {
+            return;
+        }
+        let Some(section) = self.pending_section.borrow_mut().take() else {
+            return;
+        };
+        // The id is alphanumeric (checked when it was stored), so it cannot break the script.
+        let script = format!("document.getElementById('{section}')?.scrollIntoView()");
+        view.evaluate_javascript(&script, None, None, gio::Cancellable::NONE, |_| {});
+    }
+
+    /// One change made on the preferences page: checked, stored and put into effect.
+    fn change_setting(self: &Rc<Self>, key: &str, value: &str) {
+        let result = self.settings.borrow_mut().apply(key, value);
+        let effect = match result {
+            Ok(effect) => effect,
+            Err(why) => {
+                eprintln!("brujula: setting refused: {why}");
+                return;
+            }
+        };
+        self.save_settings();
+        if effect.appearance {
+            self.apply_appearance();
+        }
+        if effect.layout {
+            self.apply_layout();
+        }
+        if effect.blocker {
+            self.apply_blocker();
+        }
+        if key == "engine" {
+            // The new-tab pages still open show the old engine.
+            let views: Vec<WebView> = self.views.borrow().values().cloned().collect();
+            for v in views {
+                if v.uri().as_deref() == Some(newtab::NEWTAB_URI) {
+                    self.render_newtab(&v, false);
+                }
+            }
+        }
+    }
+
+    /// Theme, accent and the rest of the look the user chose.
+    fn apply_appearance(&self) {
+        let a = self.settings.borrow().appearance.clone();
+        self.appearance_css.load_from_string(&appearance::css(&a));
+        let style = ndl::StyleManager::default();
+        style.set_color_scheme(match a.theme {
+            Theme::System => ndl::ColorScheme::Default,
+            Theme::Light => ndl::ColorScheme::ForceLight,
+            Theme::Dark => ndl::ColorScheme::ForceDark,
+        });
+        if a.accent == ACCENT_DEFAULT {
+            style.set_accent(None);
+        } else {
+            style.set_accent(Some((&a.accent, text_on(&a.accent))));
+        }
+        self.window.add_css_class("brujula-window");
+        if a.layout == Layout::Frame {
+            self.window.add_css_class("brujula-frame");
+        } else {
+            self.window.remove_css_class("brujula-frame");
+        }
+    }
+
+    /// Sidebar width, pinned or floating, and whether the edge wakes it.
+    fn apply_layout(&self) {
+        let s = self.settings.borrow();
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(280);
+        self.side.set_size_request(width, -1);
+        self.split.set_min_sidebar_width(f64::from(width));
+        self.split.set_max_sidebar_width(f64::from(width));
+        self.content.set_size_request(width + 80, -1);
+        self.split.set_collapsed(!s.sidebar_visible);
+        self.split.set_show_sidebar(s.sidebar_visible);
+        self.left_hot
+            .set_visible(!s.sidebar_visible && s.edge_reveal);
+    }
+
+    /// The blocker was switched, or its lists or sites changed: rules are compiled again. Open
+    /// pages keep what they loaded with until they are reloaded.
+    fn apply_blocker(&self) {
+        let s = self.settings.borrow().clone();
+        if let Some(a) = self.window.lookup_action("toggle-adblock") {
+            if let Some(a) = a.downcast_ref::<gio::SimpleAction>() {
+                a.set_state(&s.adblock_enabled.to_variant());
+            }
+        }
+        self.filters.set_allow(s.allowlist.clone());
+        if s.adblock_enabled {
+            self.filters.start(&s);
+        } else {
+            self.filters.disable();
+        }
+        self.refresh_site_action();
+    }
+
     /// Fills the new-tab page. `choosing` shows the search-engine picker instead of the search
     /// box (first run, or when the user asked to change it).
     fn render_newtab(&self, view: &WebView, choosing: bool) {
@@ -1400,6 +1632,12 @@ impl Browser {
                     icon: "ndl-arrow-right-symbolic",
                     action: s.action,
                 },
+                Action::Settings(_) => Item {
+                    title: s.title,
+                    detail: s.detail,
+                    icon: "emblem-system-symbolic",
+                    action: s.action,
+                },
             })
             .collect()
     }
@@ -1412,6 +1650,7 @@ impl Browser {
                 self.apply(c);
             }
             Action::Go(url) => self.navigate(&url),
+            Action::Settings(section) => self.open_settings(Some(&section)),
             Action::Search(q) => {
                 let template = self.settings.borrow().search_template().to_owned();
                 let url = omnibox::search_url(&q, &template);
@@ -1564,6 +1803,7 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Barra lateral"), Some("win.toggle-sidebar"));
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
+    opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
     m
 }

@@ -56,6 +56,19 @@ fn scriptlets_path() -> std::path::PathBuf {
     paths::cache_dir().join("filters-scriptlets.json")
 }
 
+// Small and local, read on the main loop at start: plain helpers keep the callers readable.
+fn read_text(path: &std::path::Path) -> std::io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+fn read_bytes(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
+fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
 /// The scriptlet rules saved with the engine, or none if the cache is missing or unreadable.
 fn load_scriptlets() -> Scriptlets {
     std::fs::read_to_string(scriptlets_path())
@@ -129,7 +142,7 @@ impl Filters {
     /// Loads the rules compiled in a previous run. Takes milliseconds, so the browser can do it
     /// before loading any page. Returns whether anything was loaded.
     pub async fn load_compiled(self: &Rc<Self>) -> bool {
-        let Ok(text) = std::fs::read_to_string(manifest_path()) else {
+        let Ok(text) = read_text(&manifest_path()) else {
             return false;
         };
         let Ok(manifest) = serde_json::from_str::<Manifest>(&text) else {
@@ -138,7 +151,7 @@ impl Filters {
         if manifest.format != adblock::CACHE_FORMAT || manifest.allow != *self.allow.borrow() {
             return false;
         }
-        let Ok(engine_bytes) = std::fs::read(engine_path()) else {
+        let Ok(engine_bytes) = read_bytes(&engine_path()) else {
             return false;
         };
         let cosmetic = gio::spawn_blocking(move || Cosmetic::deserialize(&engine_bytes)).await;
@@ -240,7 +253,7 @@ impl Filters {
         let mut changed = false;
         for list in &lists {
             let path = paths::lists_dir().join(format!("{}.txt", list.id));
-            let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            let stamp = modified(&path);
             if !adblock::needs_refresh(stamp, SystemTime::now(), metered) {
                 continue;
             }
@@ -330,9 +343,7 @@ async fn read_cached(lists: &[FilterList]) -> Vec<String> {
     let ids: Vec<&'static str> = lists.iter().map(|l| l.id).collect();
     gio::spawn_blocking(move || {
         ids.iter()
-            .filter_map(|id| {
-                std::fs::read_to_string(paths::lists_dir().join(format!("{id}.txt"))).ok()
-            })
+            .filter_map(|id| read_text(&paths::lists_dir().join(format!("{id}.txt"))).ok())
             .collect()
     })
     .await
