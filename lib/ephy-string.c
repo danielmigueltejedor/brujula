@@ -217,12 +217,13 @@ ephy_string_commandline_args_to_uris (char   **arguments,
     } else {
       args[i] = g_locale_to_utf8 (arguments [i], -1,
                                   NULL, NULL, error);
-      if (error && *error) {
-        g_strfreev (args);
-        return NULL;
-      }
     }
     g_object_unref (file);
+
+    if (!args[i]) {
+      g_strfreev (args);
+      return NULL;
+    }
   }
 
   return args;
