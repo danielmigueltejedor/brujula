@@ -12,6 +12,8 @@ pub struct Settings {
     /// Vertical tab sidebar visible. On by default: it is the browser's tab strip.
     pub sidebar_visible: bool,
     pub adblock_enabled: bool,
+    /// Sites (see `adblock::normalize_host`) where the blocker is switched off.
+    pub allowlist: Vec<String>,
     /// Ids of the filter lists turned off by the user (so new default lists are enabled).
     pub disabled_lists: Vec<String>,
     /// Id of the chosen search engine (see `search::ENGINES`).
@@ -26,6 +28,7 @@ impl Default for Settings {
         Self {
             sidebar_visible: true,
             adblock_enabled: true,
+            allowlist: Vec::new(),
             disabled_lists: Vec::new(),
             search_engine: DEFAULT_ENGINE.to_owned(),
             search_engine_chosen: false,
@@ -46,6 +49,24 @@ impl Settings {
     /// Search URL of the chosen engine, `%s` is the query.
     pub fn search_template(&self) -> &'static str {
         search::engine_or_default(&self.search_engine).template
+    }
+
+    /// Turns the blocker off (`true`) or on (`false`) for one site. Returns whether the list
+    /// changed.
+    pub fn set_site_allowed(&mut self, host: &str, allowed: bool) -> bool {
+        let present = self.allowlist.iter().any(|h| h == host);
+        match (allowed, present) {
+            (true, false) => {
+                self.allowlist.push(host.to_owned());
+                self.allowlist.sort();
+                true
+            }
+            (false, true) => {
+                self.allowlist.retain(|h| h != host);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn list_enabled(&self, id: &str, default: bool) -> bool {
@@ -95,6 +116,18 @@ mod tests {
         assert!(s.search_template().contains("google.com"));
         let s = Settings::from_json(r#"{"search_engine": "bing", "search_engine_chosen": true}"#);
         assert!(s.search_template().contains("bing.com"));
+    }
+
+    #[test]
+    fn site_allow_list_is_kept_sorted_and_unique() {
+        let mut s = Settings::default();
+        assert!(s.set_site_allowed("b.com", true));
+        assert!(s.set_site_allowed("a.com", true));
+        assert!(!s.set_site_allowed("a.com", true));
+        assert_eq!(s.allowlist, vec!["a.com", "b.com"]);
+        assert!(s.set_site_allowed("a.com", false));
+        assert!(!s.set_site_allowed("a.com", false));
+        assert_eq!(s.allowlist, vec!["b.com"]);
     }
 
     #[test]

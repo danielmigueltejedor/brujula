@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use brujula_core::adblock;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::search;
@@ -53,7 +54,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-tab", &["<Ctrl>Tab", "<Ctrl>Page_Down"]);
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
-    app.set_accels_for_action("win.toggle-adblock", &["<Ctrl><Shift>b"]);
+    app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
 }
 
 pub fn present(app: &gtk::Application, urls: &[String]) {
@@ -78,7 +79,12 @@ thread_local! {
 
 struct Row {
     row: gtk::ListBoxRow,
-    favicon: gtk::Image,
+    /// Always 16x16: its size comes from an empty spacer, and the site's icon
+    /// (`favicon_pic`) or the generic one (`favicon_icon`) is laid over it and scaled to fit, so
+    /// a large favicon cannot spill out of the row.
+    favicon: gtk::Overlay,
+    favicon_pic: gtk::Picture,
+    favicon_icon: gtk::Image,
     title: gtk::Label,
     close: gtk::Button,
     audio: gtk::Image,
@@ -122,7 +128,7 @@ fn build_chrome() -> Chrome {
 
     let shield = gtk::ToggleButton::builder()
         .icon_name("ndl-shield-check-symbolic")
-        .action_name("win.toggle-adblock")
+        .action_name("win.toggle-site-adblock")
         .css_classes(["flat"])
         .build();
     shield.set_tooltip_text(Some("Bloqueador de anuncios (Ctrl+Mayús+B)"));
@@ -172,6 +178,8 @@ pub struct Browser {
     rows: RefCell<HashMap<TabId, Row>>,
     /// True while we change the list selection ourselves.
     syncing: Cell<bool>,
+    /// Set when the rules are being rebuilt for a site switch; the page reloads once they land.
+    pending_reload: Cell<bool>,
 }
 
 impl Browser {
@@ -332,6 +340,7 @@ impl Browser {
             views: RefCell::new(HashMap::new()),
             rows: RefCell::new(HashMap::new()),
             syncing: Cell::new(false),
+            pending_reload: Cell::new(false),
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
         this.wire();
@@ -487,12 +496,42 @@ impl Browser {
                 } else {
                     b.filters.disable();
                 }
+                b.refresh_site_action();
                 if let Some(v) = b.current_view() {
                     v.reload()
                 }
             }
         });
         w.add_action(&adblock);
+
+        // The shield: blocking on or off for the site in front. Rules are baked per site, so the
+        // lists are compiled again and the page reloads once they are in place.
+        let site = gio::SimpleAction::new_stateful(
+            "toggle-site-adblock",
+            None,
+            &self.settings.borrow().adblock_enabled.to_variant(),
+        );
+        let this = Rc::downgrade(self);
+        site.connect_activate(move |_, _| {
+            let Some(b) = this.upgrade() else { return };
+            if !b.settings.borrow().adblock_enabled {
+                // Blocking is off everywhere: the shield turns it back on.
+                if let Some(a) = b.window.lookup_action("toggle-adblock") {
+                    a.activate(None);
+                }
+                return;
+            }
+            let Some(host) = b.current_host() else { return };
+            let allowed = adblock::host_allowed(&host, &b.settings.borrow().allowlist);
+            b.settings.borrow_mut().set_site_allowed(&host, !allowed);
+            b.save_settings();
+            let allow = b.settings.borrow().allowlist.clone();
+            b.filters.set_allow(allow);
+            b.pending_reload.set(true);
+            b.filters.rebuild();
+            b.refresh_site_action();
+        });
+        w.add_action(&site);
 
         // Back and forward are enabled by what the page can do; the buttons follow.
         for name in ["back", "forward"] {
@@ -541,7 +580,10 @@ impl Browser {
             for v in &views {
                 hide_elements(&b.filters, v);
             }
-            if first {
+            // Either a site switch is waiting for the new rules, or nothing was applied before
+            // and the page in front loaded unfiltered.
+            let site_switch = b.pending_reload.take();
+            if site_switch || first {
                 if let Some(v) = b.current_view() {
                     v.reload();
                 }
@@ -563,6 +605,8 @@ impl Browser {
         let urls = urls.to_vec();
         glib::spawn_future_local(async move {
             // Rules compiled last time go in first, so no page loads unfiltered.
+            let allow = this.settings.borrow().allowlist.clone();
+            this.filters.set_allow(allow);
             if this.settings.borrow().adblock_enabled && this.filters.load_compiled().await {
                 this.set_shield_tooltip();
             }
@@ -856,9 +900,22 @@ impl Browser {
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
-        let favicon = gtk::Image::from_icon_name("web-browser-symbolic");
+        let favicon_icon = gtk::Image::from_icon_name("web-browser-symbolic");
+        favicon_icon.set_pixel_size(16);
+        let favicon_pic = gtk::Picture::new();
+        favicon_pic.set_content_fit(gtk::ContentFit::Contain);
+        favicon_pic.set_can_shrink(true);
+        favicon_pic.set_visible(false);
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_size_request(16, 16);
+        let favicon = gtk::Overlay::new();
+        favicon.set_child(Some(&spacer));
+        favicon.add_overlay(&favicon_icon);
+        favicon.add_overlay(&favicon_pic);
+        favicon.set_valign(gtk::Align::Center);
+        favicon.set_halign(gtk::Align::Center);
+        favicon.set_overflow(gtk::Overflow::Hidden);
         favicon.add_css_class("brujula-tab-favicon");
-        favicon.set_pixel_size(16);
         let spinner = gtk::Spinner::new();
         spinner.set_visible(false);
         let title = gtk::Label::builder()
@@ -918,6 +975,8 @@ impl Browser {
             Row {
                 row,
                 favicon,
+                favicon_pic,
+                favicon_icon,
                 title,
                 close,
                 audio,
@@ -972,8 +1031,15 @@ impl Browser {
         r.pin.set_visible(tab.pinned);
         if let Some(v) = self.views.borrow().get(&id) {
             match v.favicon() {
-                Some(tex) => r.favicon.set_paintable(Some(&tex)),
-                None => r.favicon.set_icon_name(Some("web-browser-symbolic")),
+                Some(tex) => {
+                    r.favicon_pic.set_paintable(Some(&tex));
+                    r.favicon_pic.set_visible(true);
+                    r.favicon_icon.set_visible(false);
+                }
+                None => {
+                    r.favicon_pic.set_visible(false);
+                    r.favicon_icon.set_visible(true);
+                }
             }
         }
     }
@@ -1013,6 +1079,7 @@ impl Browser {
         }
         self.update_nav();
         self.sync_progress();
+        self.refresh_site_action();
     }
 
     fn set_action_enabled(&self, name: &str, enabled: bool) {
@@ -1029,14 +1096,44 @@ impl Browser {
         }
     }
 
+    /// The host of the page in front, as the allow list spells it.
+    fn current_host(&self) -> Option<String> {
+        let uri = self.current_view()?.uri()?;
+        if !(uri.starts_with("http://") || uri.starts_with("https://")) {
+            return None;
+        }
+        adblock::normalize_host(&uri)
+    }
+
+    fn site_blocked(&self) -> bool {
+        let s = self.settings.borrow();
+        s.adblock_enabled
+            && self
+                .current_host()
+                .is_none_or(|h| !adblock::host_allowed(&h, &s.allowlist))
+    }
+
+    /// Keeps the shield (and its tooltip) in step with the site in front.
+    fn refresh_site_action(&self) {
+        if let Some(a) = self.window.lookup_action("toggle-site-adblock") {
+            if let Some(a) = a.downcast_ref::<gio::SimpleAction>() {
+                a.set_state(&self.site_blocked().to_variant());
+            }
+        }
+        self.set_shield_tooltip();
+    }
+
     fn set_shield_tooltip(&self) {
-        let text = if self.settings.borrow().adblock_enabled {
+        let host = self.current_host();
+        let text = if !self.settings.borrow().adblock_enabled {
+            "Bloqueador de anuncios desactivado (Ctrl+Mayús+B para activarlo)".to_owned()
+        } else if let Some(h) = host.filter(|_| !self.site_blocked()) {
+            format!("Bloqueador desactivado en {h}; pulsa para volver a activarlo (Ctrl+Mayús+B)")
+        } else {
             format!(
-                "Bloqueador de anuncios activo: {} reglas (Ctrl+Mayús+B)",
+                "Bloqueador de anuncios activo: {} reglas. Pulsa para desactivarlo en este sitio (Ctrl+Mayús+B)",
                 self.filters.rule_count()
             )
-        } else {
-            "Bloqueador de anuncios desactivado (Ctrl+Mayús+B)".to_owned()
         };
         for c in &self.chromes {
             c.shield.set_tooltip_text(Some(&text));
