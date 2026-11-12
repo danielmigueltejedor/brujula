@@ -28,7 +28,7 @@ impl Browser {
 
     /// Puts `a` and `b` side by side and selects `b`.
     pub(super) fn enter_split(self: &Rc<Self>, a: TabId, b: TabId) {
-        if a == b {
+        if a == b || self.is_floating(a) || self.is_floating(b) {
             return;
         }
         let (va, vb) = {

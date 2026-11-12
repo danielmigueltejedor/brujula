@@ -44,6 +44,7 @@ mod archive;
 mod boosts;
 mod cloudsync;
 mod extras;
+mod float;
 mod folders;
 mod notes;
 mod peek;
@@ -223,6 +224,8 @@ pub struct Browser {
     notes_save_queued: Cell<bool>,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// Tabs shown in a window of their own.
+    floats: RefCell<HashMap<TabId, float::Floating>>,
     /// The sites the user restyled, and the style sheets that carry it to the pages.
     boosts: RefCell<brujula_core::boosts::Boosts>,
     boost_sheets: RefCell<Vec<webkit6::UserStyleSheet>>,
@@ -549,6 +552,7 @@ impl Browser {
             notes: RefCell::new(notes::load()),
             notes_save_queued: Cell::new(false),
             save_queued: Cell::new(false),
+            floats: RefCell::new(HashMap::new()),
             boosts: RefCell::new(boosts::load()),
             boost_sheets: RefCell::new(Vec::new()),
             peek,
@@ -928,6 +932,7 @@ impl Browser {
             if let Some(b) = this.upgrade() {
                 b.save_session();
                 b.save_notes();
+                b.unfloat_all();
             }
             glib::Propagation::Proceed
         });
@@ -1478,6 +1483,7 @@ impl Browser {
                     if self.in_split(id) {
                         self.end_split();
                     }
+                    self.unfloat(id, true);
                     self.lazy.borrow_mut().remove(&id);
                     if let Some(r) = self.rows.borrow_mut().remove(&id) {
                         self.list.remove(&r.row);
@@ -2251,6 +2257,12 @@ impl Browser {
             }),
         );
         // Folders: move the tab into one, out of it, or into a new one.
+        if !self.in_split(id) && !self.is_floating(id) {
+            add(
+                "Sacar a una ventana flotante",
+                Box::new(move |b| b.float_tab(id)),
+            );
+        }
         add(
             "Boost de este sitio…",
             Box::new(move |b| b.boost_site_of(id)),

@@ -92,6 +92,12 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - **Carpetas** (`folders.rs`, `browser/folders.rs`): filas plegables entre las pestañas de la barra, por espacio. Manuales (clic derecho en una pestaña → «Mover a la carpeta…» / «Nueva carpeta con esta pestaña») o **inteligentes**: una regla por sitio (`github.com`) o por texto (título o dirección) recoge solas las pestañas que coinciden; sacar una pestaña a mano la deja fuera. Se guardan en la sesión.
 - **Restauración de pestañas**: la sesión se guarda al cerrar la ventana y también 1,5 s después de cada cambio (pestañas, espacios, carpetas), así que sobrevive a un cierre brusco o a un `kill`; al abrir vuelven todas, con su espacio, carpeta y ancladas, y solo carga la que está delante.
 - **Sincronización** (`sync.rs`, `cloud.rs`, `browser/cloudsync.rs`): marcadores, espacios, carpetas y pestañas abiertas entre dispositivos por medio de las **cuentas en la nube de Nodalix** (Ajustes las da de alta; `~/.config/nodalix/cloud.json`, montadas con rclone en `~/Nube/<nombre>`: Google Drive, OneDrive, Dropbox, iCloud Drive). Brújula no inicia sesión en ningún servicio ni guarda tokens: solo lee y escribe una carpeta ya montada. Cada dispositivo escribe **solo su archivo** (`<nube>/Brujula/<id del dispositivo>.json`) y lee los de los demás, así que nunca hay dos escritores sobre el mismo archivo. Mezcla: marcadores por hora de guardado y de borrado (con lápidas de 90 días); espacios y carpetas por nombre, solo se añaden; las pestañas de otros dispositivos solo se listan en la página de nueva pestaña, nunca se abren solas. Una ronda al arrancar, cada 45 s y con «Sincronizar ahora»; no sube nada si no cambió. Seguridad: los archivos de la nube no son de fiar (solo `<id>.json` regulares, ≤ 2 MiB, ≤ 20 dispositivos, solo direcciones `http(s)`, texto limpio, el id del archivo debe coincidir con el de dentro) y no se escribe si la carpeta no es un punto de montaje real (si no, se llenaría el disco local). Los datos van **sin cifrar** a la nube. `BRUJULA_SYNC_HOME` y `BRUJULA_SYNC_SKIP_MOUNT_CHECK` solo son para pruebas.
+- **Archivo automático** (`archive.rs`, `browser/archive.rs`): las pestañas que llevan sin usarse más de 12 h / 1 día (por defecto) / 1 semana / 30 días se cierran solas y quedan en «Archivo» (Preferencias), de donde se abren o se quitan; salen también en la nueva pestaña como «Archivada». No se archiva lo anclado, lo que está en una carpeta (manual o inteligente), la pestaña de delante, lo que suena o carga, ni lo que no es web. Solo cuenta el tiempo con el navegador abierto (la sesión guarda cuándo se escribió).
+- **Vista dividida** (`browser/split.rs`): clic derecho en una pestaña → «Ver junto a la pestaña actual». Dos páginas en un `Paned` que es una página de la pila; la pestaña con el foco es la seleccionada (barra de direcciones y botones la siguen; hacer clic en la otra la selecciona). Se deshace con «Salir de la vista dividida» o cerrando una de las dos. No se guarda en la sesión.
+- **Peek** (`browser/peek.rs`): Shift+clic en un enlace lo abre en una tarjeta sobre la página («Abrir en pestaña», Esc o clic fuera para cerrar). Misma sesión de red, mismo bloqueador y mismos ajustes de seguridad que una pestaña (`harden`); sin ventanas nuevas y solo direcciones web.
+- **Notas** (`notes.rs`, `browser/notes.rs`): un bloc por espacio (botón arriba a la izquierda de la barra lateral), guardado solo en local en `notes.json`.
+- **Boosts** (`boosts.rs`, `browser/boosts.rs`): por sitio (y sus subdominios), modo oscuro y CSS propio, en Preferencias → Boosts o desde el menú de la pestaña. Solo estilo, nunca scripts: se inyecta como hoja de estilo de usuario de WebKit con lista de sitios permitidos. Va a nivel de usuario: para ganar al CSS de la web hay que poner `!important`.
+- **Ventana flotante** (`browser/float.rs`): «Sacar a una ventana flotante» pasa la página de una pestaña a una ventana pequeña propia (seguirá sonando/reproduciendo) y deja un aviso con un botón para devolverla. Es lo más cercano a imagen en imagen que permite WebKitGTK, que no tiene la API; «siempre encima» depende del gestor de ventanas.
 - **Marcadores** (`bookmarks.rs`): estrella de la barra o Ctrl+D; solo páginas web; se buscan en el
   Spotlight (que sin texto los lista) y se gestionan en Preferencias.
 - **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
@@ -99,7 +105,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
 
 ## Qué está verificado
 
-- Núcleo: 184 tests unitarios.
+- Núcleo: 201 tests unitarios.
 - Apariencia, marco, pestañas horizontales, espacios, Spotlight con iconos y ajustes, y la página de
   preferencias, comprobados bajo Xvfb con capturas (sin pantalla real ni compositor: la
   transparencia no se ha visto).
@@ -108,6 +114,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
   la barra lateral, y con 139 126 reglas reales WebKit bloquea una petición y se ocultan elementos
   (los del sitio y los genéricos), tanto en un primer arranque como con la caché.
 - Sincronización: probada bajo Xvfb con una carpeta de nube simulada y un segundo dispositivo falso (llegan marcador, espacio con icono, carpeta y pestañas; su archivo se escribe; sin montaje no se escribe nada). **Sin probar con rclone ni una nube real.**
+- Archivo, vista dividida, Peek, notas, Boosts (hoja de usuario y modo oscuro) y ventana flotante: probados bajo Xvfb con un servidor local; sin compositor ni gestor de ventanas, así que el aspecto de la ventana flotante y de las transparencias no se ha visto en un escritorio real.
 - Descarga de listas: probada solo hasta el cliente HTTP; el entorno de pruebas no llegaba a los
   servidores de las listas, así que **la descarga real y el refresco están sin verificar**.
 
