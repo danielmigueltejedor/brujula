@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::icons;
+
 pub const FIRST_SPACE: u32 = 1;
 const MAX_SPACES: usize = 12;
 const MAX_NAME: usize = 24;
@@ -11,22 +13,15 @@ const MAX_NAME: usize = 24;
 pub struct Space {
     pub id: u32,
     pub name: String,
-    /// One emoji or letter shown on the switcher; empty shows the name's first letter.
+    /// The id of one of the icons in [`crate::icons`]; empty takes the default one.
     #[serde(default)]
     pub icon: String,
 }
 
 impl Space {
-    /// What the switcher button shows.
-    pub fn badge(&self) -> String {
-        if !self.icon.is_empty() {
-            return self.icon.clone();
-        }
-        self.name
-            .chars()
-            .next()
-            .map(|c| c.to_uppercase().collect())
-            .unwrap_or_else(|| "·".to_owned())
+    /// The icon the switcher shows, as GTK's icon theme names it.
+    pub fn icon_name(&self) -> String {
+        icons::gtk_name(&self.icon)
     }
 }
 
@@ -42,7 +37,7 @@ impl Default for Spaces {
             list: vec![Space {
                 id: FIRST_SPACE,
                 name: "Principal".to_owned(),
-                icon: String::new(),
+                icon: "home".to_owned(),
             }],
             current: FIRST_SPACE,
         }
@@ -75,7 +70,7 @@ impl Spaces {
             if s.name.is_empty() {
                 s.name = "Espacio".to_owned();
             }
-            s.icon = clean(&s.icon, 2);
+            s.icon = icons::clean(&s.icon);
         }
         if self.list.is_empty() {
             return Self::default();
@@ -134,7 +129,7 @@ impl Spaces {
             if !name.is_empty() {
                 s.name = name;
             }
-            s.icon = clean(icon, 2);
+            s.icon = icons::clean(icon);
         }
     }
 
@@ -211,11 +206,28 @@ mod tests {
     }
 
     #[test]
-    fn rename_keeps_the_name_when_blank_and_cleans_the_icon() {
+    fn rename_keeps_the_name_when_blank_and_only_accepts_our_icons() {
         let mut s = Spaces::default();
         s.rename(FIRST_SPACE, "   ", "🚀🚀🚀");
         assert_eq!(s.get(FIRST_SPACE).unwrap().name, "Principal");
-        assert_eq!(s.get(FIRST_SPACE).unwrap().icon.chars().count(), 2);
+        assert_eq!(s.get(FIRST_SPACE).unwrap().icon, "");
+        s.rename(FIRST_SPACE, "Clase", "backpack");
+        assert_eq!(s.get(FIRST_SPACE).unwrap().icon, "backpack");
+    }
+
+    #[test]
+    fn icons_saved_by_earlier_versions_become_the_default() {
+        let old = Spaces {
+            list: vec![Space {
+                id: 1,
+                name: "Casa".into(),
+                icon: "🏠".into(),
+            }],
+            current: 1,
+        }
+        .sanitized();
+        assert_eq!(old.get(1).unwrap().icon, "");
+        assert_eq!(old.get(1).unwrap().icon_name(), "ndl-workspace-symbolic");
     }
 
     #[test]
@@ -255,10 +267,13 @@ mod tests {
     }
 
     #[test]
-    fn badge_falls_back_to_the_initial() {
+    fn the_switcher_shows_the_icon_of_the_space() {
         let mut s = Spaces::default();
-        assert_eq!(s.get(FIRST_SPACE).unwrap().badge(), "P");
-        s.rename(FIRST_SPACE, "Principal", "🏠");
-        assert_eq!(s.get(FIRST_SPACE).unwrap().badge(), "🏠");
+        assert_eq!(s.get(FIRST_SPACE).unwrap().icon_name(), "ndl-home-symbolic");
+        s.rename(FIRST_SPACE, "Principal", "backpack");
+        assert_eq!(
+            s.get(FIRST_SPACE).unwrap().icon_name(),
+            "ndl-backpack-symbolic"
+        );
     }
 }

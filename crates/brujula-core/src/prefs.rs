@@ -8,10 +8,12 @@
 
 use crate::adblock::DEFAULT_LISTS;
 use crate::bookmarks::Bookmarks;
+use crate::icons;
 use crate::newtab::escape;
 use crate::search::ENGINES;
 use crate::settings::{
     parse_hex_color, Layout, Settings, TabPosition, Theme, SIDEBAR_WIDTH_DEFAULT,
+    SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
 };
 use crate::spaces::Spaces;
 
@@ -116,7 +118,7 @@ impl Settings {
                 effect.appearance = true;
             }
             "sidebar_width" => {
-                a.sidebar_width = number(value)?.clamp(200, 480);
+                a.sidebar_width = number(value)?.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
                 effect.appearance = true;
                 effect.layout = true;
             }
@@ -173,18 +175,24 @@ const FRAME_SWATCHES: &[&str] = &[
     "#241a2e", "#2b2b2b",
 ];
 
-fn seg(key: &str, current: &str, options: &[(&str, &str)]) -> String {
+/// Choices drawn as miniatures of the window: `(value, label, preview class)`.
+fn tiles(key: &str, current: &str, options: &[(&str, &str, &str)]) -> String {
     let buttons: String = options
         .iter()
-        .map(|(value, label)| {
+        .map(|(value, label, class)| {
             let on = if *value == current { " on" } else { "" };
+            let preview = if *class == "t-system" {
+                r#"<span class="mini t-light"><i class="sb"></i><i class="pg"></i></span><span class="mini t-dark over"><i class="sb"></i><i class="pg"></i></span>"#.to_owned()
+            } else {
+                format!(r#"<span class="mini {class}"><i class="sb"></i><i class="pg"></i></span>"#)
+            };
             format!(
-                r#"<button type="button" class="seg{on}" data-k="{key}" data-v="{value}">{label}</button>"#,
+                r#"<button type="button" class="tile{on}" data-k="{key}" data-v="{value}"><span class="prev">{preview}</span><b>{label}</b></button>"#,
                 label = escape(label)
             )
         })
         .collect();
-    format!(r#"<div class="segs" role="group">{buttons}</div>"#)
+    format!(r#"<div class="tiles" role="group">{buttons}</div>"#)
 }
 
 fn switch(key: &str, on: bool) -> String {
@@ -195,8 +203,10 @@ fn switch(key: &str, on: bool) -> String {
 }
 
 fn slider(key: &str, value: u32, min: u32, max: u32, unit: &str) -> String {
+    let span = max.saturating_sub(min).max(1);
+    let filled = value.saturating_sub(min) * 100 / span;
     format!(
-        r#"<div class="slider"><input type="range" data-k="{key}" min="{min}" max="{max}" value="{value}"><output>{value}{unit}</output></div>"#
+        r#"<div class="slider"><input type="range" data-k="{key}" min="{min}" max="{max}" value="{value}" style="--p:{filled}%"><output>{value}{unit}</output></div>"#
     )
 }
 
@@ -206,10 +216,17 @@ fn row(title: &str, hint: &str, control: &str) -> String {
     } else {
         format!(r#"<p>{}</p>"#, escape(hint))
     };
-    format!(
-        r#"<div class="row"><div class="what"><b>{}</b>{hint}</div><div class="ctl">{control}</div></div>"#,
-        escape(title)
-    )
+    let what = if title.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="what"><b>{}</b>{hint}</div>"#, escape(title))
+    };
+    format!(r#"<div class="row">{what}<div class="ctl">{control}</div></div>"#)
+}
+
+/// A row whose control is wide: the control goes under the text.
+fn stacked(title: &str, hint: &str, control: &str) -> String {
+    row(title, hint, control).replacen(r#"class="row""#, r#"class="row stack""#, 1)
 }
 
 fn swatches(key: &str, colours: &[&str], current: &str) -> String {
@@ -229,11 +246,106 @@ fn swatches(key: &str, colours: &[&str], current: &str) -> String {
     format!(r#"<div class="dots">{dots}</div>"#)
 }
 
-fn section(id: &str, title: &str, body: &str) -> String {
+/// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
+const PAGES: &[(&str, &str, &str, &str, &str)] = &[
+    (
+        "general",
+        "General",
+        "General",
+        "El buscador que usa Brújula en todas partes.",
+        "settings",
+    ),
+    (
+        "appearance",
+        "Apariencia",
+        "Apariencia",
+        "Tema, colores y formas. Los cambios se ven al momento.",
+        "palette",
+    ),
+    (
+        "layout",
+        "Diseño",
+        "Diseño",
+        "Cómo se reparten la barra lateral, las pestañas y la web.",
+        "layout",
+    ),
+    (
+        "spaces",
+        "Espacios",
+        "Espacios",
+        "Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.",
+        "workspace",
+    ),
+    (
+        "bookmarks",
+        "Marcadores",
+        "Marcadores",
+        "Las páginas que guardaste con la estrella.",
+        "bookmark",
+    ),
+    (
+        "privacy",
+        "Privacidad",
+        "Privacidad",
+        "Bloqueador de anuncios y rastreadores.",
+        "shield-check",
+    ),
+    (
+        "sites",
+        "Sitios",
+        "Sitios sin bloqueador",
+        "Páginas donde el bloqueador está apagado.",
+        "globe",
+    ),
+    (
+        "security",
+        "Seguridad",
+        "Seguridad",
+        "Lo que Brújula hace por ti sin preguntar.",
+        "lock",
+    ),
+    (
+        "about",
+        "Acerca de",
+        "Acerca de",
+        "",
+        "info",
+    ),
+];
+
+fn section(id: &str, body: &str) -> String {
+    let (_, _, title, hint, icon) = PAGES
+        .iter()
+        .find(|p| p.0 == id)
+        .copied()
+        .unwrap_or((id, id, id, "", "settings"));
+    let hint = if hint.is_empty() {
+        String::new()
+    } else {
+        format!("<p>{}</p>", escape(hint))
+    };
     format!(
-        r#"<section id="{id}"><h2>{}</h2><div class="card">{body}</div></section>"#,
-        escape(title)
+        r#"<section id="{id}"><header class="shead"><span class="sicon">{svg}</span><div><h2>{title}</h2>{hint}</div></header><div class="card">{body}</div></section>"#,
+        svg = icons::web_svg(icon, 20),
+        title = escape(title),
     )
+}
+
+/// The icon grid that picks a space's icon.
+fn icon_grid(space_id: u32, current: &str) -> String {
+    let buttons: String = icons::ICONS
+        .iter()
+        .map(|i| {
+            let on = if i.id == current { " on" } else { "" };
+            format!(
+                r#"<button type="button" class="ibtn{on}" data-k="space.icon.{space_id}" data-v="{id}" data-pick="1" title="{label}" aria-label="{label}">{svg}</button>"#,
+                id = i.id,
+                label = escape(i.label),
+                svg = icons::web_svg(i.id, 20),
+            )
+        })
+        .collect();
+    format!(r#"<div class="iconsgrid">{buttons}</div>"#)
 }
 
 /// The preferences page for the current settings.
@@ -258,8 +370,9 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
         .map(|e| {
             let on = if e.id == s.search_engine { " on" } else { "" };
             format!(
-                r#"<button type="button" class="seg{on}" data-k="engine" data-v="{}">{}</button>"#,
+                r#"<button type="button" class="engine{on}" data-k="engine" data-v="{}">{}<b>{}</b></button>"#,
                 e.id,
+                e.badge(),
                 escape(e.name)
             )
         })
@@ -267,25 +380,27 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 
     let general = section(
         "general",
-        "General",
-        &row(
+        &stacked(
             "Buscador",
             "Se usa en la barra de direcciones, en el Spotlight y en la página de nueva pestaña.",
-            &format!(r#"<div class="segs wrap" role="group">{engines}</div>"#),
+            &format!(r#"<div class="engines" role="group">{engines}</div>"#),
         ),
     );
 
     let appearance = section(
         "appearance",
-        "Apariencia",
         &[
-            row(
+            stacked(
                 "Tema",
                 "",
-                &seg(
+                &tiles(
                     "theme",
                     theme,
-                    &[("system", "Sistema"), ("light", "Claro"), ("dark", "Oscuro")],
+                    &[
+                        ("system", "Sistema", "t-system"),
+                        ("light", "Claro", "t-light"),
+                        ("dark", "Oscuro", "t-dark"),
+                    ],
                 ),
             ),
             row(
@@ -297,11 +412,11 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
                     escape(&a.accent)
                 ),
             ),
-            row(
+            stacked(
                 "Color del marco",
-                "Lo que rodea a la web. Vacío usa el del tema.",
+                "Lo que rodea a la web. «Tema» usa el del tema.",
                 &format!(
-                    r##"{}<input type="color" data-k="frame_color" value="{}" aria-label="Color personalizado"><button type="button" class="seg" data-k="frame_color" data-v="">Tema</button>"##,
+                    r##"{}<input type="color" data-k="frame_color" value="{}" aria-label="Color personalizado"><button type="button" class="seg plain" data-k="frame_color" data-v="">Tema</button>"##,
                     swatches("frame_color", FRAME_SWATCHES, &a.frame_color),
                     escape(if a.frame_color.is_empty() {
                         "#e4e6eb"
@@ -328,7 +443,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
             row(
                 "",
                 "",
-                r#"<button type="button" class="seg" data-k="reset_appearance" data-v="1">Restablecer apariencia</button>"#,
+                r#"<button type="button" class="seg plain" data-k="reset_appearance" data-v="1">Restablecer apariencia</button>"#,
             ),
         ]
         .concat(),
@@ -336,30 +451,41 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 
     let layout_section = section(
         "layout",
-        "Diseño",
         &[
-            row(
+            stacked(
                 "Disposición",
-                "Islas: barra lateral y web son dos paneles. Marco: solo la web es un panel y la barra queda rodeándola, como Zen.",
-                &seg(
+                "Islas: barra y web son dos paneles. Marco: solo la web es un panel y la barra queda a su alrededor, como en Zen.",
+                &tiles(
                     "layout",
                     layout,
-                    &[("islands", "Islas"), ("frame", "Marco")],
+                    &[
+                        ("islands", "Islas", "l-islands"),
+                        ("frame", "Marco", "l-frame"),
+                    ],
                 ),
             ),
-            row(
+            stacked(
                 "Pestañas",
                 "En la barra lateral o en una barra encima de la web.",
-                &seg(
+                &tiles(
                     "tabs",
                     tabs,
-                    &[("vertical", "Verticales"), ("horizontal", "Horizontales")],
+                    &[
+                        ("vertical", "Verticales", "v-vertical"),
+                        ("horizontal", "Horizontales", "v-horizontal"),
+                    ],
                 ),
             ),
             row(
                 "Ancho de la barra lateral",
                 &format!("Por defecto {SIDEBAR_WIDTH_DEFAULT} px; se recuerda."),
-                &slider("sidebar_width", a.sidebar_width, 200, 480, " px"),
+                &slider(
+                    "sidebar_width",
+                    a.sidebar_width,
+                    SIDEBAR_WIDTH_MIN,
+                    SIDEBAR_WIDTH_MAX,
+                    " px",
+                ),
             ),
             row(
                 "Mostrar la barra al acercar el ratón",
@@ -390,7 +516,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
             .iter()
             .map(|h| {
                 format!(
-                    r#"<div class="row site"><div class="what"><b>{h}</b></div><div class="ctl"><button type="button" class="seg" data-k="allow.remove" data-v="{h}" data-remove="1">Quitar</button></div></div>"#,
+                    r#"<div class="row"><div class="what"><b>{h}</b></div><div class="ctl"><button type="button" class="seg plain" data-k="allow.remove" data-v="{h}" data-remove="1">Quitar</button></div></div>"#,
                     h = escape(h)
                 )
             })
@@ -398,7 +524,6 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
     };
     let privacy = section(
         "privacy",
-        "Privacidad y seguridad",
         &[
             row(
                 "Bloqueador de anuncios y rastreadores",
@@ -409,31 +534,33 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
         ]
         .concat(),
     );
-    let sites = section("sites", "Sitios con el bloqueador desactivado", &allowed);
+    let sites = section("sites", &allowed);
     let spaces_section = section(
         "spaces",
-        "Espacios",
         &spaces
             .all()
             .iter()
             .map(|sp| {
                 let remove = if spaces.all().len() > 1 {
                     format!(
-                        r#"<button type="button" class="seg" data-k="space.remove" data-v="{}" data-remove="1">Eliminar</button>"#,
+                        r#"<button type="button" class="seg plain danger" data-k="space.remove" data-v="{}" data-remove="1">Eliminar</button>"#,
                         sp.id
                     )
                 } else {
                     String::new()
                 };
-                row(
-                    &sp.name,
-                    "Sus pestañas pasan al espacio anterior si lo eliminas.",
-                    &format!(
-                        r#"<input type="text" class="field" data-k="space.icon.{id}" value="{icon}" maxlength="2" placeholder="Icono" aria-label="Icono"><input type="text" class="field wide" data-k="space.name.{id}" value="{name}" maxlength="24" aria-label="Nombre">{remove}"#,
-                        id = sp.id,
-                        icon = escape(&sp.icon),
-                        name = escape(&sp.name),
-                    ),
+                let chosen = if icons::is_known(&sp.icon) {
+                    sp.icon.as_str()
+                } else {
+                    icons::DEFAULT
+                };
+                format!(
+                    r#"<div class="space"><div class="spacehead"><button type="button" class="iconbtn" data-open="1" aria-label="Elegir icono" title="Elegir icono"><span class="cur">{cur}</span>{chev}</button><input type="text" class="field wide" data-k="space.name.{id}" value="{name}" maxlength="24" aria-label="Nombre del espacio">{remove}</div>{grid}</div>"#,
+                    cur = icons::web_svg(chosen, 22),
+                    chev = icons::web_svg("chevron-right", 14),
+                    id = sp.id,
+                    name = escape(&sp.name),
+                    grid = icon_grid(sp.id, chosen),
                 )
             })
             .collect::<String>(),
@@ -447,7 +574,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
             .iter()
             .map(|b| {
                 format!(
-                    r#"<div class="row site"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg" data-k="bookmark.remove" data-v="{}" data-remove="1">Quitar</button></div></div>"#,
+                    r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="bookmark.remove" data-v="{}" data-remove="1">Quitar</button></div></div>"#,
                     escape(&b.title),
                     escape(&b.url),
                     escape(&b.url)
@@ -455,10 +582,9 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
             })
             .collect()
     };
-    let bookmarks_section = section("bookmarks", "Marcadores", &bookmarks_body);
+    let bookmarks_section = section("bookmarks", &bookmarks_body);
     let security = section(
         "security",
-        "Protecciones activas",
         r#"<ul class="facts">
 <li>Las descargas de programas y scripts se bloquean, y los nombres de archivo se limpian.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
@@ -471,13 +597,23 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 
     let about = section(
         "about",
-        "Acerca de",
         &row(
-            "Brújula",
+            &format!("Brújula {}", env!("CARGO_PKG_VERSION")),
             "El navegador de Nodalix. WebKit, bloqueador integrado, pestañas verticales y el lenguaje de diseño NDL.",
             "",
         ),
     );
+
+    let nav: String = PAGES
+        .iter()
+        .map(|(id, label, _, _, icon)| {
+            format!(
+                r##"<a href="#{id}" data-nav="{id}">{}<span>{}</span></a>"##,
+                icons::web_svg(icon, 18),
+                escape(label)
+            )
+        })
+        .collect();
 
     format!(
         r##"<!doctype html>
@@ -487,10 +623,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 <style>{css}</style></head>
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
-<nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>
-<a href="#general">General</a><a href="#appearance">Apariencia</a><a href="#layout">Diseño</a>
-<a href="#spaces">Espacios</a><a href="#bookmarks">Marcadores</a>
-<a href="#privacy">Privacidad</a><a href="#sites">Sitios</a><a href="#security">Seguridad</a><a href="#about">Acerca de</a></nav>
+<nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
 <main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
@@ -498,22 +631,8 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 "##,
         css = CSS,
         js = JS,
-        theme = match a.theme {
-            Theme::System => "system",
-            Theme::Light => "light",
-            Theme::Dark => "dark",
-        },
         accent = escape(&a.accent),
         on_accent = crate::settings::text_on(&a.accent),
-        general = general,
-        appearance = appearance,
-        layout_section = layout_section,
-        spaces_section = spaces_section,
-        bookmarks_section = bookmarks_section,
-        privacy = privacy,
-        sites = sites,
-        security = security,
-        about = about,
     )
 }
 
@@ -546,7 +665,7 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "Espacios",
-        "espacio espacios grupos perfiles workspaces",
+        "espacio espacios grupos perfiles workspaces iconos",
         "spaces",
     ),
     (
@@ -565,78 +684,131 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
 
 /// The heading of a section, as the page shows it.
 pub fn section_title(id: &str) -> &'static str {
-    match id {
-        "general" => "General",
-        "appearance" => "Apariencia",
-        "layout" => "Diseño",
-        "spaces" => "Espacios",
-        "bookmarks" => "Marcadores",
-        "privacy" => "Privacidad",
-        "sites" => "Sitios",
-        "security" => "Seguridad",
-        "about" => "Acerca de",
-        _ => "Preferencias",
-    }
+    PAGES
+        .iter()
+        .find(|p| p.0 == id)
+        .map_or("Preferencias", |p| p.1)
 }
 
 const CSS: &str = r#"
-:root{color-scheme:light dark;--bg:#f4f5f7;--fg:#14181b;--muted:#5b6770;--card:#fff;--line:#e1e5ea;--chip:#eef0f3}
-@media (prefers-color-scheme:dark){:root{--bg:#101315;--fg:#eef1f3;--muted:#9aa7b0;--card:#181d20;--line:#272e33;--chip:#222a2e}}
-:root[data-theme=light]{color-scheme:light;--bg:#f4f5f7;--fg:#14181b;--muted:#5b6770;--card:#fff;--line:#e1e5ea;--chip:#eef0f3}
-:root[data-theme=dark]{color-scheme:dark;--bg:#101315;--fg:#eef1f3;--muted:#9aa7b0;--card:#181d20;--line:#272e33;--chip:#222a2e}
+:root{color-scheme:light dark;--bg:#f3f4f6;--fg:#12161a;--muted:#5d6872;--card:#fff;--line:#e4e7ec;--chip:#eef0f4;--mf:#dfe3e8;--sb:#f9fafb;--pg:#fff;--line2:#d3d8de;--shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px -12px rgba(16,24,40,.08)}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54;--shadow:0 1px 2px rgba(0,0,0,.3)}}
+:root[data-theme=light]{color-scheme:light;--bg:#f3f4f6;--fg:#12161a;--muted:#5d6872;--card:#fff;--line:#e4e7ec;--chip:#eef0f4;--mf:#dfe3e8;--sb:#f9fafb;--pg:#fff;--line2:#d3d8de;--shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px -12px rgba(16,24,40,.08)}
+:root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54;--shadow:0 1px 2px rgba(0,0,0,.3)}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45}
-.shell{display:grid;grid-template-columns:14rem 1fr;gap:2rem;max-width:62rem;margin:0 auto;padding:2rem 1.5rem 6rem}
-.nav{position:sticky;top:2rem;align-self:start;display:flex;flex-direction:column;gap:.15rem}
-.nav h1{font-size:1.5rem;font-weight:650;letter-spacing:-.02em;margin:0 0 1rem}
-.nav a{color:var(--muted);text-decoration:none;padding:.5rem .75rem;border-radius:.6rem;font-size:.95rem}
-.nav a:hover,.nav a:focus-visible{background:var(--chip);color:var(--fg);outline:none}
-section{margin-bottom:2rem;scroll-margin-top:1.5rem}
-h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 .6rem .25rem;font-weight:600}
-.card{background:var(--card);border:1px solid var(--line);border-radius:1rem;overflow:hidden}
-.row{display:flex;gap:1.5rem;justify-content:space-between;align-items:center;padding:.9rem 1.1rem;border-top:1px solid var(--line)}
+body{margin:0;font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
+.shell{display:grid;grid-template-columns:14.5rem minmax(0,44rem);justify-content:center;gap:3.5rem;padding:3.25rem 2rem 8rem}
+.nav{position:sticky;top:3rem;align-self:start;display:flex;flex-direction:column;gap:.15rem}
+.nav h1{font-size:1.65rem;font-weight:700;letter-spacing:-.03em;margin:0 0 1.1rem .8rem}
+.nav a{display:flex;align-items:center;gap:.75rem;color:var(--muted);text-decoration:none;padding:.55rem .8rem;border-radius:.75rem;font-size:.95rem;transition:background .15s,color .15s}
+.nav a:hover{background:var(--chip);color:var(--fg)}
+.nav a.on{background:var(--card);color:var(--fg);box-shadow:var(--shadow);font-weight:560}
+.nav a.on .ico{color:var(--accent)}
+.ico{flex:none}
+section{margin-bottom:3rem;scroll-margin-top:2.5rem}
+.shead{display:flex;gap:.9rem;align-items:center;margin:0 .25rem 1rem}
+.sicon{display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;border-radius:.85rem;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+h2{font-size:1.4rem;font-weight:660;letter-spacing:-.02em;margin:0;line-height:1.2}
+.shead p{margin:.15rem 0 0;color:var(--muted);font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:1.15rem;box-shadow:var(--shadow)}
+.row{display:flex;gap:1.5rem;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
-.what{min-width:0}.what b{font-weight:550}.what p{margin:.15rem 0 0;color:var(--muted);font-size:.85rem;max-width:30rem}
+.row.stack{flex-direction:column;align-items:stretch;gap:.9rem}
+.what{min-width:0}.what b{font-weight:580}.what p{margin:.15rem 0 0;color:var(--muted);font-size:.86rem;max-width:32rem}
 .ctl{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-.segs{display:flex;gap:.25rem;background:var(--chip);padding:.2rem;border-radius:.8rem}.segs.wrap{flex-wrap:wrap;max-width:24rem}
-.seg{font:inherit;font-size:.9rem;color:var(--fg);background:transparent;border:0;border-radius:.6rem;padding:.4rem .85rem;cursor:pointer}
+.stack .ctl{justify-content:flex-start;gap:.6rem .6rem}
+.segs{display:flex;gap:.2rem;background:var(--chip);padding:.2rem;border-radius:.85rem}
+.seg{font:inherit;font-size:.9rem;color:var(--fg);background:transparent;border:0;border-radius:.65rem;padding:.42rem .9rem;cursor:pointer}
 .seg:hover{background:color-mix(in srgb,var(--fg) 8%,transparent)}
 .seg.on{background:var(--accent);color:var(--on-accent)}
-.ctl>.seg{background:var(--chip)}
-.switch{position:relative;width:2.6rem;height:1.5rem;border-radius:999px;border:0;background:color-mix(in srgb,var(--fg) 22%,transparent);cursor:pointer;padding:0;transition:background .15s}
-.switch i{position:absolute;top:.2rem;left:.2rem;width:1.1rem;height:1.1rem;border-radius:50%;background:#fff;transition:transform .15s}
-.switch.on{background:var(--accent)}.switch.on i{transform:translateX(1.1rem)}
-.dots{display:flex;gap:.4rem;flex-wrap:wrap}
-.dot{width:1.6rem;height:1.6rem;border-radius:50%;border:2px solid transparent;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
-.dot.on{border-color:var(--fg)}
-input[type=color]{width:2rem;height:2rem;padding:0;border:0;background:none;cursor:pointer}
-.slider{display:flex;gap:.8rem;align-items:center}
-input.field{font:inherit;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:.6rem;padding:.35rem .6rem;width:4rem;text-align:center}input.field.wide{width:11rem;text-align:left}
-input[type=range]{width:12rem;accent-color:var(--accent)}
-output{min-width:3.5rem;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
-.facts{margin:0;padding:1rem 1.1rem 1rem 2.4rem;color:var(--muted);font-size:.92rem}.facts li{margin:.3rem 0}
+.seg.plain{background:var(--chip)}.seg.plain:hover{background:color-mix(in srgb,var(--fg) 12%,var(--chip))}
+.seg.danger{color:#d33}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr));gap:.75rem;width:100%}
+.tile{font:inherit;color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:.95rem;padding:.55rem .55rem .7rem;cursor:pointer;display:flex;flex-direction:column;gap:.55rem;align-items:center;transition:border-color .15s,box-shadow .15s}
+.tile:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
+.tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.tile b{font-weight:560;font-size:.9rem}
+.prev{position:relative;display:block;width:100%}
+.mini{display:block;position:relative;width:100%;aspect-ratio:16/10;border-radius:.55rem;overflow:hidden;background:var(--mf);box-shadow:inset 0 0 0 1px rgba(127,127,127,.18)}
+.mini.over{position:absolute;inset:0;clip-path:polygon(58% 0,100% 0,100% 100%,42% 100%)}
+.mini i{position:absolute;display:block}
+.mini .sb{left:5%;top:8%;bottom:8%;width:27%;border-radius:.3rem;background:var(--sb)}
+.mini .sb::before{content:"";position:absolute;left:16%;right:16%;top:14%;height:7%;border-radius:2px;background:var(--line2);box-shadow:0 .5rem 0 var(--line2),0 1rem 0 var(--line2)}
+.mini .pg{left:36%;right:5%;top:8%;bottom:8%;border-radius:.3rem;background:var(--pg)}
+.t-light{--mf:#dfe3e8;--sb:#f9fafb;--pg:#fff;--line2:#d3d8de}
+.t-dark{--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54}
+.l-frame .sb{background:transparent}
+.l-frame{background:var(--mf)}
+.l-frame .pg{left:34%;right:4%;top:5%;bottom:5%}
+.v-horizontal .sb{left:5%;right:5%;top:8%;bottom:auto;width:auto;height:18%}
+.v-horizontal .sb::before{left:5%;right:auto;top:32%;width:20%;height:36%;box-shadow:.95rem 0 0 var(--line2),1.9rem 0 0 var(--line2)}
+.v-horizontal .pg{left:5%;right:5%;top:30%;bottom:8%}
+.switch{position:relative;width:2.75rem;height:1.6rem;border-radius:999px;border:0;background:color-mix(in srgb,var(--fg) 22%,transparent);cursor:pointer;padding:0;transition:background .15s}
+.switch i{position:absolute;top:.2rem;left:.2rem;width:1.2rem;height:1.2rem;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.switch.on{background:var(--accent)}.switch.on i{transform:translateX(1.15rem)}
+.dots{display:flex;gap:.5rem;flex-wrap:wrap}
+.dot{width:1.75rem;height:1.75rem;border-radius:50%;border:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);transition:transform .12s}
+.dot:hover{transform:scale(1.1)}
+.dot.on{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--fg)}
+input[type=color]{width:1.9rem;height:1.9rem;padding:0;border:0;background:none;cursor:pointer;border-radius:50%}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:0;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.slider{display:flex;gap:.9rem;align-items:center}
+input[type=range]{-webkit-appearance:none;appearance:none;width:13rem;height:.4rem;border-radius:999px;background:linear-gradient(to right,var(--accent) var(--p,50%),color-mix(in srgb,var(--fg) 14%,transparent) var(--p,50%));outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:1.15rem;height:1.15rem;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:.9rem}
+.engines{display:grid;grid-template-columns:repeat(auto-fill,minmax(10rem,1fr));gap:.6rem;width:100%}
+.engine{display:flex;align-items:center;gap:.7rem;padding:.65rem .8rem;border:1px solid var(--line);border-radius:.9rem;background:transparent;font:inherit;color:var(--fg);cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
+.engine:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
+.engine.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.engine b{font-weight:560;font-size:.92rem}
+.eng{display:grid;place-items:center;flex:none;width:1.9rem;height:1.9rem;border-radius:.6rem;color:#fff;font-weight:750;font-size:1rem;font-family:system-ui,sans-serif}
+.space{padding:.85rem 1.25rem;border-top:1px solid var(--line)}
+.space:first-child{border-top:0}
+.spacehead{display:flex;gap:.7rem;align-items:center}
+.iconbtn{display:flex;align-items:center;gap:.35rem;font:inherit;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border:0;border-radius:.8rem;padding:.55rem .6rem .55rem .7rem;cursor:pointer}
+.iconbtn:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+.iconbtn .cur{display:grid;place-items:center}
+.iconbtn>.ico{opacity:.7;transition:transform .15s}
+.space.open .iconbtn>.ico{transform:rotate(90deg)}
+.iconsgrid{display:none;grid-template-columns:repeat(auto-fill,minmax(2.6rem,1fr));gap:.35rem;margin-top:.8rem;padding:.6rem;background:var(--chip);border-radius:.9rem}
+.space.open .iconsgrid{display:grid}
+.ibtn{display:grid;place-items:center;height:2.6rem;color:var(--fg);background:transparent;border:0;border-radius:.65rem;cursor:pointer}
+.ibtn:hover{background:color-mix(in srgb,var(--fg) 10%,transparent)}
+.ibtn.on{background:var(--accent);color:var(--on-accent)}
+input.field{font:inherit;background:var(--chip);color:var(--fg);border:1px solid transparent;border-radius:.7rem;padding:.5rem .75rem;width:4rem;transition:border-color .15s}
+input.field.wide{flex:1;min-width:0}
+input.field:focus{border-color:var(--accent);outline:none}
+.facts{margin:0;padding:1.1rem 1.25rem 1.1rem 2.5rem;color:var(--muted);font-size:.92rem}.facts li{margin:.35rem 0}
 code{background:var(--chip);padding:.05rem .35rem;border-radius:.3rem;font-size:.85em}
-.empty{margin:0;padding:1rem 1.1rem;color:var(--muted)}
+.empty{margin:0;padding:1.1rem 1.25rem;color:var(--muted)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media (max-width:760px){.shell{grid-template-columns:1fr}.nav{position:static;flex-direction:row;flex-wrap:wrap}.nav h1{width:100%}}
+@media (max-width:820px){.shell{grid-template-columns:1fr;gap:1.5rem}.nav{position:static;flex-direction:row;flex-wrap:wrap}.nav h1{width:100%}.nav a span{display:none}}
 "#;
 
-const JS: &str = r#"
+const JS: &str = r##"
 const send=(k,v)=>{location.href='brujula://set?'+encodeURIComponent(k)+'='+encodeURIComponent(v)};
 let timer;
 const later=(f)=>{clearTimeout(timer);timer=setTimeout(f,90)};
 const unit=(el)=>el.parentElement.querySelector('output');
+const fill=(i)=>i.style.setProperty('--p',((i.value-i.min)*100/(i.max-i.min||1))+'%');
 document.addEventListener('click',e=>{
+  const nav=e.target.closest('a[href^="#"]');
+  if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
+  const open=e.target.closest('[data-open]');
+  if(open){open.closest('.space').classList.toggle('open');return}
   const b=e.target.closest('[data-k]');if(!b||b.tagName==='INPUT')return;
   const k=b.dataset.k;
   if(b.dataset.toggle){const on=!b.classList.contains('on');b.classList.toggle('on',on);b.setAttribute('aria-checked',on);send(k,on?'1':'0');return}
   const v=b.dataset.v;
-  if(b.dataset.remove){b.closest('.row').remove();send(k,v);return}
+  if(b.dataset.remove){const r=b.closest('.row,.space');if(r)r.remove();send(k,v);return}
   send(k,v);
   if(k==='accent'){document.body.style.setProperty('--accent',v)}
-  const group=b.closest('.segs,.dots');
+  const group=b.closest('.segs,.dots,.tiles,.engines,.iconsgrid');
   if(group){group.querySelectorAll('.on').forEach(x=>x.classList.remove('on'));b.classList.add('on')}
+  if(b.dataset.pick){const s=b.closest('.space');const cur=s.querySelector('.iconbtn .cur');if(cur){cur.innerHTML=b.innerHTML;const g=cur.firstElementChild;if(g){g.setAttribute('width',22);g.setAttribute('height',22)}}s.classList.remove('open')}
+  if(k==='theme'){document.documentElement.dataset.theme=v}
   if(k==='reset_appearance'){setTimeout(()=>location.reload(),150)}
 });
 document.addEventListener('change',e=>{
@@ -644,10 +816,19 @@ document.addEventListener('change',e=>{
 });
 document.addEventListener('input',e=>{
   const i=e.target;if(!i.dataset||!i.dataset.k)return;
-  if(i.type==='range'){const o=unit(i);if(o)o.textContent=i.value+o.textContent.replace(/^[0-9]+/,'');later(()=>send(i.dataset.k,i.value))}
+  if(i.type==='range'){fill(i);const o=unit(i);if(o)o.textContent=i.value+o.textContent.replace(/^[0-9]+/,'');later(()=>send(i.dataset.k,i.value))}
   else if(i.type==='color'){if(i.dataset.k==='accent')document.body.style.setProperty('--accent',i.value);later(()=>send(i.dataset.k,i.value))}
 });
-"#;
+const links=[...document.querySelectorAll('[data-nav]')];
+const mark=(id)=>links.forEach(a=>a.classList.toggle('on',a.dataset.nav===id));
+if('IntersectionObserver' in window){
+  const seen=new Map();
+  const io=new IntersectionObserver(es=>{es.forEach(x=>seen.set(x.target.id,x.isIntersecting));
+    const first=[...document.querySelectorAll('main section')].find(s=>seen.get(s.id));if(first)mark(first.id)},{rootMargin:'-20% 0px -60% 0px'});
+  document.querySelectorAll('main section').forEach(s=>io.observe(s));
+}
+mark('general');
+"##;
 
 #[cfg(test)]
 mod tests {
@@ -677,7 +858,7 @@ mod tests {
         s.apply("opacity", "5").unwrap();
         assert_eq!(s.appearance.opacity, 50);
         s.apply("sidebar_width", "9999").unwrap();
-        assert_eq!(s.appearance.sidebar_width, 480);
+        assert_eq!(s.appearance.sidebar_width, SIDEBAR_WIDTH_MAX);
         let e = s.apply("layout", "frame").unwrap();
         assert!(e.layout && e.appearance);
         assert_eq!(s.appearance.layout, Layout::Frame);
@@ -736,7 +917,7 @@ mod tests {
         s.appearance.theme = Theme::Dark;
         s.allowlist = vec!["<script>x</script>".into()];
         let html = render(&s, &Bookmarks::default(), &Spaces::default());
-        assert!(html.contains(r#"class="seg on" data-k="theme" data-v="dark""#));
+        assert!(html.contains(r#"class="tile on" data-k="theme" data-v="dark""#));
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
         assert!(!html.contains("<script>x</script>"));
         assert!(html.contains("--accent:#0c9a58"));
@@ -754,6 +935,58 @@ mod tests {
         assert!(!html.contains("<i>t</i>"));
         assert!(html.contains(r#"data-k="space.remove""#));
         assert!(html.contains(r#"data-k="bookmark.remove""#));
+    }
+
+    #[test]
+    fn every_space_has_an_icon_picker_with_our_icons_only() {
+        let mut spaces = Spaces::default();
+        let id = spaces.add("Clase").unwrap();
+        spaces.rename(id, "Clase", "backpack");
+        let html = render(&Settings::default(), &Bookmarks::default(), &spaces);
+        assert!(html.contains(&format!(r#"data-k="space.icon.{id}" data-v="backpack""#)));
+        // The chosen one is marked, and each icon is drawn inline (nothing is fetched).
+        assert!(html.contains(r#"class="ibtn on" data-k="space.icon."#));
+        assert!(html.contains(r#"data-v="user""#));
+        assert!(!html.contains("<img"));
+    }
+
+    #[test]
+    fn each_search_engine_has_its_badge_on_the_page() {
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+        );
+        for e in ENGINES {
+            assert!(html.contains(&e.badge()), "{}", e.id);
+        }
+    }
+
+    #[test]
+    fn the_nav_links_to_every_section_and_the_page_scrolls_to_them() {
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+        );
+        for (id, ..) in PAGES {
+            assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
+            assert!(html.contains(&format!(r#"<section id="{id}""#)), "{id}");
+        }
+        // Fragments are not navigations the browser accepts, so the page scrolls itself.
+        assert!(JS.contains("scrollIntoView"));
+    }
+
+    #[test]
+    fn the_sidebar_slider_covers_the_range_the_browser_accepts() {
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+        );
+        assert!(html.contains(&format!(
+            r#"data-k="sidebar_width" min="{SIDEBAR_WIDTH_MIN}" max="{SIDEBAR_WIDTH_MAX}""#
+        )));
     }
 
     #[test]

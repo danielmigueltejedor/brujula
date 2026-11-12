@@ -2,6 +2,8 @@
 
 use super::*;
 
+use brujula_core::icons;
+
 impl Browser {
     pub(super) fn horizontal(&self) -> bool {
         self.settings.borrow().appearance.tabs == TabPosition::Horizontal
@@ -130,10 +132,11 @@ impl Browser {
         };
         for space in all {
             let button = gtk::Button::builder()
-                .label(space.badge())
+                .icon_name(space.icon_name())
                 .tooltip_text(&space.name)
                 .css_classes(["flat", "brujula-space"])
                 .build();
+            button.set_widget_name(&format!("space-{}", space.id));
             if space.id == current {
                 button.add_css_class("brujula-space-current");
             }
@@ -168,6 +171,8 @@ impl Browser {
             let id = b.spaces.borrow_mut().add("");
             if let Some(id) = id {
                 b.switch_space(id);
+                // A new space starts with a name and an icon the user probably wants to change.
+                glib::idle_add_local_once(move || b.edit_space(id));
             }
         });
         self.space_bar.append(&add);
@@ -212,14 +217,29 @@ impl Browser {
         });
     }
 
-    /// Rename, change the badge or delete a space.
+    /// Opens the editor of a space from its button in the switcher.
+    pub(super) fn edit_space(self: &Rc<Self>, id: u32) {
+        let name = format!("space-{id}");
+        let mut child = self.space_bar.first_child();
+        while let Some(w) = child {
+            if w.widget_name() == name {
+                if let Ok(button) = w.clone().downcast::<gtk::Button>() {
+                    self.show_space_menu(id, &button);
+                }
+                return;
+            }
+            child = w.next_sibling();
+        }
+    }
+
+    /// Rename, pick the icon of, or delete a space.
     fn show_space_menu(self: &Rc<Self>, id: u32, anchor: &gtk::Button) {
         let Some(space) = self.spaces.borrow().get(id).cloned() else {
             return;
         };
         let pop = gtk::Popover::new();
         pop.set_parent(anchor);
-        let col = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let col = gtk::Box::new(gtk::Orientation::Vertical, 10);
         col.set_margin_top(12);
         col.set_margin_bottom(12);
         col.set_margin_start(12);
@@ -229,11 +249,52 @@ impl Browser {
             .placeholder_text("Nombre")
             .max_length(24)
             .build();
-        let icon = gtk::Entry::builder()
-            .text(&space.icon)
-            .placeholder_text("Emoji o letra")
-            .max_length(2)
+        // The icon is one of the set Brújula draws in NDL's style, picked from a grid.
+        let chosen = Rc::new(RefCell::new(space.icon.clone()));
+        let grid = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .min_children_per_line(6)
+            .max_children_per_line(6)
+            .row_spacing(2)
+            .column_spacing(2)
+            .homogeneous(true)
             .build();
+        let buttons: Rc<RefCell<Vec<(String, gtk::Button)>>> = Rc::new(RefCell::new(Vec::new()));
+        let mark = {
+            let buttons = buttons.clone();
+            move |current: &str| {
+                for (icon_id, button) in buttons.borrow().iter() {
+                    if icon_id == current {
+                        button.add_css_class("brujula-icon-current");
+                    } else {
+                        button.remove_css_class("brujula-icon-current");
+                    }
+                }
+            }
+        };
+        for icon in icons::ICONS {
+            let button = gtk::Button::builder()
+                .icon_name(icons::gtk_name(icon.id))
+                .tooltip_text(icon.label)
+                .css_classes(["flat", "brujula-icon-choice"])
+                .build();
+            let chosen = chosen.clone();
+            let mark = mark.clone();
+            let icon_id = icon.id;
+            button.connect_clicked(move |_| {
+                *chosen.borrow_mut() = icon_id.to_owned();
+                mark(icon_id);
+            });
+            grid.append(&button);
+            buttons.borrow_mut().push((icon.id.to_owned(), button));
+        }
+        let current_icon = if icons::is_known(&space.icon) {
+            space.icon.clone()
+        } else {
+            icons::DEFAULT.to_owned()
+        };
+        *chosen.borrow_mut() = current_icon.clone();
+        mark(&current_icon);
         let save = gtk::Button::builder()
             .label("Guardar")
             .css_classes(["suggested-action"])
@@ -244,27 +305,26 @@ impl Browser {
             .sensitive(self.spaces.borrow().all().len() > 1)
             .build();
         col.append(&name);
-        col.append(&icon);
+        col.append(&grid);
         col.append(&save);
         col.append(&delete);
         pop.set_child(Some(&col));
 
         let this = Rc::downgrade(self);
         let pop2 = pop.clone();
-        let (name2, icon2) = (name.clone(), icon.clone());
+        let name2 = name.clone();
+        let chosen2 = chosen.clone();
         save.connect_clicked(move |_| {
             pop2.popdown();
             let Some(b) = this.upgrade() else { return };
             b.spaces
                 .borrow_mut()
-                .rename(id, &name2.text(), &icon2.text());
+                .rename(id, &name2.text(), &chosen2.borrow());
             // After the popover has gone: its anchor is about to be replaced.
             glib::idle_add_local_once(move || b.rebuild_spaces());
         });
         let save2 = save.clone();
         name.connect_activate(move |_| save2.emit_clicked());
-        let save3 = save.clone();
-        icon.connect_activate(move |_| save3.emit_clicked());
 
         let this = Rc::downgrade(self);
         let pop3 = pop.clone();
@@ -277,6 +337,7 @@ impl Browser {
         let pop4 = pop.clone();
         pop.connect_closed(move |_| pop4.unparent());
         pop.popup();
+        name.grab_focus();
     }
 
     /// The tabs of the space in front as chips, for the horizontal layout.

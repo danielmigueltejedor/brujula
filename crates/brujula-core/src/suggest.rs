@@ -137,6 +137,14 @@ pub fn suggestions(
             detail: t.url.clone(),
         })
         .collect::<Vec<_>>();
+    // A bookmark of a page that is open already is the same row: the tab wins.
+    let open_urls: Vec<String> = matches
+        .iter()
+        .filter_map(|m| match m.action {
+            Action::SwitchTab(_) => Some(m.detail.clone()),
+            _ => None,
+        })
+        .collect();
     out.append(&mut matches);
     let needle_words: Vec<&str> = needle.split_whitespace().collect();
     let listed: Vec<Action> = out.iter().map(|o| o.action.clone()).collect();
@@ -148,6 +156,7 @@ pub fn suggestions(
                 needle_words.iter().all(|w| hay.contains(w))
             })
             .filter(|b| !listed.contains(&Action::Go(b.url.clone())))
+            .filter(|b| !open_urls.contains(&b.url))
             .take(MAX_BOOKMARKS)
             .map(bookmark),
     );
@@ -253,6 +262,19 @@ mod tests {
             .filter(|x| x.action == Action::Go("https://example.com/".into()))
             .count();
         assert_eq!(visits, 1);
+    }
+
+    #[test]
+    fn a_bookmark_of_an_open_page_is_not_listed_again() {
+        let tabs = [tab(1, "Rust", "https://www.rust-lang.org/")];
+        let marks = [
+            bm("https://www.rust-lang.org/", "Rust"),
+            bm("https://rust.example/", "Rust blog"),
+        ];
+        let s = suggestions("rust", &tabs, &marks, T);
+        let rows = |k: Kind| s.iter().filter(|x| x.kind == k).count();
+        assert_eq!(rows(Kind::Tab), 1);
+        assert_eq!(rows(Kind::Bookmark), 1);
     }
 
     #[test]

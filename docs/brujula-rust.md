@@ -75,17 +75,28 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - **Borde inteligente** (`edge.rs`): con la barra lateral sin anclar, aparece con un movimiento
   rápido hacia el lateral (a menos de ~140 px) o con uno deliberado cerca (~48 px), no solo al tocar
   el borde.
-- **Espacios** (`spaces.rs`): grupos de pestañas con nombre e icono; cada pestaña vive en uno, el
+- **Espacios** (`spaces.rs`, `icons.rs`): grupos de pestañas con nombre e icono de Nodalia Design; cada pestaña vive en uno, el
   selector está al pie de la barra, se guardan en la sesión y ⌥↑/⌥↓ cambian de espacio. Cerrar la
   última pestaña de un espacio deja una en blanco; el cierre y la navegación no salen del espacio.
+  El icono se elige de una rejilla de 27 (persona, casa, maletín, mochila, birrete…), en el editor
+  del espacio (clic derecho, o al crearlo) o en Preferencias. Los que NDL aún no tiene (mochila,
+  maletín, birrete, mando, bolsa, café) están dibujados en `icons.rs` con las reglas de NDL (rejilla
+  de 24, margen de 3, trazo de 1,75 redondeado) y la app los instala en la caché del tema de
+  iconos como `ndl-<id>-symbolic`; hay un test que avisa cuando NDL los incorpore. Los iconos
+  guardados por versiones anteriores (emoji) pasan a ser el de por defecto.
+- **Nueva pestaña** (`newtab.rs`): saludo según la hora, buscador con el icono del motor elegido,
+  marcadores como mosaicos y pestañas recientes (abiertas en el espacio y cerradas hace poco; las
+  abiertas se activan en vez de duplicarse). Sin scripts; solo enlaces `https:` y `brujula://tab/<id>`.
+- **Barra lateral**: 232 px por defecto, de 180 a 420; los botones de navegación son compactos para
+  que el control deslizante pueda estrecharla de verdad.
 - **Marcadores** (`bookmarks.rs`): estrella de la barra o Ctrl+D; solo páginas web; se buscan en el
   Spotlight (que sin texto los lista) y se gestionan en Preferencias.
-- **Spotlight**: muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
+- **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
   nombre o palabra clave («transparencia», «pestañas arriba»…).
 
 ## Qué está verificado
 
-- Núcleo: 129 tests unitarios.
+- Núcleo: 152 tests unitarios.
 - Apariencia, marco, pestañas horizontales, espacios, Spotlight con iconos y ajustes, y la página de
   preferencias, comprobados bajo Xvfb con capturas (sin pantalla real ni compositor: la
   transparencia no se ha visto).

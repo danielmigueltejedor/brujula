@@ -14,7 +14,10 @@ use brujula_core::omnibox;
 use brujula_core::prefs;
 use brujula_core::search;
 use brujula_core::session::Session;
-use brujula_core::settings::{text_on, Layout, Settings, TabPosition, Theme, ACCENT_DEFAULT};
+use brujula_core::settings::{
+    text_on, Layout, Settings, TabPosition, Theme, ACCENT_DEFAULT, SIDEBAR_WIDTH_DEFAULT,
+    SIDEBAR_WIDTH_MIN,
+};
 use brujula_core::spaces::Spaces;
 use brujula_core::suggest::{self, Action, Kind};
 use brujula_core::tabs::{Change, TabId, TabModel};
@@ -269,6 +272,8 @@ impl Browser {
         side_header.set_show_end_title_buttons(false);
         side_header.set_show_start_title_buttons(false);
         side_header.pack_end(&side_chrome.toggle);
+        // The window's title says nothing the tab does not, and takes room the sidebar needs.
+        side_header.set_title_widget(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
 
         let nav = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         nav.add_css_class("brujula-nav");
@@ -314,7 +319,7 @@ impl Browser {
         let side = gtk::Box::new(gtk::Orientation::Vertical, 0);
         side.add_css_class("ndl-island");
         side.add_css_class("brujula-side");
-        side.set_size_request(260, -1);
+        side.set_size_request(i32::try_from(SIDEBAR_WIDTH_MIN).unwrap_or(180), -1);
         side.append(&side_header);
         side.append(&nav);
         side.append(&side_chrome.url_button);
@@ -413,11 +418,11 @@ impl Browser {
         toolbar.set_reveal_top_bars(false);
         // The split view reports a natural width smaller than its minimum when it is not pinned
         // (GTK warns about it) unless the content says it is at least as wide as the sidebar.
-        toolbar.set_size_request(340, -1);
+        toolbar.set_size_request(i32::try_from(SIDEBAR_WIDTH_MIN).unwrap_or(180) + 80, -1);
 
         let split = ndl::OverlaySplitView::new();
-        split.set_min_sidebar_width(260.0);
-        split.set_max_sidebar_width(320.0);
+        split.set_min_sidebar_width(f64::from(SIDEBAR_WIDTH_MIN));
+        split.set_max_sidebar_width(f64::from(SIDEBAR_WIDTH_DEFAULT));
         split.set_sidebar(Some(&side));
         split.set_content(Some(&toolbar));
         // Pinned: the sidebar sits beside the page. Not pinned: it floats over the page and only
@@ -1132,7 +1137,11 @@ impl Browser {
         view.connect_uri_notify(move |v| {
             if let Some(b) = this.upgrade() {
                 if let Some(id) = b.id_of(v) {
-                    let uri = v.uri().map(|u| u.to_string()).unwrap_or_default();
+                    // A load that fails (no network) leaves the view without an address; the tab
+                    // keeps the one it was opened with, so it is still there on the next start.
+                    let Some(uri) = v.uri().map(|u| u.to_string()).filter(|u| !u.is_empty()) else {
+                        return;
+                    };
                     let c = b.model.borrow_mut().update(id, |t| t.url = uri);
                     b.apply(c);
                 }
@@ -1242,7 +1251,9 @@ impl Browser {
             if page != newtab::NEWTAB_URI {
                 return true;
             }
-            if uri == newtab::CHOOSE_ENGINE_URI {
+            if let Some(tab) = newtab::parse_tab(&uri) {
+                b.switch_from_newtab(tab);
+            } else if uri == newtab::CHOOSE_ENGINE_URI {
                 b.render_newtab(v, true);
             } else if let Some(engine) = newtab::parse_set_engine(&uri) {
                 {
@@ -1699,8 +1710,8 @@ impl Browser {
         if effect.blocker {
             self.apply_blocker();
         }
-        if key == "engine" {
-            // The new-tab pages still open show the old engine.
+        if key == "engine" || effect.appearance {
+            // The new-tab pages still open show the old engine, theme or accent.
             let views: Vec<WebView> = self.views.borrow().values().cloned().collect();
             for v in views {
                 if v.uri().as_deref() == Some(newtab::NEWTAB_URI) {
@@ -1736,7 +1747,7 @@ impl Browser {
     /// Sidebar width, pinned or floating, and whether the edge wakes it.
     fn apply_layout(&self) {
         let s = self.settings.borrow();
-        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(280);
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(232);
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));
@@ -1783,6 +1794,12 @@ impl Browser {
     /// Fills the new-tab page. `choosing` shows the search-engine picker instead of the search
     /// box (first run, or when the user asked to change it).
     fn render_newtab(&self, view: &WebView, choosing: bool) {
+        let html = self.newtab_html(choosing);
+        // Loading runs handlers that borrow the model and the settings: nothing may be held.
+        view.load_html(&html, Some(newtab::NEWTAB_URI));
+    }
+
+    fn newtab_html(&self, choosing: bool) -> String {
         let settings = self.settings.borrow();
         let engine = search::engine_or_default(&settings.search_engine);
         let choosing = choosing || !settings.search_engine_chosen;
@@ -1790,8 +1807,93 @@ impl Browser {
             .first()
             .map(|l| l.to_string())
             .unwrap_or_default();
-        let html = newtab::render(engine, choosing, &lang);
-        view.load_html(&html, Some(newtab::NEWTAB_URI));
+        let hour = glib::DateTime::now_local()
+            .ok()
+            .and_then(|d| u32::try_from(d.hour()).ok())
+            .unwrap_or(12);
+        let link = |title: &str, href: String, site: &str, tag: &'static str| newtab::Link {
+            title: title.to_owned(),
+            href,
+            site: site.to_owned(),
+            icon: favicons::data_uri(site),
+            tag,
+        };
+        let bookmarks: Vec<newtab::Link> = self
+            .bookmarks
+            .borrow()
+            .items()
+            .iter()
+            .map(|b| link(&b.title, b.url.clone(), &b.url, ""))
+            .collect();
+        let model = self.model.borrow();
+        let blank = |url: &str| {
+            url.is_empty()
+                || url == "about:blank"
+                || url == newtab::NEWTAB_URI
+                || url == prefs::SETTINGS_URI
+        };
+        // Tabs open in this space (newest first), then the ones closed lately.
+        let mut recent: Vec<newtab::Link> = model
+            .in_space(model.current_space())
+            .filter(|t| !blank(&t.url))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .take(3)
+            .map(|t| {
+                link(
+                    &t.title,
+                    format!("{}{}", newtab::TAB_PREFIX, t.id.0),
+                    &t.url,
+                    "Abierta",
+                )
+            })
+            .collect();
+        recent.extend(
+            model
+                .recently_closed(8)
+                .into_iter()
+                .filter(|(_, url)| !blank(url))
+                .take(3)
+                .map(|(title, url)| link(title, url.to_owned(), url, "Cerrada")),
+        );
+        let theme = match settings.appearance.theme {
+            Theme::System => "system",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        };
+        newtab::render(&newtab::Page {
+            engine,
+            choosing,
+            lang: &lang,
+            theme,
+            accent: &settings.appearance.accent,
+            hour,
+            bookmarks: &bookmarks,
+            recent: &recent,
+        })
+    }
+
+    /// Shows the open tab a link on the new-tab page points at, and drops the blank tab that was
+    /// showing the page.
+    fn switch_from_newtab(self: &Rc<Self>, target: u64) {
+        let target = TabId(target);
+        if self.model.borrow().get(target).is_none() {
+            return;
+        }
+        let blank = self.model.borrow().selected();
+        let changes = self.model.borrow_mut().select(target);
+        self.apply(changes);
+        if let Some(blank) = blank.filter(|b| *b != target) {
+            let is_newtab = self
+                .model
+                .borrow()
+                .get(blank)
+                .is_some_and(|t| t.url == newtab::NEWTAB_URI);
+            if is_newtab {
+                self.close_tab(blank);
+            }
+        }
     }
 
     /// What the Spotlight lists for `text`.
@@ -1983,7 +2085,7 @@ impl Browser {
             .all()
             .iter()
             .filter(|s| s.id != here)
-            .map(|s| (s.id, format!("{} {}", s.badge(), s.name)))
+            .map(|s| (s.id, s.name.clone()))
             .collect();
         for (space, label) in others {
             add(

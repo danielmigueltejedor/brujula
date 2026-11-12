@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use nodalia_gtk::gtk;
 use nodalia_gtk::gtk::gdk;
+use nodalia_gtk::gtk::glib;
 use nodalia_gtk::gtk::prelude::*;
 
 use crate::paths;
@@ -56,6 +57,14 @@ pub fn lookup(url: &str) -> Option<gdk::Texture> {
             .or_insert_with(|| gdk::Texture::from_filename(file_for(&host)).ok())
             .clone()
     })
+}
+
+/// The icon last seen for the site of `url`, as a `data:` address for the new-tab page.
+pub fn data_uri(url: &str) -> Option<String> {
+    let texture = lookup(url)?;
+    let png = texture.save_to_png_bytes();
+    // A page that asks for a huge icon must not bloat the new-tab page.
+    (png.len() <= 32 * 1024).then(|| format!("data:image/png;base64,{}", glib::base64_encode(&png)))
 }
 
 /// A 16x16 widget showing `texture`, scaled to fit whatever its natural size is: a large icon

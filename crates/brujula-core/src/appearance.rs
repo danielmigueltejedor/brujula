@@ -3,7 +3,16 @@
 //! Everything here is plain GTK CSS built from validated numbers and colours (see
 //! [`Appearance::sanitized`]), so a setting can never put arbitrary text in the sheet.
 
-use crate::settings::{Appearance, Layout, TabPosition};
+use crate::settings::{text_on, Appearance, Layout, TabPosition};
+
+/// Dark ink on a light frame, light ink on a dark one.
+fn text_on_frame(frame: &str) -> &'static str {
+    if text_on(frame) == "#ffffff" {
+        "#f2f4f5"
+    } else {
+        "#14181b"
+    }
+}
 
 /// CSS that goes on top of the browser's own sheet. The window carries the class
 /// `brujula-window` (and `brujula-frame` in the frame layout, `brujula-horizontal` with the tab
@@ -39,6 +48,17 @@ pub fn css(a: &Appearance) -> String {
              window.brujula-frame .brujula-topbar {{ background-color: transparent; }}\n",
             r = a.radius,
         ));
+        // The sidebar and the tab bar sit straight on the frame colour, so their text must read
+        // on it whatever the theme is.
+        if !a.frame_color.is_empty() {
+            css.push_str(&format!(
+                "window.brujula-frame .brujula-side, window.brujula-frame .brujula-topbar {{ color: {ink}; }}\n\
+                 window.brujula-frame .brujula-side button.flat:not(:checked), window.brujula-frame .brujula-topbar button.flat:not(:checked) {{ color: inherit; }}\n\
+                 window.brujula-frame .brujula-side button.flat:hover:not(:checked), window.brujula-frame .brujula-topbar button.flat:hover:not(:checked), window.brujula-frame .brujula-side row:hover:not(:selected), window.brujula-frame .brujula-side .brujula-space-current {{ background-color: alpha({ink}, 0.14); }}\n\
+                 window.brujula-frame .brujula-side row:not(:selected), window.brujula-frame .brujula-side row:not(:selected) label, window.brujula-frame .brujula-side row:not(:selected) image {{ color: {ink}; }}\n",
+                ink = text_on_frame(&a.frame_color),
+            ));
+        }
     }
     if a.tabs == TabPosition::Horizontal {
         // The tab bar sits above the page, which stays an island under it.
@@ -66,6 +86,27 @@ mod tests {
         let css = css(&a);
         assert!(css.contains("border-radius: 20px; margin: 4px"));
         assert!(css.contains("0.80"));
+    }
+
+    #[test]
+    fn text_on_the_frame_reads_on_the_frame_colour() {
+        let on = |frame: &str| {
+            css(&Appearance {
+                layout: Layout::Frame,
+                frame_color: frame.into(),
+                ..Appearance::default()
+            })
+        };
+        assert!(on("#dbe7e0").contains("color: #14181b;"));
+        assert!(on("#1a2420").contains("color: #f2f4f5;"));
+        // With the theme's own frame colour the theme's ink is already right.
+        assert!(!on("").contains("color: #14181b;"));
+        // And islands keep their own panels, so nothing is forced on them.
+        assert!(!css(&Appearance {
+            frame_color: "#dbe7e0".into(),
+            ..Appearance::default()
+        })
+        .contains("color: #14181b;"));
     }
 
     #[test]

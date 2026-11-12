@@ -56,3 +56,11 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-chip { min-height: 32px; padding: 0 var(--ndl-space-md); border-radius: 10px; }
 .brujula-chip-current { background: rgba(127, 127, 127, 0.22); }
 .brujula-chip:hover .brujula-tab-close { opacity: 1; }
+
+/* The navigation row is as narrow as the sidebar can get: compact buttons (min-width counts
+   the content only, so 16px of icon plus the padding and the border is 26px). */
+.brujula-side .brujula-nav button, .brujula-side .brujula-nav menubutton > button { min-width: 16px; min-height: 20px; padding: 4px; }
+
+/* The icon grid of the space editor */
+.brujula-icon-choice { min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
+.brujula-icon-current { background: var(--ndl-color-accent-subtle); }

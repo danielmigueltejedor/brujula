@@ -24,6 +24,7 @@ type Activate = Box<dyn Fn(Action)>;
 
 pub struct Spotlight {
     pub root: gtk::Box,
+    card: gtk::Box,
     entry: gtk::Entry,
     list: gtk::ListBox,
     results: gtk::ScrolledWindow,
@@ -64,7 +65,7 @@ impl Spotlight {
         card.set_size_request(560, -1);
         card.set_halign(gtk::Align::Center);
         card.set_valign(gtk::Align::Start);
-        card.set_margin_top(96);
+        card.set_margin_top(180);
         card.append(&entry);
         card.append(&results);
 
@@ -77,6 +78,7 @@ impl Spotlight {
 
         let this = Rc::new(Self {
             root,
+            card: card.clone(),
             entry,
             list,
             results,
@@ -99,10 +101,26 @@ impl Spotlight {
         self.quiet.set(true);
         self.entry.set_text(initial);
         self.quiet.set(false);
+        self.place();
         self.root.set_visible(true);
         self.entry.grab_focus();
         self.entry.select_region(0, -1);
         self.refresh();
+    }
+
+    /// Puts the search box in the middle of the window, a little above the exact centre so the
+    /// results that open below it still fit. It stays where it is while they come and go.
+    fn place(&self) {
+        let height = self
+            .root
+            .parent()
+            .map_or(0, |p| p.height())
+            .max(self.root.height());
+        let height = if height > 0 { height } else { 800 };
+        // Room under the box for the results (at most 360 px) and some air.
+        let room = height - 60 - 360 - 32;
+        let centre = height * 40 / 100 - 30;
+        self.card.set_margin_top(centre.min(room).max(24));
     }
 
     pub fn is_open(&self) -> bool {

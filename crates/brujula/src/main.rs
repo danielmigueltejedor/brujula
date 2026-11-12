@@ -1,6 +1,7 @@
 mod browser;
 mod favicons;
 mod filters;
+mod icons;
 mod paths;
 mod spotlight;
 
@@ -23,6 +24,7 @@ fn main() -> gtk::glib::ExitCode {
             settings.set_gtk_decoration_layout(Some(":minimize,maximize,close"));
         }
         ndl::init();
+        icons::install();
         browser::install_css();
         browser::install_app_actions(app);
     });

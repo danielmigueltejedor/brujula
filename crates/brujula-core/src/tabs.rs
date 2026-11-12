@@ -167,6 +167,16 @@ impl TabModel {
         changes
     }
 
+    /// The pages of the last closed tabs, most recent first: `(title, url)`.
+    pub fn recently_closed(&self, limit: usize) -> Vec<(&str, &str)> {
+        self.closed
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|(url, title, ..)| (title.as_str(), url.as_str()))
+            .collect()
+    }
+
     /// Reopens the most recently closed tab in its old position (clamped).
     pub fn reopen(&mut self) -> Option<(TabId, Vec<Change>)> {
         let (url, title, pos, space) = self.closed.pop()?;

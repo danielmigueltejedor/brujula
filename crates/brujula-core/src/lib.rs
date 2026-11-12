@@ -7,6 +7,7 @@ pub mod appearance;
 pub mod bookmarks;
 pub mod downloads;
 pub mod edge;
+pub mod icons;
 pub mod newtab;
 pub mod omnibox;
 pub mod prefs;

@@ -9,6 +9,9 @@ pub struct Engine {
     pub name: &'static str,
     /// Search URL, `%s` is the query.
     pub template: &'static str,
+    /// The letter of the engine's badge, and the colour behind it.
+    pub mark: &'static str,
+    pub color: &'static str,
 }
 
 pub const ENGINES: &[Engine] = &[
@@ -16,38 +19,63 @@ pub const ENGINES: &[Engine] = &[
         id: "google",
         name: "Google",
         template: "https://www.google.com/search?q=%s",
+        mark: "G",
+        color: "#4285f4",
     },
     Engine {
         id: "duckduckgo",
         name: "DuckDuckGo",
         template: "https://duckduckgo.com/?q=%s",
+        mark: "D",
+        color: "#de5833",
     },
     Engine {
         id: "bing",
         name: "Bing",
         template: "https://www.bing.com/search?q=%s",
+        mark: "B",
+        color: "#0b8a8a",
     },
     Engine {
         id: "brave",
         name: "Brave Search",
         template: "https://search.brave.com/search?q=%s",
+        mark: "B",
+        color: "#fb542b",
     },
     Engine {
         id: "ecosia",
         name: "Ecosia",
         template: "https://www.ecosia.org/search?q=%s",
+        mark: "E",
+        color: "#3f9d4a",
     },
     Engine {
         id: "startpage",
         name: "Startpage",
         template: "https://www.startpage.com/do/search?q=%s",
+        mark: "S",
+        color: "#5a67f2",
     },
     Engine {
         id: "qwant",
         name: "Qwant",
         template: "https://www.qwant.com/?q=%s",
+        mark: "Q",
+        color: "#2f4bd6",
     },
 ];
+
+impl Engine {
+    /// The engine's badge for an HTML page: its letter on its colour (the engines' own logos are
+    /// theirs, so the page draws a plain badge).
+    pub fn badge(&self) -> String {
+        format!(
+            r#"<span class="eng" style="background:{}" aria-hidden="true">{}</span>"#,
+            self.color, self.mark
+        )
+    }
+}
 
 pub const DEFAULT_ENGINE: &str = "google";
 
