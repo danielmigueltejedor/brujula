@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Name=Brújula
+GenericName=Navegador web
+GenericName[en]=Web browser
+Comment=Navega por la web con pestañas verticales y bloqueador de anuncios
+Comment[en]=Browse the web with vertical tabs and a built-in ad blocker
+Keywords=navegador;web;internet;browser;
+Exec=brujula %U
+Icon=dev.danielmiguelt.Brujula
+Terminal=false
+StartupNotify=true
+StartupWMClass=dev.danielmiguelt.Brujula
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=Nueva ventana
+Name[en]=New window
+Exec=brujula

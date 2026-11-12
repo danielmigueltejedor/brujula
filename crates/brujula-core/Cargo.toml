@@ -1,0 +1,13 @@
+[package]
+name = "brujula-core"
+description = "Brújula's logic without a UI: tab model, omnibox, ad-blocker lists and cosmetic filtering."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+adblock = { version = "0.13", default-features = false, features = ["css-validation", "content-blocking", "embedded-domain-resolver", "full-regex-handling"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2.5"

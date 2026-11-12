@@ -1,0 +1,20 @@
+[package]
+name = "brujula"
+description = "Brújula, the Nodalix web browser: WebKit, vertical tabs, a built-in ad blocker and the Nodalia Design Language."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "brujula"
+path = "src/main.rs"
+
+[dependencies]
+brujula-core = { path = "../brujula-core" }
+nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "58724b0258c5f3258bbbe7bdd81b9d3801096be0" }
+webkit6 = "0.6"
+soup3 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2.5"
