@@ -14,10 +14,12 @@ retirarlo.
 
 ## Decisiones
 
-- **Todo en vertical, como Zen o Arc.** La barra lateral (isla NDL) lleva los controles de la
-  ventana arriba a la izquierda, atrás/adelante/recargar, el escudo del bloqueador, el menú, la
-  "píldora" de dirección y la lista de pestañas (ancladas arriba, cierre con clic central, menú
-  contextual). `Ctrl+B` la oculta; entonces aparece una barra fina con los mismos controles.
+- **Todo en vertical, como Zen o Arc.** La barra lateral (isla NDL) lleva atrás/adelante/
+  recargar, el escudo del bloqueador, el menú, la "píldora" de dirección y la lista de pestañas
+  (ancladas arriba, cierre con clic central, menú contextual). `Ctrl+B` la ancla o la suelta:
+  suelta, la web ocupa toda la ventana y la barra lateral aparece flotando al acercar el ratón
+  al borde izquierdo. Los controles de ventana van arriba a la derecha, en una barra que baja al
+  acercar el ratón al borde superior.
 - **Spotlight.** Pulsar la píldora (o `Ctrl+L`) abre un buscador centrado sobre la página: una
   búsqueda con el buscador elegido, "ir a" si es una dirección, y las pestañas abiertas que
   coinciden. Flechas para moverse, Enter para ir, Esc para cerrar.
@@ -29,10 +31,23 @@ retirarlo.
   - reglas de bloqueo de red en formato *content blocker*, que WebKit aplica dentro del proceso
     antes de enviar la petición (con el motor `adblock` de Brave como compilador);
   - reglas cosméticas (ocultar elementos), por sitio y genéricas, inyectadas como hoja de estilo
-    en un mundo aislado de JavaScript.
+    en un mundo aislado de JavaScript. A WebKit **no** se le pasan las reglas de ocultar del
+    conversor: las aplica en todas las webs e ignora las excepciones (`#@#`), y llegó a ocultar
+    el logo y los iconos de YouTube;
+  - *scriptlets* (`sitio##+js(nombre, args)`): scripts que se ejecutan en la página antes que los
+    suyos, para quitar por ejemplo los anuncios de vídeo de YouTube. El código es el de uBlock
+    Origin (GPL-3.0), empaquetado por `scripts/bundle-ubo-scriptlets.py` en
+    `crates/brujula/resources/ubo-scriptlets.js.txt` (el resultado se versiona: compilar no necesita
+    red). Solo se usan reglas con sitio, y el script solo se inyecta en esos sitios.
   Lo compilado se guarda en caché, así que desde la segunda vez las reglas están puestas antes de
   cargar la primera página. Las listas se refrescan cada 24 h (14 días con conexión de pago).
-- **Sesión.** Se restauran las pestañas (solo `http`, `https` y `about:blank`).
+- **Sesión.** Se restauran las pestañas (solo `http`, `https` y `about:blank`); solo carga la
+  que está delante, las demás al abrirlas.
+- **Seguridad.** Las descargas con nombre limpio y sin archivos ejecutables (scripts, lanzadores,
+  instaladores, paquetes); `javascript:`, `data:` y `blob:` no se cargan desde la barra, la línea
+  de comandos ni la sesión; permisos denegados hasta que haya avisos; errores de certificado
+  siempre fallan; una web no puede llevar el navegador a `file:`. El sandbox de WebKit sigue
+  activo (no se define `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS`).
 - **ID de la app.** `dev.danielmiguelt.Brujula`.
 
 ## Compilar y probar

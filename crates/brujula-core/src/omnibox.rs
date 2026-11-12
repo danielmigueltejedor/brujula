@@ -7,7 +7,8 @@ pub const DEFAULT_SEARCH: &str = "https://duckduckgo.com/?q=%s";
 
 /// Resolves address-bar input.
 ///
-/// - A string with a scheme (`https://…`, `about:blank`, `file:///…`) is used as is.
+/// - A string with a scheme (`https://…`, `about:blank`, `file:///…`) is used as is, unless the
+///   scheme can run code (`javascript:`, `data:`…): then it is searched for as text.
 /// - Something that looks like a host (`example.com`, `localhost:3000`, `192.168.1.1/admin`)
 ///   gets `https://` (`http://` for localhost and private addresses, which rarely have TLS).
 /// - Anything else is a search.
@@ -20,9 +21,13 @@ pub fn resolve(input: &str, search_template: &str) -> Option<Url> {
     }
 
     if has_scheme(text) {
-        if let Ok(url) = Url::parse(text) {
+        if let Some(url) = parse_allowed(text) {
             return Some(url);
         }
+        // `javascript:`, `data:` and the like are never loaded from the address bar: pasting
+        // them is a common trick to run a stranger's code in the page in front. They are
+        // searched for as text instead.
+        return Some(search_url(text, search_template));
     }
 
     if !text.contains(char::is_whitespace) {
@@ -40,7 +45,16 @@ pub fn looks_like_address(input: &str) -> bool {
     if text.is_empty() || text.contains(char::is_whitespace) {
         return false;
     }
-    (has_scheme(text) && Url::parse(text).is_ok()) || host_like(text).is_some()
+    (has_scheme(text) && parse_allowed(text).is_some()) || host_like(text).is_some()
+}
+
+/// Schemes the address bar may open. Anything else (`javascript:`, `data:`, `blob:`, `vbscript:`,
+/// custom handlers) is refused.
+const ALLOWED_SCHEMES: &[&str] = &["http", "https", "file", "about"];
+
+fn parse_allowed(text: &str) -> Option<Url> {
+    let url = Url::parse(text).ok()?;
+    ALLOWED_SCHEMES.contains(&url.scheme()).then_some(url)
 }
 
 fn has_scheme(text: &str) -> bool {
@@ -133,6 +147,39 @@ pub fn search_url(query: &str, template: &str) -> Url {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn code_schemes_are_searched_not_loaded() {
+        for input in [
+            "javascript:alert(document.cookie)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "blob:https://example.com/abc",
+            "view-source:https://example.com",
+            "ms-msdt:/id",
+        ] {
+            let url = resolve(input, DEFAULT_SEARCH).unwrap();
+            assert_eq!(url.host_str(), Some("duckduckgo.com"), "{input} -> {url}");
+            assert!(!looks_like_address(input), "{input}");
+        }
+    }
+
+    #[test]
+    fn web_and_local_schemes_still_open() {
+        for input in [
+            "https://example.com/a",
+            "http://localhost:3000",
+            "about:blank",
+            "file:///tmp/a.html",
+        ] {
+            let url = resolve(input, DEFAULT_SEARCH).unwrap();
+            assert_eq!(
+                url.as_str().trim_end_matches('/'),
+                input.trim_end_matches('/')
+            );
+        }
+    }
+
     use super::*;
 
     fn r(s: &str) -> String {

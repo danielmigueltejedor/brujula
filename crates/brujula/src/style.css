@@ -28,10 +28,22 @@ row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
 .brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
 
 /* Spotlight */
-.brujula-scrim { background: alpha(black, 0.35); }
-.brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px alpha(black, 0.35); }
+.brujula-scrim { background: rgba(0, 0, 0, 0.35); }
+.brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
 .brujula-spotlight row { min-height: 44px; }
 
 .brujula-progress trough { min-height: 2px; }
 .brujula-progress progress { min-height: 2px; }
+
+/* The window-controls bar over the page, and the sidebar when it floats. */
+.brujula-floatbar {
+  background: alpha(@window_bg_color, 0.92);
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  margin: 0 var(--ndl-space-lg);
+}
+.collapsed .ndl-scrim { background: transparent; }
+.collapsed .brujula-side { box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
+/* Sidebar not pinned: the site fills the window edge to edge. */
+ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius: 0; }

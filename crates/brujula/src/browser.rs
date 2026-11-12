@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use brujula_core::adblock;
+use brujula_core::downloads;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::search;
@@ -161,7 +162,19 @@ const URL_PLACEHOLDER: &str = "Buscar o escribir una dirección";
 pub struct Browser {
     window: ndl::ApplicationWindow,
     split: ndl::OverlaySplitView,
-    toolbar: ndl::ToolbarView,
+    /// The window-controls bar, shown while the pointer is at the top edge.
+    bar_revealer: gtk::Revealer,
+    top_hot: gtk::Box,
+    /// Wakes the sidebar when it is not pinned.
+    left_hot: gtk::Box,
+    side: gtk::Box,
+    /// Restored tabs that have not been opened yet: their page loads when they are selected, so
+    /// starting with many tabs does not start many page loads.
+    lazy: RefCell<HashMap<TabId, String>>,
+    /// True while the saved tabs are being put back; the tab that ends up in front loads then.
+    restoring: Cell<bool>,
+    hide_bar: RefCell<Option<glib::SourceId>>,
+    hide_side: RefCell<Option<glib::SourceId>>,
     list: gtk::ListBox,
     stack: gtk::Stack,
     progress: gtk::ProgressBar,
@@ -195,6 +208,9 @@ impl Browser {
         if let Some(dm) = session.website_data_manager() {
             dm.set_favicons_enabled(true);
         }
+        // A bad certificate is a failure, never a click-through; trackers get no free ride.
+        session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
+        session.set_itp_enabled(true);
         let ucm = UserContentManager::new();
         let filters = Filters::new(ucm.clone());
 
@@ -209,6 +225,7 @@ impl Browser {
         // Sidebar, top to bottom: window controls, navigation, address, tabs, new tab.
         let side_header = ndl::HeaderBar::new();
         side_header.set_show_end_title_buttons(false);
+        side_header.set_show_start_title_buttons(false);
         side_header.pack_end(&side_chrome.toggle);
 
         let nav = gtk::Box::new(gtk::Orientation::Horizontal, 2);
@@ -261,18 +278,31 @@ impl Browser {
         side.append(&scroller);
         side.append(&new_tab);
 
-        // Content: the page, with a slim bar above it only while the sidebar is hidden.
-        let slim = ndl::HeaderBar::new();
-        slim.set_show_end_title_buttons(false);
-        slim.pack_start(&slim_chrome.toggle);
-        slim.pack_start(&slim_chrome.back);
-        slim.pack_start(&slim_chrome.forward);
-        slim.pack_start(&slim_chrome.reload);
-        slim_chrome.url_button.set_size_request(380, -1);
-        slim_chrome.url_button.set_hexpand(false);
-        slim.set_title_widget(Some(&slim_chrome.url_button));
-        slim.pack_end(&slim_chrome.menu);
-        slim.pack_end(&slim_chrome.shield);
+        // Window controls live in a bar that slides down from the top edge of the page when
+        // the pointer gets there, top right like on every desktop. Nothing else sits over the
+        // page: with the sidebar hidden the site fills the whole window.
+        let bar = ndl::HeaderBar::new();
+        bar.add_css_class("brujula-floatbar");
+        bar.set_show_start_title_buttons(false);
+        bar.set_show_end_title_buttons(true);
+        bar.pack_start(&slim_chrome.toggle);
+        let bar_revealer = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::SlideDown)
+            .transition_duration(160)
+            .valign(gtk::Align::Start)
+            .halign(gtk::Align::Fill)
+            .child(&bar)
+            .build();
+        // A few pixels along the top edge, and along the left edge, wake the bar and the sidebar.
+        let top_hot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        top_hot.set_size_request(-1, 4);
+        top_hot.set_valign(gtk::Align::Start);
+        top_hot.set_halign(gtk::Align::Fill);
+        let left_hot = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        left_hot.set_size_request(6, -1);
+        left_hot.set_halign(gtk::Align::Start);
+        left_hot.set_valign(gtk::Align::Fill);
+        left_hot.set_visible(!settings.sidebar_visible);
 
         let progress = gtk::ProgressBar::new();
         progress.add_css_class("osd");
@@ -288,15 +318,20 @@ impl Browser {
         page.add_overlay(&progress);
 
         let toolbar = ndl::ToolbarView::new();
-        toolbar.add_top_bar(&slim);
         toolbar.set_content(Some(&page));
-        toolbar.set_reveal_top_bars(!settings.sidebar_visible);
+        toolbar.set_reveal_top_bars(false);
+        // The split view reports a natural width smaller than its minimum when it is not pinned
+        // (GTK warns about it) unless the content says it is at least as wide as the sidebar.
+        toolbar.set_size_request(340, -1);
 
         let split = ndl::OverlaySplitView::new();
         split.set_min_sidebar_width(260.0);
         split.set_max_sidebar_width(320.0);
         split.set_sidebar(Some(&side));
         split.set_content(Some(&toolbar));
+        // Pinned: the sidebar sits beside the page. Not pinned: it floats over the page and only
+        // shows while the pointer is at the left edge.
+        split.set_collapsed(!settings.sidebar_visible);
         split.set_show_sidebar(settings.sidebar_visible);
 
         // The Spotlight sits over everything. Its query and result are wired in `wire`, once
@@ -320,13 +355,23 @@ impl Browser {
         );
         let overlay = gtk::Overlay::new();
         overlay.set_child(Some(&split));
+        overlay.add_overlay(&top_hot);
+        overlay.add_overlay(&left_hot);
+        overlay.add_overlay(&bar_revealer);
         overlay.add_overlay(&spotlight.root);
         window.set_content(Some(&overlay));
 
         let this = Rc::new(Self {
             window,
             split,
-            toolbar,
+            bar_revealer,
+            top_hot,
+            left_hot,
+            side,
+            lazy: RefCell::new(HashMap::new()),
+            restoring: Cell::new(false),
+            hide_bar: RefCell::new(None),
+            hide_side: RefCell::new(None),
             list,
             stack,
             progress,
@@ -463,16 +508,17 @@ impl Browser {
         let toggle = gio::SimpleAction::new_stateful(
             "toggle-sidebar",
             None,
-            &self.split.shows_sidebar().to_variant(),
+            &self.settings.borrow().sidebar_visible.to_variant(),
         );
         let this = Rc::downgrade(self);
         toggle.connect_activate(move |a, _| {
             if let Some(b) = this.upgrade() {
-                let show = !b.split.shows_sidebar();
-                b.split.set_show_sidebar(show);
-                b.toolbar.set_reveal_top_bars(!show);
-                a.set_state(&show.to_variant());
-                b.settings.borrow_mut().sidebar_visible = show;
+                let pinned = !b.settings.borrow().sidebar_visible;
+                b.split.set_collapsed(!pinned);
+                b.split.set_show_sidebar(pinned);
+                b.left_hot.set_visible(!pinned);
+                a.set_state(&pinned.to_variant());
+                b.settings.borrow_mut().sidebar_visible = pinned;
                 b.save_settings();
             }
         });
@@ -590,6 +636,8 @@ impl Browser {
             }
         });
 
+        self.wire_hover();
+
         // Save the session on close.
         let this = Rc::downgrade(self);
         self.window.connect_close_request(move |_| {
@@ -598,6 +646,115 @@ impl Browser {
             }
             glib::Propagation::Proceed
         });
+    }
+
+    /// Shows the window-controls bar at the top edge and, while the sidebar is not pinned, the
+    /// sidebar at the left edge; both hide a moment after the pointer leaves them.
+    fn wire_hover(self: &Rc<Self>) {
+        // Top bar.
+        let enter = gtk::EventControllerMotion::new();
+        let this = Rc::downgrade(self);
+        enter.connect_enter(move |_, _, _| {
+            if let Some(b) = this.upgrade() {
+                if let Some(s) = b.hide_bar.take() {
+                    s.remove();
+                }
+                b.bar_revealer.set_reveal_child(true);
+            }
+        });
+        let this = Rc::downgrade(self);
+        enter.connect_leave(move |_| {
+            if let Some(b) = this.upgrade() {
+                b.schedule_hide_bar();
+            }
+        });
+        self.top_hot.add_controller(enter);
+        let bar_motion = gtk::EventControllerMotion::new();
+        let this = Rc::downgrade(self);
+        bar_motion.connect_enter(move |_, _, _| {
+            if let Some(b) = this.upgrade() {
+                if let Some(s) = b.hide_bar.take() {
+                    s.remove();
+                }
+            }
+        });
+        let this = Rc::downgrade(self);
+        bar_motion.connect_leave(move |_| {
+            if let Some(b) = this.upgrade() {
+                b.schedule_hide_bar();
+            }
+        });
+        self.bar_revealer.add_controller(bar_motion);
+
+        // Left edge: the sidebar, when it is not pinned.
+        let edge = gtk::EventControllerMotion::new();
+        let this = Rc::downgrade(self);
+        edge.connect_enter(move |_, _, _| {
+            if let Some(b) = this.upgrade() {
+                if let Some(s) = b.hide_side.take() {
+                    s.remove();
+                }
+                if !b.settings.borrow().sidebar_visible {
+                    b.split.set_show_sidebar(true);
+                }
+            }
+        });
+        let this = Rc::downgrade(self);
+        edge.connect_leave(move |_| {
+            if let Some(b) = this.upgrade() {
+                b.schedule_hide_side();
+            }
+        });
+        self.left_hot.add_controller(edge);
+        let side_motion = gtk::EventControllerMotion::new();
+        let this = Rc::downgrade(self);
+        side_motion.connect_enter(move |_, _, _| {
+            if let Some(b) = this.upgrade() {
+                if let Some(s) = b.hide_side.take() {
+                    s.remove();
+                }
+            }
+        });
+        let this = Rc::downgrade(self);
+        side_motion.connect_leave(move |_| {
+            if let Some(b) = this.upgrade() {
+                b.schedule_hide_side();
+            }
+        });
+        self.side.add_controller(side_motion);
+    }
+
+    fn schedule_hide_bar(self: &Rc<Self>) {
+        if let Some(old) = self.hide_bar.take() {
+            old.remove();
+        }
+        let this = Rc::downgrade(self);
+        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(450), move || {
+            if let Some(b) = this.upgrade() {
+                // `take` first: the source is finished, so it must not be removed again.
+                b.hide_bar.take();
+                b.bar_revealer.set_reveal_child(false);
+            }
+        });
+        *self.hide_bar.borrow_mut() = Some(id);
+    }
+
+    fn schedule_hide_side(self: &Rc<Self>) {
+        if let Some(old) = self.hide_side.take() {
+            old.remove();
+        }
+        let this = Rc::downgrade(self);
+        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(450), move || {
+            if let Some(b) = this.upgrade() {
+                b.hide_side.take();
+                // The Spotlight and the tab menu take the pointer: keep the sidebar open
+                // while one is up, or the page flickers.
+                if !b.settings.borrow().sidebar_visible && !b.spotlight.is_open() {
+                    b.split.set_show_sidebar(false);
+                }
+            }
+        });
+        *self.hide_side.borrow_mut() = Some(id);
     }
 
     fn start(self: &Rc<Self>, urls: &[String]) {
@@ -623,6 +780,7 @@ impl Browser {
             .map(|t| Session::from_json(&t))
             .unwrap_or_default();
 
+        self.restoring.set(true);
         let mut opened = Vec::new();
         for t in &session.tabs {
             let (id, ch) = self.model.borrow_mut().open(&t.url, None, false);
@@ -632,7 +790,12 @@ impl Browser {
             self.model
                 .borrow_mut()
                 .update(id, |tab| tab.title = t.title.clone());
-            self.create_view(id, &t.url, None);
+            if t.url == newtab::NEWTAB_URI || t.url.is_empty() {
+                self.create_view(id, &t.url, None);
+            } else {
+                self.create_view(id, "", None);
+                self.lazy.borrow_mut().insert(id, t.url.clone());
+            }
             self.apply(ch);
             opened.push(id);
         }
@@ -640,11 +803,27 @@ impl Browser {
             let c = self.model.borrow_mut().select(*id);
             self.apply(c);
         }
+        self.restoring.set(false);
+        self.load_if_lazy();
         for u in urls {
             self.open_tab(u, None, true);
         }
         if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
+        }
+    }
+
+    /// Loads the page of the tab in front if it was restored but never opened.
+    fn load_if_lazy(&self) {
+        if self.restoring.get() {
+            return;
+        }
+        let Some(id) = self.model.borrow().selected() else {
+            return;
+        };
+        let url = self.lazy.borrow_mut().remove(&id);
+        if let (Some(url), Some(v)) = (url, self.views.borrow().get(&id)) {
+            v.load_uri(&url);
         }
     }
 
@@ -699,7 +878,19 @@ impl Browser {
         if let Some(s) = WebViewExt::settings(&view) {
             s.set_enable_developer_extras(true);
             s.set_enable_back_forward_navigation_gestures(true);
+            // Hardening. Pages may not open windows on their own or read local files.
+            s.set_javascript_can_open_windows_automatically(false);
+            s.set_allow_file_access_from_file_urls(false);
+            s.set_allow_universal_access_from_file_urls(false);
+            s.set_allow_modal_dialogs(false);
+            s.set_enable_write_console_messages_to_stdout(false);
         }
+        // Camera, microphone, location, notifications and the like are refused until there is
+        // a prompt to ask the user.
+        view.connect_permission_request(|_, request| {
+            request.deny();
+            true
+        });
 
         let this = Rc::downgrade(self);
         view.connect_title_notify(move |v| {
@@ -793,6 +984,14 @@ impl Browser {
                 .and_then(|r| r.uri())
                 .map(|u| u.to_string())
                 .unwrap_or_default();
+            // A web page never gets to point the browser at a local file.
+            let from_web = v
+                .uri()
+                .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"));
+            if from_web && uri.to_ascii_lowercase().starts_with("file:") {
+                decision.ignore();
+                return true;
+            }
             if !uri.starts_with("brujula://") || uri == newtab::NEWTAB_URI {
                 return false;
             }
@@ -816,19 +1015,32 @@ impl Browser {
             }
             true
         });
-        // Downloads go to the user's Downloads folder, without a prompt.
+        // Downloads go to the user's Downloads folder, without a prompt. The page picks the name,
+        // so it is cleaned, and files that can run (scripts, launchers, installers) are refused:
+        // a page must not be able to drop one where a double click would start it.
         let this = Rc::downgrade(self);
         self.session.connect_download_started(move |_, download| {
-            let _ = &this;
-            download.connect_decide_destination(|d, suggested| {
+            let this = this.clone();
+            download.connect_decide_destination(move |d, suggested| {
                 let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
                     .unwrap_or_else(glib::home_dir);
-                let name = if suggested.is_empty() {
-                    "download"
-                } else {
-                    suggested
-                };
-                let name = name.replace(['/', '\\'], "_");
+                let name = downloads::safe_file_name(suggested);
+                if downloads::is_dangerous(&name) {
+                    d.cancel();
+                    if let Some(b) = this.upgrade() {
+                        gtk::AlertDialog::builder()
+                            .message("Descarga bloqueada")
+                            .detail(format!(
+                                "«{name}» es un archivo que se puede ejecutar. Brújula no lo \
+                                 guarda para que ningún sitio web pueda dejar un programa o script \
+                                 en tu equipo."
+                            ))
+                            .buttons(["Entendido"])
+                            .build()
+                            .show(Some(&b.window));
+                    }
+                    return true;
+                }
                 let mut path = dir.join(&name);
                 let mut n = 1;
                 while path.exists() {
@@ -864,6 +1076,7 @@ impl Browser {
             match change {
                 Change::Opened(id) => self.add_row(id),
                 Change::Closed(id) => {
+                    self.lazy.borrow_mut().remove(&id);
                     if let Some(r) = self.rows.borrow_mut().remove(&id) {
                         self.list.remove(&r.row);
                     }
@@ -885,6 +1098,7 @@ impl Browser {
                         self.list.select_row(Some(&r.row));
                     }
                     self.syncing.set(false);
+                    self.load_if_lazy();
                     self.sync_chrome();
                     if let Some(v) = self.views.borrow().get(&id) {
                         v.grab_focus();

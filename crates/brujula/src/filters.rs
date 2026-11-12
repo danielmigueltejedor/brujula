@@ -6,11 +6,15 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use brujula_core::adblock::{self, Cosmetic, FilterList, PageCosmetic};
+use brujula_core::scriptlets::Scriptlets;
 use brujula_core::settings::Settings;
 use nodalia_gtk::gtk::gio;
 use nodalia_gtk::gtk::glib;
 use soup::prelude::*;
-use webkit6::{UserContentFilterStore, UserContentManager};
+use webkit6::{
+    UserContentFilterStore, UserContentInjectedFrames, UserContentManager, UserScript,
+    UserScriptInjectionTime,
+};
 
 use crate::paths;
 
@@ -47,6 +51,31 @@ struct Manifest {
 fn manifest_path() -> std::path::PathBuf {
     paths::cache_dir().join("filters-manifest.json")
 }
+
+fn scriptlets_path() -> std::path::PathBuf {
+    paths::cache_dir().join("filters-scriptlets.json")
+}
+
+/// The scriptlet rules saved with the engine, or none if the cache is missing or unreadable.
+fn load_scriptlets() -> Scriptlets {
+    std::fs::read_to_string(scriptlets_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Scriptlets>(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Saves the cosmetic engine and the scriptlet rules next to the manifest.
+fn store_cache(engine_bytes: &[u8], scriptlets: &Scriptlets) -> std::io::Result<()> {
+    std::fs::create_dir_all(paths::cache_dir())?;
+    std::fs::write(engine_path(), engine_bytes)?;
+    std::fs::write(
+        scriptlets_path(),
+        serde_json::to_string(scriptlets).unwrap_or_default(),
+    )
+}
+
+/// uBlock Origin's scriptlets as one script (see `scripts/bundle-ubo-scriptlets.py`).
+const UBO_SCRIPTLETS: &str = include_str!("../resources/ubo-scriptlets.js.txt");
 
 fn engine_path() -> std::path::PathBuf {
     paths::cache_dir().join("filters-engine.bin")
@@ -131,6 +160,8 @@ impl Filters {
         }
         *self.cosmetic.borrow_mut() = Some(Arc::new(cosmetic));
         *self.rule_count.borrow_mut() = manifest.rules;
+        let scriptlets = load_scriptlets();
+        self.install_scriptlets(&scriptlets);
         true
     }
 
@@ -144,10 +175,30 @@ impl Filters {
         Some((c, page))
     }
 
+    /// Puts the scriptlets into pages of the sites that have rules for them. They run before
+    /// the page's own scripts, which is the only moment they can change what those read.
+    fn install_scriptlets(&self, scriptlets: &Scriptlets) {
+        self.ucm.remove_all_scripts();
+        if scriptlets.is_empty() {
+            return;
+        }
+        let patterns = scriptlets.url_patterns();
+        let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
+        let source = scriptlets.user_script(UBO_SCRIPTLETS, &self.allow.borrow());
+        self.ucm.add_script(&UserScript::new(
+            &source,
+            UserContentInjectedFrames::AllFrames,
+            UserScriptInjectionTime::Start,
+            &patterns,
+            &[],
+        ));
+    }
+
     /// Stops all blocking (network rules removed from WebKit, cosmetic dropped).
     pub fn disable(&self) {
         self.generation.set(self.generation.get() + 1);
         self.ucm.remove_all_filters();
+        self.ucm.remove_all_scripts();
         *self.cosmetic.borrow_mut() = None;
         *self.rule_count.borrow_mut() = 0;
     }
@@ -248,6 +299,7 @@ impl Filters {
         for f in &filters {
             self.ucm.add_filter(f);
         }
+        self.install_scriptlets(&compiled.scriptlets);
         *self.cosmetic.borrow_mut() = Some(Arc::new(compiled.cosmetic));
         *self.rule_count.borrow_mut() = compiled.rule_count;
         eprintln!(
@@ -262,10 +314,7 @@ impl Filters {
             rules: compiled.rule_count,
             allow: allow_for_manifest,
         };
-        if std::fs::create_dir_all(paths::cache_dir())
-            .and_then(|_| std::fs::write(engine_path(), &engine_bytes))
-            .is_ok()
-        {
+        if store_cache(&engine_bytes, &compiled.scriptlets).is_ok() {
             let _ = paths::write_atomic(
                 &manifest_path(),
                 &serde_json::to_string(&manifest).unwrap_or_default(),

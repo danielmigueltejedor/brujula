@@ -82,7 +82,7 @@ pub const DEFAULT_LISTS: &[FilterList] = &[
 
 /// Names the format of the cached compiled rules. Change it whenever the `adblock` crate is
 /// upgraded: serialised data is not guaranteed to load across versions.
-pub const CACHE_FORMAT: &str = "adblock-0.13-exceptions-per-list";
+pub const CACHE_FORMAT: &str = "adblock-0.13-network-and-scriptlets";
 
 /// How long a downloaded list is trusted before it is fetched again.
 pub const REFRESH_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -108,6 +108,8 @@ pub struct Compiled {
     pub content_filters: Vec<String>,
     pub cosmetic: Cosmetic,
     pub rule_count: usize,
+    /// Scripts the lists run inside pages of certain sites.
+    pub scriptlets: crate::scriptlets::Scriptlets,
 }
 
 /// Compiles filter lists given as text. Lines that fail to parse are skipped, as every blocker
@@ -129,11 +131,16 @@ pub fn compile<'a>(lists: impl IntoIterator<Item = &'a str>, allow: &[String]) -
     }
 
     let (rules, _used) = set.into_content_blocking().unwrap_or_default();
-    let rule_count = rules.len();
+    // Only network rules go to WebKit. The converter also emits `css-display-none` rules, but
+    // WebKit applies those on every site: they ignore `generichide` and `#@#` exceptions, so a
+    // generic one such as `[style*="base64"]` hid icons and thumbnails on YouTube. Hiding is done
+    // by our own cosmetic engine, which knows about those exceptions.
     let values: Vec<serde_json::Value> = rules
         .iter()
         .filter_map(|r| serde_json::to_value(r).ok())
+        .filter(|r| r["action"]["type"] != "css-display-none")
         .collect();
+    let rule_count = values.len();
 
     Compiled {
         content_filters: into_filters(values, allow),
@@ -142,6 +149,7 @@ pub fn compile<'a>(lists: impl IntoIterator<Item = &'a str>, allow: &[String]) -
             allow: allow.to_vec(),
         },
         rule_count,
+        scriptlets: crate::scriptlets::parse(lists.iter().copied()),
     }
 }
 
@@ -433,6 +441,24 @@ news.example.org##div[data-ad=\"1\"]
 
     fn rules_of(filter: &str) -> Vec<serde_json::Value> {
         serde_json::from_str(filter).unwrap()
+    }
+
+    #[test]
+    fn hiding_rules_never_reach_webkit() {
+        // WebKit applies `css-display-none` everywhere, ignoring generichide and exceptions;
+        // generic ones like [style*="base64"] broke icons on YouTube.
+        let text = "||ads.example^\n##[style*=\"base64\"]\n##.banner\nsite.example##.promo\n";
+        let c = compile([text], &[]);
+        let all: String = c.content_filters.concat();
+        assert!(all.contains("ads\\\\.example"), "{all}");
+        assert!(!all.contains("css-display-none"), "{all}");
+        assert!(!all.contains("base64"), "{all}");
+        // The cosmetic engine still hides what the lists ask for on their sites.
+        assert!(c
+            .cosmetic
+            .for_page("https://site.example/")
+            .css
+            .contains(".promo"));
     }
 
     #[test]
