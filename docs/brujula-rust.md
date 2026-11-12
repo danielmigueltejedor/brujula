@@ -89,6 +89,8 @@ compila listas reales y comprueba que el JSON resultante es válido.
   abiertas se activan en vez de duplicarse). Sin scripts; solo enlaces `https:` y `brujula://tab/<id>`.
 - **Barra lateral**: 232 px por defecto, de 180 a 420; los botones de navegación son compactos para
   que el control deslizante pueda estrecharla de verdad.
+- **Carpetas** (`folders.rs`, `browser/folders.rs`): filas plegables entre las pestañas de la barra, por espacio. Manuales (clic derecho en una pestaña → «Mover a la carpeta…» / «Nueva carpeta con esta pestaña») o **inteligentes**: una regla por sitio (`github.com`) o por texto (título o dirección) recoge solas las pestañas que coinciden; sacar una pestaña a mano la deja fuera. Se guardan en la sesión.
+- **Restauración de pestañas**: la sesión se guarda al cerrar la ventana y también 1,5 s después de cada cambio (pestañas, espacios, carpetas), así que sobrevive a un cierre brusco o a un `kill`; al abrir vuelven todas, con su espacio, carpeta y ancladas, y solo carga la que está delante.
 - **Marcadores** (`bookmarks.rs`): estrella de la barra o Ctrl+D; solo páginas web; se buscan en el
   Spotlight (que sin texto los lista) y se gestionan en Preferencias.
 - **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por

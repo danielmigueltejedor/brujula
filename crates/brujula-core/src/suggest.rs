@@ -178,6 +178,7 @@ mod tests {
             loading: false,
             audible: false,
             space: 1,
+            folder: None,
         }
     }
 

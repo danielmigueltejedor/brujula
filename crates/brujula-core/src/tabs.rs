@@ -14,6 +14,9 @@ pub struct Tab {
     pub audible: bool,
     /// The space the tab lives in (see `spaces`).
     pub space: u32,
+    /// The folder the user put the tab in (see `folders`): `None` leaves it to the smart
+    /// folders, `Some(NO_FOLDER)` keeps it out of them.
+    pub folder: Option<u32>,
 }
 
 /// What a change to the model means for the UI.
@@ -57,6 +60,12 @@ impl TabModel {
     /// The tabs of one space, in order.
     pub fn in_space(&self, space: u32) -> impl Iterator<Item = &Tab> {
         self.tabs.iter().filter(move |t| t.space == space)
+    }
+
+    /// Puts a tab in a folder, takes it out (`Some(NO_FOLDER)`) or leaves it to the smart folders
+    /// (`None`).
+    pub fn set_folder(&mut self, id: TabId, folder: Option<u32>) -> Vec<Change> {
+        self.update(id, |t| t.folder = folder)
     }
 
     /// Puts a tab in another space.
@@ -122,6 +131,7 @@ impl TabModel {
                 loading: false,
                 audible: false,
                 space: self.current_space,
+                folder: None,
             },
         );
         let mut changes = vec![Change::Opened(id)];

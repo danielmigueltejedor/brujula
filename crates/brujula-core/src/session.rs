@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::folders::{Folders, NO_FOLDER};
 use crate::spaces::{Spaces, FIRST_SPACE};
 use crate::tabs::TabModel;
 
@@ -18,6 +19,8 @@ pub struct SavedTab {
     pub pinned: bool,
     #[serde(default = "first_space")]
     pub space: u32,
+    #[serde(default)]
+    pub folder: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +29,7 @@ pub struct Session {
     pub tabs: Vec<SavedTab>,
     pub selected: usize,
     pub spaces: Spaces,
+    pub folders: Folders,
 }
 
 /// Only these schemes are restored: a session file must not be able to make the browser open
@@ -38,7 +42,7 @@ fn restorable(url: &str) -> bool {
 }
 
 impl Session {
-    pub fn capture(model: &TabModel, spaces: &Spaces) -> Self {
+    pub fn capture(model: &TabModel, spaces: &Spaces, folders: &Folders) -> Self {
         let kept: Vec<_> = model.tabs().iter().filter(|t| restorable(&t.url)).collect();
         let selected = model
             .selected()
@@ -51,12 +55,14 @@ impl Session {
                 title: t.title.clone(),
                 pinned: t.pinned,
                 space: t.space,
+                folder: t.folder,
             })
             .collect();
         Self {
             tabs,
             selected,
             spaces: spaces.clone(),
+            folders: folders.clone(),
         }
     }
 
@@ -64,10 +70,17 @@ impl Session {
         let mut s: Session = serde_json::from_str(text).unwrap_or_default();
         s.tabs.retain(|t| restorable(&t.url));
         s.spaces = s.spaces.sanitized();
+        s.folders = std::mem::take(&mut s.folders).sanitized(&s.spaces);
         let home = s.spaces.all()[0].id;
         for t in &mut s.tabs {
             if !s.spaces.contains(t.space) {
                 t.space = home;
+            }
+            // A folder that is gone leaves the tab to the smart folders.
+            if t.folder
+                .is_some_and(|f| f != NO_FOLDER && s.folders.get(f).is_none())
+            {
+                t.folder = None;
             }
         }
         if s.selected >= s.tabs.len() {
@@ -91,12 +104,40 @@ mod tests {
         let (a, _) = m.open("https://a.com", None, false);
         let (b, _) = m.open("https://b.com", None, true);
         m.set_pinned(a, true);
-        let s = Session::capture(&m, &Spaces::default());
+        let s = Session::capture(&m, &Spaces::default(), &Folders::default());
         assert_eq!(s.tabs.len(), 2);
         assert!(s.tabs[0].pinned);
         assert_eq!(s.selected, 1);
         assert_eq!(Session::from_json(&s.to_json()), s);
         let _ = b;
+    }
+
+    #[test]
+    fn folders_and_the_tabs_in_them_come_back() {
+        use crate::folders::Rule;
+        let mut folders = Folders::default();
+        let f = folders
+            .add(FIRST_SPACE, "Código", Rule::Site("github.com".into()))
+            .unwrap();
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://github.com/x", None, false);
+        let (b, _) = m.open("https://b.com", None, false);
+        let (c, _) = m.open("https://c.com", None, false);
+        m.set_folder(a, Some(f));
+        m.set_folder(b, Some(NO_FOLDER));
+        let _ = c;
+        let s = Session::from_json(&Session::capture(&m, &Spaces::default(), &folders).to_json());
+        assert_eq!(s.folders.all().len(), 1);
+        assert_eq!(
+            s.tabs.iter().map(|t| t.folder).collect::<Vec<_>>(),
+            vec![Some(f), Some(NO_FOLDER), None]
+        );
+        // A tab pointing at a folder the file no longer has is left to the smart folders.
+        let stray = Session::from_json(
+            r#"{"tabs":[{"url":"https://a.com","folder":9},{"url":"https://b.com","folder":0}]}"#,
+        );
+        assert_eq!(stray.tabs[0].folder, None);
+        assert_eq!(stray.tabs[1].folder, Some(NO_FOLDER));
     }
 
     #[test]
@@ -107,7 +148,7 @@ mod tests {
         m.open("https://a.com", None, false);
         m.set_current_space(work);
         m.open("https://b.com", None, true);
-        let s = Session::from_json(&Session::capture(&m, &spaces).to_json());
+        let s = Session::from_json(&Session::capture(&m, &spaces, &Folders::default()).to_json());
         assert_eq!(s.tabs[0].space, FIRST_SPACE);
         assert_eq!(s.tabs[1].space, work);
         assert_eq!(s.spaces.all().len(), 2);

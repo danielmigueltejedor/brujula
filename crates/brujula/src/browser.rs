@@ -9,6 +9,7 @@ use brujula_core::appearance;
 use brujula_core::bookmarks::Bookmarks;
 use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
+use brujula_core::folders::{Folders, NO_FOLDER};
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::prefs;
@@ -38,6 +39,7 @@ use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
 mod extras;
+mod folders;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -202,6 +204,13 @@ pub struct Browser {
     space_bar: gtk::Box,
     bookmarks: RefCell<Bookmarks>,
     spaces: RefCell<Spaces>,
+    folders: RefCell<Folders>,
+    /// The rows of the folders in the sidebar list, between the rows of their tabs.
+    folder_rows: RefCell<HashMap<u32, folders::FolderRow>>,
+    /// The button that makes a folder.
+    folder_button: gtk::Button,
+    /// Set while a save is queued, so a burst of changes writes the session once.
+    save_queued: Cell<bool>,
     /// The tab each space had in front when it was left.
     last_in_space: RefCell<HashMap<u32, TabId>>,
     /// The page's column; its width keeps the split view's minimum honest.
@@ -324,7 +333,17 @@ impl Browser {
         side.append(&nav);
         side.append(&side_chrome.url_button);
         side.append(&scroller);
-        side.append(&new_tab);
+        let folder_button = gtk::Button::builder()
+            .icon_name("ndl-folder-plus-symbolic")
+            .css_classes(["flat", "brujula-newfolder"])
+            .tooltip_text("Nueva carpeta")
+            .build();
+        new_tab.set_hexpand(true);
+        let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bottom.append(&new_tab);
+        bottom.append(&folder_button);
+        bottom.set_margin_end(8);
+        side.append(&bottom);
         let space_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         space_bar.add_css_class("brujula-spaces");
         space_bar.set_halign(gtk::Align::Center);
@@ -473,6 +492,10 @@ impl Browser {
                     .unwrap_or_default(),
             ),
             spaces: RefCell::new(Spaces::default()),
+            folders: RefCell::new(Folders::default()),
+            folder_rows: RefCell::new(HashMap::new()),
+            folder_button,
+            save_queued: Cell::new(false),
             last_in_space: RefCell::new(HashMap::new()),
             content: toolbar,
             appearance_css: gtk::CssProvider::new(),
@@ -744,6 +767,16 @@ impl Browser {
                 return;
             }
             let Some(row) = row else { return };
+            // A folder is not a tab: clicking it folds or unfolds it, and the tab in front stays
+            // selected.
+            if let Some(folder) = row
+                .widget_name()
+                .strip_prefix("folder-")
+                .and_then(|n| n.parse::<u32>().ok())
+            {
+                b.toggle_folder(folder);
+                return;
+            }
             let id = b
                 .rows
                 .borrow()
@@ -777,6 +810,7 @@ impl Browser {
         });
 
         self.wire_hover();
+        self.wire_folders();
 
         // The sidebar lists the tabs of the space in front.
         let this = Rc::downgrade(self);
@@ -787,15 +821,34 @@ impl Browser {
                 .strip_prefix("tab-")
                 .and_then(|n| n.parse::<u64>().ok())
             else {
-                return true;
+                // A folder row shows in the space the folder belongs to.
+                let folder = row
+                    .widget_name()
+                    .strip_prefix("folder-")
+                    .and_then(|n| n.parse::<u32>().ok());
+                return match (folder, b.model.try_borrow(), b.folders.try_borrow()) {
+                    (Some(f), Ok(model), Ok(folders)) => folders
+                        .get(f)
+                        .is_none_or(|f| f.space == model.current_space()),
+                    _ => true,
+                };
             };
             // Being changed right now: show it, the filter runs again when that is done.
-            let Ok(model) = b.model.try_borrow() else {
+            let (Ok(model), Ok(folders)) = (b.model.try_borrow(), b.folders.try_borrow()) else {
                 return true;
             };
-            model
-                .get(TabId(id))
-                .is_none_or(|t| t.space == model.current_space())
+            model.get(TabId(id)).is_none_or(|t| {
+                if t.space != model.current_space() {
+                    return false;
+                }
+                // Folded away, unless it is the tab in front.
+                match folders.folder_of(t.folder, t.space, &t.url, &t.title) {
+                    Some(f) => {
+                        model.selected() == Some(t.id) || folders.get(f).is_none_or(|f| f.open)
+                    }
+                    None => true,
+                }
+            })
         });
 
         // Save the session on close.
@@ -989,6 +1042,7 @@ impl Browser {
             .unwrap_or_default();
 
         *self.spaces.borrow_mut() = session.spaces.clone();
+        *self.folders.borrow_mut() = session.folders.clone();
         self.restoring.set(true);
         let mut opened = Vec::new();
         for t in &session.tabs {
@@ -997,6 +1051,7 @@ impl Browser {
             if t.pinned {
                 self.model.borrow_mut().set_pinned(id, true);
             }
+            self.model.borrow_mut().set_folder(id, t.folder);
             self.model
                 .borrow_mut()
                 .update(id, |tab| tab.title = t.title.clone());
@@ -1016,6 +1071,7 @@ impl Browser {
             self.apply(c);
         }
         self.restoring.set(false);
+        self.rebuild_folder_rows();
         self.list.invalidate_filter();
         self.rebuild_spaces();
         self.load_if_lazy();
@@ -1046,7 +1102,11 @@ impl Browser {
     }
 
     fn save_session(&self) {
-        let s = Session::capture(&self.model.borrow(), &self.spaces.borrow());
+        let s = Session::capture(
+            &self.model.borrow(),
+            &self.spaces.borrow(),
+            &self.folders.borrow(),
+        );
         let _ = paths::write_atomic(&paths::session_file(), &s.to_json());
     }
 
@@ -1371,6 +1431,7 @@ impl Browser {
         // Opened tabs appear at their model position.
         self.reorder_rows();
         self.list.invalidate_filter();
+        self.schedule_save();
         if self.horizontal() {
             self.rebuild_strip();
         }
@@ -1466,14 +1527,56 @@ impl Browser {
         self.sync_row(id);
     }
 
+    /// Puts the rows in display order: the pinned tabs that are in no folder, then each folder
+    /// with its tabs under it, then the rest. Tabs of a smart folder land in it on their own.
     fn reorder_rows(&self) {
         let model = self.model.borrow();
+        let folders = self.folders.borrow();
         let rows = self.rows.borrow();
-        for (i, tab) in model.tabs().iter().enumerate() {
-            if let Some(r) = rows.get(&tab.id) {
-                if r.row.index() != i as i32 {
-                    self.list.remove(&r.row);
-                    self.list.insert(&r.row, i as i32);
+        let folder_rows = self.folder_rows.borrow();
+        let folder_of =
+            |t: &brujula_core::tabs::Tab| folders.folder_of(t.folder, t.space, &t.url, &t.title);
+        let mut order: Vec<gtk::ListBoxRow> = Vec::new();
+        let tab_row = |t: &brujula_core::tabs::Tab| rows.get(&t.id).map(|r| r.row.clone());
+        order.extend(
+            model
+                .tabs()
+                .iter()
+                .filter(|t| t.pinned && folder_of(t).is_none())
+                .filter_map(tab_row),
+        );
+        for folder in folders.all() {
+            let members: Vec<_> = model
+                .tabs()
+                .iter()
+                .filter(|t| folder_of(t) == Some(folder.id))
+                .collect();
+            if let Some(fr) = folder_rows.get(&folder.id) {
+                fr.sync(folder, members.len());
+                order.push(fr.row.clone());
+            }
+            order.extend(members.iter().filter_map(|t| tab_row(t)));
+        }
+        order.extend(
+            model
+                .tabs()
+                .iter()
+                .filter(|t| !t.pinned && folder_of(t).is_none())
+                .filter_map(tab_row),
+        );
+        for (i, row) in order.iter().enumerate() {
+            if row.index() != i as i32 {
+                self.list.remove(row);
+                self.list.insert(row, i as i32);
+            }
+        }
+        // Tabs inside a folder are indented.
+        for t in model.tabs() {
+            if let Some(r) = rows.get(&t.id) {
+                if folder_of(t).is_some() {
+                    r.row.add_css_class("brujula-in-folder");
+                } else {
+                    r.row.remove_css_class("brujula-in-folder");
                 }
             }
         }
@@ -1485,6 +1588,21 @@ impl Browser {
                 self.syncing.set(false);
             }
         }
+    }
+
+    /// Writes the session soon, once, however many changes come before then, so a crash or a
+    /// kill costs at most the last second or two instead of the whole session.
+    fn schedule_save(self: &Rc<Self>) {
+        if self.restoring.get() || self.save_queued.replace(true) {
+            return;
+        }
+        let this = Rc::downgrade(self);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+            if let Some(b) = this.upgrade() {
+                b.save_queued.set(false);
+                b.save_session();
+            }
+        });
     }
 
     fn sync_row(&self, id: TabId) {
@@ -2022,6 +2140,41 @@ impl Browser {
                 let c = b.model.borrow_mut().set_pinned(id, !pinned);
                 b.apply(c);
             }),
+        );
+        // Folders: move the tab into one, out of it, or into a new one.
+        let (space, current_folder) = {
+            let m = self.model.borrow();
+            m.get(id).map_or((m.current_space(), None), |t| {
+                (
+                    t.space,
+                    self.folders
+                        .borrow()
+                        .folder_of(t.folder, t.space, &t.url, &t.title),
+                )
+            })
+        };
+        let targets: Vec<(u32, String)> = self
+            .folders
+            .borrow()
+            .in_space(space)
+            .filter(|f| Some(f.id) != current_folder)
+            .map(|f| (f.id, f.name.clone()))
+            .collect();
+        for (folder, name) in targets {
+            add(
+                &format!("Mover a la carpeta {name}"),
+                Box::new(move |b| b.put_tab_in_folder(id, Some(folder))),
+            );
+        }
+        if current_folder.is_some() {
+            add(
+                "Sacar de la carpeta",
+                Box::new(move |b| b.put_tab_in_folder(id, Some(NO_FOLDER))),
+            );
+        }
+        add(
+            "Nueva carpeta con esta pestaña",
+            Box::new(move |b| b.new_folder_with(id)),
         );
         add(
             "Recargar",

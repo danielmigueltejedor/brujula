@@ -123,6 +123,7 @@ impl Browser {
 
     /// The switcher at the foot of the sidebar: one button per space and a plus.
     pub(super) fn rebuild_spaces(self: &Rc<Self>) {
+        self.schedule_save();
         while let Some(child) = self.space_bar.first_child() {
             self.space_bar.remove(&child);
         }

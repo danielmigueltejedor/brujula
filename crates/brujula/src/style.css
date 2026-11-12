@@ -64,3 +64,9 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* The icon grid of the space editor */
 .brujula-icon-choice { min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
 .brujula-icon-current { background: var(--ndl-color-accent-subtle); }
+
+/* Folders in the sidebar */
+.brujula-folder .brujula-folder-name { font-weight: 600; }
+.brujula-folder-count { font-size: var(--ndl-font-size-small); }
+.brujula-in-folder .brujula-tab { padding-left: calc(var(--ndl-space-md) + 14px); }
+.brujula-newfolder { min-width: 28px; min-height: 28px; margin-right: var(--ndl-space-xs); }
