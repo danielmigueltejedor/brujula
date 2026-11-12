@@ -333,7 +333,7 @@ fn section(id: &str, body: &str) -> String {
 
 /// The icon grid that picks a space's icon.
 fn icon_grid(space_id: u32, current: &str) -> String {
-    let buttons: String = icons::ICONS
+    let buttons: String = icons::all()
         .iter()
         .map(|i| {
             let on = if i.id == current { " on" } else { "" };

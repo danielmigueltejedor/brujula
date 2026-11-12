@@ -272,7 +272,7 @@ impl Browser {
                 }
             }
         };
-        for icon in icons::ICONS {
+        for icon in icons::all() {
             let button = gtk::Button::builder()
                 .icon_name(icons::gtk_name(icon.id))
                 .tooltip_text(icon.label)

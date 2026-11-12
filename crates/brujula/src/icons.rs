@@ -14,7 +14,7 @@ pub fn install() {
     if std::fs::create_dir_all(&actions).is_err() {
         return;
     }
-    for icon in icons::ICONS.iter().filter(|i| i.drawn_here) {
+    for icon in icons::all().iter().filter(|i| i.drawn_here) {
         let svg = icons::gtk_svg(icon);
         let file = actions.join(format!("ndl-{}-symbolic.svg", icon.id));
         if std::fs::read_to_string(&file).ok().as_deref() != Some(svg.as_str()) {
@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn every_icon_a_space_can_have_is_in_ndl_or_installed_here() {
-        for icon in icons::ICONS {
+        for icon in icons::all() {
             let name = icons::gtk_name(icon.id);
             assert!(
                 icon.drawn_here || nodalia_gtk::has_icon(&name),
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn the_icons_drawn_here_are_not_in_ndl_yet() {
         // When NDL adds one, drop it from the table here so there is one drawing of it.
-        for icon in icons::ICONS.iter().filter(|i| i.drawn_here) {
+        for icon in icons::all().iter().filter(|i| i.drawn_here) {
             assert!(
                 !nodalia_gtk::has_icon(&icons::gtk_name(icon.id)),
                 "{}",
