@@ -1,6 +1,6 @@
 //! Downloads the filter lists, compiles them off the main thread and hands WebKit the result.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -25,6 +25,13 @@ pub struct Filters {
     busy: RefCell<bool>,
     /// Called each time new rules are in place (pages already open can then be re-processed).
     on_applied: RefCell<Option<AppliedHandler>>,
+    /// Sites where blocking is off; baked into the rules, so a change recompiles them.
+    allow: RefCell<Vec<String>>,
+    /// The lists in use, for recompiling without going to the network.
+    lists: RefCell<Vec<FilterList>>,
+    /// Bumped by every compile and by `disable`; a compile that finishes after another one
+    /// started (or after blocking was turned off) throws its result away.
+    generation: Cell<u64>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -33,6 +40,8 @@ struct Manifest {
     chunks: usize,
     #[serde(default)]
     rules: usize,
+    #[serde(default)]
+    allow: Vec<String>,
 }
 
 fn manifest_path() -> std::path::PathBuf {
@@ -55,6 +64,9 @@ impl Filters {
             rule_count: RefCell::new(0),
             busy: RefCell::new(false),
             on_applied: RefCell::new(None),
+            allow: RefCell::new(Vec::new()),
+            lists: RefCell::new(Vec::new()),
+            generation: Cell::new(0),
         })
     }
 
@@ -62,6 +74,27 @@ impl Filters {
     /// applied before (so pages loaded until now were not filtered).
     pub fn set_on_applied(&self, f: impl Fn(bool) + 'static) {
         *self.on_applied.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Sets the sites where blocking is off. Call before [`load_compiled`](Self::load_compiled)
+    /// and [`start`](Self::start); to change it later use [`rebuild`](Self::rebuild).
+    pub fn set_allow(&self, allow: Vec<String>) {
+        *self.allow.borrow_mut() = allow;
+    }
+
+    /// Compiles again from the lists on disk with the current allow list.
+    pub fn rebuild(self: &Rc<Self>) {
+        let lists = self.lists.borrow().clone();
+        if lists.is_empty() {
+            return;
+        }
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let cached = read_cached(&lists).await;
+            if !cached.is_empty() {
+                this.apply(cached).await;
+            }
+        });
     }
 
     /// Loads the rules compiled in a previous run. Takes milliseconds, so the browser can do it
@@ -73,7 +106,7 @@ impl Filters {
         let Ok(manifest) = serde_json::from_str::<Manifest>(&text) else {
             return false;
         };
-        if manifest.format != adblock::CACHE_FORMAT {
+        if manifest.format != adblock::CACHE_FORMAT || manifest.allow != *self.allow.borrow() {
             return false;
         }
         let Ok(engine_bytes) = std::fs::read(engine_path()) else {
@@ -83,6 +116,7 @@ impl Filters {
         let Ok(Some(cosmetic)) = cosmetic else {
             return false;
         };
+        let cosmetic = cosmetic.with_allow(self.allow.borrow().clone());
 
         let mut filters = Vec::new();
         for i in 0..manifest.chunks {
@@ -112,6 +146,7 @@ impl Filters {
 
     /// Stops all blocking (network rules removed from WebKit, cosmetic dropped).
     pub fn disable(&self) {
+        self.generation.set(self.generation.get() + 1);
         self.ucm.remove_all_filters();
         *self.cosmetic.borrow_mut() = None;
         *self.rule_count.borrow_mut() = 0;
@@ -129,6 +164,7 @@ impl Filters {
             .copied()
             .filter(|l| settings.list_enabled(l.id, l.enabled_by_default))
             .collect();
+        *self.lists.borrow_mut() = lists.clone();
         let this = self.clone();
         glib::spawn_future_local(async move {
             this.run(lists).await;
@@ -173,8 +209,12 @@ impl Filters {
     }
 
     async fn apply(self: &Rc<Self>, texts: Vec<String>) {
+        let generation = self.generation.get() + 1;
+        self.generation.set(generation);
+        let allow = self.allow.borrow().clone();
+        let allow_for_manifest = allow.clone();
         let compiled = gio::spawn_blocking(move || {
-            let c = adblock::compile(texts.iter().map(String::as_str));
+            let c = adblock::compile(texts.iter().map(String::as_str), &allow);
             let engine = c.cosmetic.serialize();
             (c, engine)
         })
@@ -183,6 +223,9 @@ impl Filters {
             eprintln!("brujula: compiling filters failed");
             return;
         };
+        if self.generation.get() != generation {
+            return;
+        }
         let first = self.cosmetic.borrow().is_none();
 
         let mut filters = Vec::new();
@@ -197,8 +240,8 @@ impl Filters {
                 Err(e) => eprintln!("brujula: WebKit rejected filter chunk {i}: {e}"),
             }
         }
-        if filters.len() != compiled.content_filters.len() {
-            // Do not half-apply: keep what was there.
+        if filters.len() != compiled.content_filters.len() || self.generation.get() != generation {
+            // Do not half-apply, and do not undo a newer compile or a switch-off.
             return;
         }
         self.ucm.remove_all_filters();
@@ -217,6 +260,7 @@ impl Filters {
             format: adblock::CACHE_FORMAT.to_owned(),
             chunks: filters.len(),
             rules: compiled.rule_count,
+            allow: allow_for_manifest,
         };
         if std::fs::create_dir_all(paths::cache_dir())
             .and_then(|_| std::fs::write(engine_path(), &engine_bytes))

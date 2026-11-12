@@ -1,10 +1,10 @@
 /* Brújula only adds layout to what NDL already styles. */
-.brujula-side { padding-bottom: var(--ndl-space-2); }
+.brujula-side { padding-bottom: var(--ndl-space-sm); }
 
 /* The address pill: a button that looks like a field and opens the Spotlight. */
 .brujula-urlbutton {
   min-height: 36px;
-  padding: 0 var(--ndl-space-3);
+  padding: 0 var(--ndl-space-md);
   border-radius: 999px;
   background: alpha(currentColor, 0.07);
 }
@@ -13,8 +13,8 @@
 /* Tabs: tall enough to read, with room around the favicon and the close button. */
 .brujula-tabs { padding: 0; }
 .brujula-tabs > row { margin: 2px 0; padding: 0; min-height: 40px; }
-.brujula-tab { padding: 0 var(--ndl-space-3); min-height: 40px; }
-.brujula-tab .brujula-tab-title { font-size: var(--ndl-font-size-sm); }
+.brujula-tab { padding: 0 var(--ndl-space-md); min-height: 40px; }
+.brujula-tab .brujula-tab-title { font-size: var(--ndl-font-size-small); }
 .brujula-tab-favicon { opacity: 0.95; }
 .brujula-tab-close {
   min-width: 24px;
@@ -25,11 +25,11 @@
 }
 .brujula-tab-close:hover { background: alpha(currentColor, 0.15); }
 row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
-.brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-2); }
+.brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
 
 /* Spotlight */
 .brujula-scrim { background: alpha(black, 0.35); }
-.brujula-spotlight { padding: var(--ndl-space-3); box-shadow: 0 16px 48px alpha(black, 0.35); }
+.brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px alpha(black, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
 .brujula-spotlight row { min-height: 44px; }
 
