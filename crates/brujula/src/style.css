@@ -25,6 +25,8 @@
 }
 .brujula-tab-close:hover { background: rgba(127, 127, 127, 0.25); }
 .brujula-row:hover .brujula-tab-close, .brujula-current .brujula-tab-close { opacity: 1; }
+.brujula-row.brujula-split { box-shadow: inset 3px 0 0 var(--ndl-color-accent-default); }
+.brujula-splitview > separator { min-width: 2px; background: rgba(127, 127, 127, 0.3); }
 .brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
 
 /* Spotlight */

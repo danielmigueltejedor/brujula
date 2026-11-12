@@ -44,6 +44,7 @@ mod archive;
 mod cloudsync;
 mod extras;
 mod folders;
+mod split;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -215,6 +216,9 @@ pub struct Browser {
     folder_button: gtk::Button,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// The two tabs shown side by side, and the `Paned` that holds their pages.
+    paired: RefCell<Option<(TabId, TabId)>>,
+    split_paned: gtk::Paned,
     /// Tabs closed because they were not used for long.
     archive: RefCell<Archive>,
     /// How the last synchronisation round went, in words for the preferences page.
@@ -399,6 +403,13 @@ impl Browser {
         let stack = gtk::Stack::new();
         stack.set_hexpand(true);
         stack.set_vexpand(true);
+        let split_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        split_paned.add_css_class("brujula-splitview");
+        split_paned.set_resize_start_child(true);
+        split_paned.set_resize_end_child(true);
+        split_paned.set_shrink_start_child(false);
+        split_paned.set_shrink_end_child(false);
+        stack.add_named(&split_paned, Some("split"));
         let page = gtk::Overlay::new();
         page.set_child(Some(&stack));
         progress.set_valign(gtk::Align::Start);
@@ -510,6 +521,8 @@ impl Browser {
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
             save_queued: Cell::new(false),
+            paired: RefCell::new(None),
+            split_paned,
             archive: RefCell::new(
                 std::fs::read_to_string(paths::archive_file())
                     .map(|t| Archive::from_json(&t))
@@ -1401,6 +1414,7 @@ impl Browser {
 
         self.stack.add_named(&view, Some(&format!("tab-{}", id.0)));
         self.views.borrow_mut().insert(id, view.clone());
+        self.follow_focus(id, &view);
         if url == newtab::NEWTAB_URI {
             self.render_newtab(&view, false);
         } else if url == prefs::SETTINGS_URI {
@@ -1428,6 +1442,9 @@ impl Browser {
                     self.add_row(id);
                 }
                 Change::Closed(id) => {
+                    if self.in_split(id) {
+                        self.end_split();
+                    }
                     self.lazy.borrow_mut().remove(&id);
                     if let Some(r) = self.rows.borrow_mut().remove(&id) {
                         self.list.remove(&r.row);
@@ -1446,7 +1463,7 @@ impl Browser {
                 Change::Selected(id) => {
                     self.model.borrow_mut().touch(id, now_ms());
                     self.follow_space_of(id);
-                    self.stack.set_visible_child_name(&format!("tab-{}", id.0));
+                    self.show_page(id);
                     self.syncing.set(true);
                     for (rid, r) in self.rows.borrow().iter() {
                         if *rid == id {
@@ -2197,6 +2214,16 @@ impl Browser {
             }),
         );
         // Folders: move the tab into one, out of it, or into a new one.
+        // Split view: this tab next to the one in front, or back to one page.
+        let in_front = self.model.borrow().selected();
+        if self.in_split(id) {
+            add("Salir de la vista dividida", Box::new(|b| b.end_split()));
+        } else if let Some(front) = in_front.filter(|f| *f != id) {
+            add(
+                "Ver junto a la pestaña actual",
+                Box::new(move |b| b.enter_split(front, id)),
+            );
+        }
         let (space, current_folder) = {
             let m = self.model.borrow();
             m.get(id).map_or((m.current_space(), None), |t| {
