@@ -46,3 +46,13 @@
 .collapsed .brujula-side { box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 /* Sidebar not pinned: the site fills the window edge to edge. */
 ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius: 0; }
+
+/* Spaces switcher */
+.brujula-space { min-width: 28px; min-height: 28px; padding: 0 var(--ndl-space-xs); border-radius: 999px; }
+.brujula-space-current { background: var(--ndl-color-accent-subtle); }
+
+/* Tab bar of the horizontal layout */
+.brujula-strip { padding: 0 var(--ndl-space-xs); }
+.brujula-chip { min-height: 32px; padding: 0 var(--ndl-space-md); border-radius: 10px; }
+.brujula-chip-current { background: rgba(127, 127, 127, 0.22); }
+.brujula-chip:hover .brujula-tab-close { opacity: 1; }

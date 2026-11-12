@@ -7,11 +7,13 @@
 //! something inside the allowed range.
 
 use crate::adblock::DEFAULT_LISTS;
+use crate::bookmarks::Bookmarks;
 use crate::newtab::escape;
 use crate::search::ENGINES;
 use crate::settings::{
     parse_hex_color, Layout, Settings, TabPosition, Theme, SIDEBAR_WIDTH_DEFAULT,
 };
+use crate::spaces::Spaces;
 
 pub const SETTINGS_URI: &str = "brujula://settings";
 pub const SET_PREFIX: &str = "brujula://set?";
@@ -235,7 +237,7 @@ fn section(id: &str, title: &str, body: &str) -> String {
 }
 
 /// The preferences page for the current settings.
-pub fn render(s: &Settings) -> String {
+pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
     let a = &s.appearance;
     let theme = match a.theme {
         Theme::System => "system",
@@ -408,6 +410,52 @@ pub fn render(s: &Settings) -> String {
         .concat(),
     );
     let sites = section("sites", "Sitios con el bloqueador desactivado", &allowed);
+    let spaces_section = section(
+        "spaces",
+        "Espacios",
+        &spaces
+            .all()
+            .iter()
+            .map(|sp| {
+                let remove = if spaces.all().len() > 1 {
+                    format!(
+                        r#"<button type="button" class="seg" data-k="space.remove" data-v="{}" data-remove="1">Eliminar</button>"#,
+                        sp.id
+                    )
+                } else {
+                    String::new()
+                };
+                row(
+                    &sp.name,
+                    "Sus pestañas pasan al espacio anterior si lo eliminas.",
+                    &format!(
+                        r#"<input type="text" class="field" data-k="space.icon.{id}" value="{icon}" maxlength="2" placeholder="Icono" aria-label="Icono"><input type="text" class="field wide" data-k="space.name.{id}" value="{name}" maxlength="24" aria-label="Nombre">{remove}"#,
+                        id = sp.id,
+                        icon = escape(&sp.icon),
+                        name = escape(&sp.name),
+                    ),
+                )
+            })
+            .collect::<String>(),
+    );
+    let bookmarks_body = if marks.items().is_empty() {
+        r#"<p class="empty">Ninguno todavía. Pulsa la estrella de la barra (Ctrl+D) para guardar una página.</p>"#
+            .to_owned()
+    } else {
+        marks
+            .items()
+            .iter()
+            .map(|b| {
+                format!(
+                    r#"<div class="row site"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg" data-k="bookmark.remove" data-v="{}" data-remove="1">Quitar</button></div></div>"#,
+                    escape(&b.title),
+                    escape(&b.url),
+                    escape(&b.url)
+                )
+            })
+            .collect()
+    };
+    let bookmarks_section = section("bookmarks", "Marcadores", &bookmarks_body);
     let security = section(
         "security",
         "Protecciones activas",
@@ -441,8 +489,9 @@ pub fn render(s: &Settings) -> String {
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>
 <a href="#general">General</a><a href="#appearance">Apariencia</a><a href="#layout">Diseño</a>
+<a href="#spaces">Espacios</a><a href="#bookmarks">Marcadores</a>
 <a href="#privacy">Privacidad</a><a href="#sites">Sitios</a><a href="#security">Seguridad</a><a href="#about">Acerca de</a></nav>
-<main>{general}{appearance}{layout_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -459,6 +508,8 @@ pub fn render(s: &Settings) -> String {
         general = general,
         appearance = appearance,
         layout_section = layout_section,
+        spaces_section = spaces_section,
+        bookmarks_section = bookmarks_section,
         privacy = privacy,
         sites = sites,
         security = security,
@@ -494,6 +545,16 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "layout",
     ),
     (
+        "Espacios",
+        "espacio espacios grupos perfiles workspaces",
+        "spaces",
+    ),
+    (
+        "Marcadores",
+        "favoritos marcadores guardados estrella",
+        "bookmarks",
+    ),
+    (
         "Bloqueador de anuncios",
         "adblock anuncios rastreadores listas",
         "privacy",
@@ -508,6 +569,8 @@ pub fn section_title(id: &str) -> &'static str {
         "general" => "General",
         "appearance" => "Apariencia",
         "layout" => "Diseño",
+        "spaces" => "Espacios",
+        "bookmarks" => "Marcadores",
         "privacy" => "Privacidad",
         "sites" => "Sitios",
         "security" => "Seguridad",
@@ -549,6 +612,7 @@ h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mut
 .dot.on{border-color:var(--fg)}
 input[type=color]{width:2rem;height:2rem;padding:0;border:0;background:none;cursor:pointer}
 .slider{display:flex;gap:.8rem;align-items:center}
+input.field{font:inherit;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:.6rem;padding:.35rem .6rem;width:4rem;text-align:center}input.field.wide{width:11rem;text-align:left}
 input[type=range]{width:12rem;accent-color:var(--accent)}
 output{min-width:3.5rem;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 .facts{margin:0;padding:1rem 1.1rem 1rem 2.4rem;color:var(--muted);font-size:.92rem}.facts li{margin:.3rem 0}
@@ -574,6 +638,9 @@ document.addEventListener('click',e=>{
   const group=b.closest('.segs,.dots');
   if(group){group.querySelectorAll('.on').forEach(x=>x.classList.remove('on'));b.classList.add('on')}
   if(k==='reset_appearance'){setTimeout(()=>location.reload(),150)}
+});
+document.addEventListener('change',e=>{
+  const i=e.target;if(i.type==='text'&&i.dataset.k)send(i.dataset.k,i.value)
 });
 document.addEventListener('input',e=>{
   const i=e.target;if(!i.dataset||!i.dataset.k)return;
@@ -668,7 +735,7 @@ mod tests {
         let mut s = Settings::default();
         s.appearance.theme = Theme::Dark;
         s.allowlist = vec!["<script>x</script>".into()];
-        let html = render(&s);
+        let html = render(&s, &Bookmarks::default(), &Spaces::default());
         assert!(html.contains(r#"class="seg on" data-k="theme" data-v="dark""#));
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
         assert!(!html.contains("<script>x</script>"));
@@ -676,8 +743,26 @@ mod tests {
     }
 
     #[test]
+    fn spaces_and_bookmarks_are_listed_and_escaped() {
+        let mut spaces = Spaces::default();
+        spaces.add("<b>x</b>");
+        let mut marks = Bookmarks::default();
+        marks.toggle("https://a.com/?q=\"1\"", "<i>t</i>");
+        let html = render(&Settings::default(), &marks, &spaces);
+        assert!(html.contains("&lt;b&gt;x&lt;/b&gt;"));
+        assert!(html.contains("&lt;i&gt;t&lt;/i&gt;"));
+        assert!(!html.contains("<i>t</i>"));
+        assert!(html.contains(r#"data-k="space.remove""#));
+        assert!(html.contains(r#"data-k="bookmark.remove""#));
+    }
+
+    #[test]
     fn every_section_the_spotlight_offers_exists_on_the_page() {
-        let html = render(&Settings::default());
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+        );
         for (_, _, id) in SECTIONS {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
         }

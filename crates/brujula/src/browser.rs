@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use brujula_core::adblock;
 use brujula_core::appearance;
+use brujula_core::bookmarks::Bookmarks;
 use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
 use brujula_core::newtab;
@@ -13,8 +14,9 @@ use brujula_core::omnibox;
 use brujula_core::prefs;
 use brujula_core::search;
 use brujula_core::session::Session;
-use brujula_core::settings::{text_on, Layout, Settings, Theme, ACCENT_DEFAULT};
-use brujula_core::suggest::{self, Action};
+use brujula_core::settings::{text_on, Layout, Settings, TabPosition, Theme, ACCENT_DEFAULT};
+use brujula_core::spaces::Spaces;
+use brujula_core::suggest::{self, Action, Kind};
 use brujula_core::tabs::{Change, TabId, TabModel};
 use gtk::gdk;
 use gtk::gio;
@@ -27,9 +29,12 @@ use webkit6::{
     WebView,
 };
 
+use crate::favicons;
 use crate::filters::Filters;
 use crate::paths;
 use crate::spotlight::{Item, Spotlight};
+
+mod extras;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -59,6 +64,9 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
     app.set_accels_for_action("win.open-settings", &["<Ctrl>comma"]);
+    app.set_accels_for_action("win.toggle-bookmark", &["<Ctrl>d"]);
+    app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
+    app.set_accels_for_action("win.prev-space", &["<Alt>Up"]);
     app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
 }
 
@@ -104,6 +112,7 @@ struct Chrome {
     forward: gtk::Button,
     reload: gtk::Button,
     shield: gtk::ToggleButton,
+    star: gtk::ToggleButton,
     toggle: gtk::ToggleButton,
     menu: gtk::MenuButton,
     url_button: gtk::Button,
@@ -137,6 +146,12 @@ fn build_chrome() -> Chrome {
         .css_classes(["flat"])
         .build();
     shield.set_tooltip_text(Some("Bloqueador de anuncios (Ctrl+Mayús+B)"));
+    let star = gtk::ToggleButton::builder()
+        .icon_name("ndl-star-symbolic")
+        .action_name("win.toggle-bookmark")
+        .css_classes(["flat"])
+        .build();
+    star.set_tooltip_text(Some("Añadir a marcadores (Ctrl+D)"));
     let toggle = gtk::ToggleButton::builder()
         .icon_name("sidebar-show-symbolic")
         .tooltip_text("Barra lateral (Ctrl+B)")
@@ -153,6 +168,7 @@ fn build_chrome() -> Chrome {
         forward: icon_button("go-next-symbolic", "Adelante (Alt+→)", "win.forward"),
         reload: icon_button("view-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload"),
         shield,
+        star,
         toggle,
         menu,
         url_button,
@@ -172,6 +188,15 @@ pub struct Browser {
     /// Wakes the sidebar when it is not pinned.
     left_hot: gtk::Box,
     side: gtk::Box,
+    /// Tab bar and navigation row of the horizontal layout.
+    topbar: gtk::Box,
+    strip: gtk::Box,
+    /// The space switcher at the foot of the sidebar.
+    space_bar: gtk::Box,
+    bookmarks: RefCell<Bookmarks>,
+    spaces: RefCell<Spaces>,
+    /// The tab each space had in front when it was left.
+    last_in_space: RefCell<HashMap<u32, TabId>>,
     /// The page's column; its width keeps the split view's minimum honest.
     content: ndl::ToolbarView,
     /// Colours, radius, gap and transparency the user chose, on top of the built-in sheet.
@@ -233,6 +258,7 @@ impl Browser {
 
         let side_chrome = build_chrome();
         let slim_chrome = build_chrome();
+        let top_chrome = build_chrome();
 
         // Sidebar, top to bottom: window controls, navigation, address, tabs, new tab.
         let side_header = ndl::HeaderBar::new();
@@ -251,6 +277,7 @@ impl Browser {
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         nav.append(&spacer);
+        nav.append(&side_chrome.star);
         nav.append(&side_chrome.shield);
         nav.append(&side_chrome.menu);
 
@@ -289,6 +316,12 @@ impl Browser {
         side.append(&side_chrome.url_button);
         side.append(&scroller);
         side.append(&new_tab);
+        let space_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        space_bar.add_css_class("brujula-spaces");
+        space_bar.set_halign(gtk::Align::Center);
+        space_bar.set_margin_top(4);
+        space_bar.set_margin_bottom(2);
+        side.append(&space_bar);
 
         // Window controls live in a bar that slides down from the top edge of the page when
         // the pointer gets there, top right like on every desktop. Nothing else sits over the
@@ -329,8 +362,50 @@ impl Browser {
         progress.set_valign(gtk::Align::Start);
         page.add_overlay(&progress);
 
+        // The tab bar for the horizontal layout: the tabs and the window controls on one row, the
+        // navigation and the address on the next. Hidden while the tabs are in the sidebar.
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        strip.add_css_class("brujula-strip");
+        let strip_scroll = gtk::ScrolledWindow::builder()
+            .child(&strip)
+            .hexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::External)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .build();
+        let top_header = ndl::HeaderBar::new();
+        top_header.set_show_start_title_buttons(false);
+        top_header.set_show_end_title_buttons(true);
+        top_header.set_title_widget(Some(&strip_scroll));
+        top_header.pack_end(&icon_button(
+            "list-add-symbolic",
+            "Nueva pestaña (Ctrl+T)",
+            "win.new-tab",
+        ));
+        let top_nav = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        top_nav.set_margin_start(8);
+        top_nav.set_margin_end(8);
+        top_nav.set_margin_bottom(6);
+        top_nav.append(&top_chrome.back);
+        top_nav.append(&top_chrome.forward);
+        top_nav.append(&top_chrome.reload);
+        top_chrome.url_button.set_margin_start(8);
+        top_chrome.url_button.set_margin_end(8);
+        top_nav.append(&top_chrome.url_button);
+        top_nav.append(&top_chrome.star);
+        top_nav.append(&top_chrome.shield);
+        top_nav.append(&top_chrome.menu);
+        let topbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        topbar.add_css_class("brujula-topbar");
+        topbar.append(&top_header);
+        topbar.append(&top_nav);
+        topbar.set_visible(false);
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        column.append(&topbar);
+        column.append(&page);
+        page.set_vexpand(true);
+
         let toolbar = ndl::ToolbarView::new();
-        toolbar.set_content(Some(&page));
+        toolbar.set_content(Some(&column));
         toolbar.set_reveal_top_bars(false);
         // The split view reports a natural width smaller than its minimum when it is not pinned
         // (GTK warns about it) unless the content says it is at least as wide as the sidebar.
@@ -380,6 +455,16 @@ impl Browser {
             top_hot,
             left_hot,
             side,
+            topbar,
+            strip,
+            space_bar,
+            bookmarks: RefCell::new(
+                std::fs::read_to_string(paths::bookmarks_file())
+                    .map(|t| Bookmarks::from_json(&t))
+                    .unwrap_or_default(),
+            ),
+            spaces: RefCell::new(Spaces::default()),
+            last_in_space: RefCell::new(HashMap::new()),
             content: toolbar,
             appearance_css: gtk::CssProvider::new(),
             edge: RefCell::new(EdgeDetector::default()),
@@ -391,7 +476,7 @@ impl Browser {
             list,
             stack,
             progress,
-            chromes: vec![side_chrome, slim_chrome],
+            chromes: vec![side_chrome, slim_chrome, top_chrome],
             spotlight,
             session,
             ucm,
@@ -499,6 +584,28 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action(
+            "next-space",
+            Box::new(|b| {
+                let id = b.spaces.borrow().relative(1);
+                b.switch_space(id);
+            }),
+        );
+        action(
+            "prev-space",
+            Box::new(|b| {
+                let id = b.spaces.borrow().relative(-1);
+                b.switch_space(id);
+            }),
+        );
+        let star = gio::SimpleAction::new_stateful("toggle-bookmark", None, &false.to_variant());
+        let this = Rc::downgrade(self);
+        star.connect_activate(move |_, _| {
+            if let Some(b) = this.upgrade() {
+                b.toggle_bookmark();
+            }
+        });
+        w.add_action(&star);
         action(
             "back",
             Box::new(|b| {
@@ -662,6 +769,26 @@ impl Browser {
 
         self.wire_hover();
 
+        // The sidebar lists the tabs of the space in front.
+        let this = Rc::downgrade(self);
+        self.list.set_filter_func(move |row| {
+            let Some(b) = this.upgrade() else { return true };
+            let Some(id) = row
+                .widget_name()
+                .strip_prefix("tab-")
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                return true;
+            };
+            // Being changed right now: show it, the filter runs again when that is done.
+            let Ok(model) = b.model.try_borrow() else {
+                return true;
+            };
+            model
+                .get(TabId(id))
+                .is_none_or(|t| t.space == model.current_space())
+        });
+
         // Save the session on close.
         let this = Rc::downgrade(self);
         self.window.connect_close_request(move |_| {
@@ -720,7 +847,7 @@ impl Browser {
             let (floating, wakes, width) = {
                 let s = b.settings.borrow();
                 (
-                    !s.sidebar_visible,
+                    !s.sidebar_visible && s.appearance.tabs == TabPosition::Vertical,
                     s.edge_reveal,
                     f64::from(s.appearance.sidebar_width) + 24.0,
                 )
@@ -852,9 +979,11 @@ impl Browser {
             .map(|t| Session::from_json(&t))
             .unwrap_or_default();
 
+        *self.spaces.borrow_mut() = session.spaces.clone();
         self.restoring.set(true);
         let mut opened = Vec::new();
         for t in &session.tabs {
+            self.model.borrow_mut().set_current_space(t.space);
             let (id, ch) = self.model.borrow_mut().open(&t.url, None, false);
             if t.pinned {
                 self.model.borrow_mut().set_pinned(id, true);
@@ -871,11 +1000,15 @@ impl Browser {
             self.apply(ch);
             opened.push(id);
         }
+        let current = self.spaces.borrow().current();
+        self.model.borrow_mut().set_current_space(current);
         if let Some(id) = opened.get(session.selected) {
             let c = self.model.borrow_mut().select(*id);
             self.apply(c);
         }
         self.restoring.set(false);
+        self.list.invalidate_filter();
+        self.rebuild_spaces();
         self.load_if_lazy();
         for u in urls {
             self.open_tab(u, None, true);
@@ -904,7 +1037,7 @@ impl Browser {
     }
 
     fn save_session(&self) {
-        let s = Session::capture(&self.model.borrow());
+        let s = Session::capture(&self.model.borrow(), &self.spaces.borrow());
         let _ = paths::write_atomic(&paths::session_file(), &s.to_json());
     }
 
@@ -929,6 +1062,23 @@ impl Browser {
     }
 
     fn close_tab(self: &Rc<Self>, id: TabId) {
+        // The last tab of a space gives way to a blank one: the user stays in the space.
+        let alone = {
+            let m = self.model.borrow();
+            m.get(id)
+                .is_some_and(|t| m.in_space(t.space).count() == 1 && m.len() > 1)
+        };
+        if alone {
+            if self
+                .model
+                .borrow()
+                .get(id)
+                .is_some_and(|t| t.url == newtab::NEWTAB_URI)
+            {
+                return;
+            }
+            self.open_tab(newtab::NEWTAB_URI, None, true);
+        }
         let changes = self.model.borrow_mut().close(id);
         self.apply(changes);
         if self.model.borrow().is_empty() {
@@ -1006,6 +1156,9 @@ impl Browser {
         });
         let this = Rc::downgrade(self);
         view.connect_favicon_notify(move |v| {
+            if let (Some(tex), Some(uri)) = (v.favicon(), v.uri()) {
+                favicons::remember(&uri, &tex);
+            }
             if let Some(b) = this.upgrade() {
                 if let Some(id) = b.id_of(v) {
                     b.sync_row(id);
@@ -1177,6 +1330,7 @@ impl Browser {
                     }
                 }
                 Change::Selected(id) => {
+                    self.follow_space_of(id);
                     self.stack.set_visible_child_name(&format!("tab-{}", id.0));
                     self.syncing.set(true);
                     for (rid, r) in self.rows.borrow().iter() {
@@ -1201,6 +1355,10 @@ impl Browser {
         }
         // Opened tabs appear at their model position.
         self.reorder_rows();
+        self.list.invalidate_filter();
+        if self.horizontal() {
+            self.rebuild_strip();
+        }
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
@@ -1251,6 +1409,7 @@ impl Browser {
         content.append(&close);
         let row = gtk::ListBoxRow::new();
         row.add_css_class("brujula-row");
+        row.set_widget_name(&format!("tab-{}", id.0));
         row.set_child(Some(&content));
 
         let this = Rc::downgrade(self);
@@ -1389,6 +1548,7 @@ impl Browser {
         self.update_nav();
         self.sync_progress();
         self.refresh_site_action();
+        self.refresh_bookmark_action();
     }
 
     fn set_action_enabled(&self, name: &str, enabled: bool) {
@@ -1483,7 +1643,11 @@ impl Browser {
     }
 
     fn render_settings(&self, view: &WebView) {
-        let html = prefs::render(&self.settings.borrow());
+        let html = prefs::render(
+            &self.settings.borrow(),
+            &self.bookmarks.borrow(),
+            &self.spaces.borrow(),
+        );
         view.load_html(&html, Some(prefs::SETTINGS_URI));
     }
 
@@ -1502,6 +1666,17 @@ impl Browser {
 
     /// One change made on the preferences page: checked, stored and put into effect.
     fn change_setting(self: &Rc<Self>, key: &str, value: &str) {
+        // Bookmarks and spaces are not settings: they have their own stores.
+        if let Some(rest) = key.strip_prefix("space.") {
+            self.change_space(rest, value);
+            return;
+        }
+        if key == "bookmark.remove" {
+            self.bookmarks.borrow_mut().remove(value);
+            self.save_bookmarks();
+            self.refresh_bookmark_action();
+            return;
+        }
         let result = self.settings.borrow_mut().apply(key, value);
         let effect = match result {
             Ok(effect) => effect,
@@ -1561,11 +1736,26 @@ impl Browser {
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));
+        let horizontal = s.appearance.tabs == TabPosition::Horizontal;
         self.content.set_size_request(width + 80, -1);
-        self.split.set_collapsed(!s.sidebar_visible);
-        self.split.set_show_sidebar(s.sidebar_visible);
+        // With the tabs on top there is no sidebar at all: the page fills the rest.
+        let pinned = s.sidebar_visible && !horizontal;
+        self.split.set_collapsed(!pinned);
+        self.split.set_show_sidebar(pinned);
         self.left_hot
-            .set_visible(!s.sidebar_visible && s.edge_reveal);
+            .set_visible(!pinned && !horizontal && s.edge_reveal);
+        self.top_hot.set_visible(!horizontal);
+        self.topbar.set_visible(horizontal);
+        if horizontal {
+            self.bar_revealer.set_reveal_child(false);
+            self.split.add_css_class("brujula-horizontal");
+            self.window.add_css_class("brujula-horizontal");
+        } else {
+            self.split.remove_css_class("brujula-horizontal");
+            self.window.remove_css_class("brujula-horizontal");
+        }
+        drop(s);
+        self.set_action_enabled("toggle-sidebar", !horizontal);
     }
 
     /// The blocker was switched, or its lists or sites changed: rules are compiled again. Open
@@ -1608,36 +1798,50 @@ impl Browser {
         let tabs: Vec<_> = model
             .tabs()
             .iter()
-            .filter(|t| t.url != newtab::NEWTAB_URI)
+            .filter(|t| t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI)
             .cloned()
             .collect();
-        suggest::suggestions(text, &tabs, settings.search_template())
+        let marks = self.bookmarks.borrow();
+        let views = self.views.borrow();
+        suggest::suggestions(text, &tabs, marks.items(), settings.search_template())
             .into_iter()
-            .map(|s| match &s.action {
-                Action::Search(q) => Item {
-                    title: format!("Buscar con {}: {q}", engine.name),
-                    detail: String::new(),
-                    icon: "ndl-search-symbolic",
+            .map(|s| {
+                let texture = match &s.action {
+                    Action::Go(url) => favicons::lookup(url),
+                    Action::SwitchTab(id) => views
+                        .get(id)
+                        .and_then(|v| v.favicon())
+                        .or_else(|| model.get(*id).and_then(|t| favicons::lookup(&t.url))),
+                    _ => None,
+                };
+                let icon = match (&s.kind, &s.action) {
+                    (Kind::Typed, Action::Search(_)) => "ndl-search-symbolic",
+                    (Kind::Bookmark, _) => "ndl-bookmark-symbolic",
+                    (Kind::Setting, _) => "ndl-settings-symbolic",
+                    _ => "web-browser-symbolic",
+                };
+                let title = match (&s.kind, &s.action) {
+                    (Kind::Typed, Action::Search(q)) => {
+                        format!("Buscar con {}: {q}", engine.name)
+                    }
+                    (Kind::Typed, _) => format!("Ir a {}", s.title),
+                    _ => s.title.clone(),
+                };
+                let detail = if s.kind == Kind::Typed {
+                    match &s.action {
+                        Action::Go(url) => url.clone(),
+                        _ => String::new(),
+                    }
+                } else {
+                    s.detail.clone()
+                };
+                Item {
+                    title,
+                    detail,
+                    icon,
+                    texture,
                     action: s.action,
-                },
-                Action::Go(url) => Item {
-                    title: format!("Ir a {}", s.title),
-                    detail: url.clone(),
-                    icon: "web-browser-symbolic",
-                    action: s.action,
-                },
-                Action::SwitchTab(_) => Item {
-                    title: s.title,
-                    detail: s.detail,
-                    icon: "ndl-arrow-right-symbolic",
-                    action: s.action,
-                },
-                Action::Settings(_) => Item {
-                    title: s.title,
-                    detail: s.detail,
-                    icon: "emblem-system-symbolic",
-                    action: s.action,
-                },
+                }
             })
             .collect()
     }
@@ -1676,7 +1880,7 @@ impl Browser {
         }
     }
 
-    fn show_tab_menu(self: &Rc<Self>, id: TabId, row: &gtk::ListBoxRow, x: f64, y: f64) {
+    fn show_tab_menu(self: &Rc<Self>, id: TabId, row: &impl IsA<gtk::Widget>, x: f64, y: f64) {
         let pinned = self.model.borrow().get(id).is_some_and(|t| t.pinned);
         let pop = gtk::Popover::new();
         pop.set_parent(row);
@@ -1737,14 +1941,14 @@ impl Browser {
         add(
             "Cerrar las demás",
             Box::new(move |b| {
-                let ids = b
-                    .model
-                    .borrow()
-                    .tabs()
-                    .iter()
-                    .filter(|t| t.id != id && !t.pinned)
-                    .map(|t| t.id)
-                    .collect::<Vec<_>>();
+                let ids = {
+                    let m = b.model.borrow();
+                    let space = m.get(id).map_or(m.current_space(), |t| t.space);
+                    m.in_space(space)
+                        .filter(|t| t.id != id && !t.pinned)
+                        .map(|t| t.id)
+                        .collect::<Vec<_>>()
+                };
                 for i in ids {
                     b.close_tab(i);
                 }
@@ -1756,9 +1960,10 @@ impl Browser {
                 let ids = {
                     let m = b.model.borrow();
                     let pos = m.position(id).map_or(0, |p| p + 1);
+                    let space = m.get(id).map_or(m.current_space(), |t| t.space);
                     m.tabs()[pos..]
                         .iter()
-                        .filter(|t| !t.pinned)
+                        .filter(|t| !t.pinned && t.space == space)
                         .map(|t| t.id)
                         .collect::<Vec<_>>()
                 };
@@ -1767,6 +1972,21 @@ impl Browser {
                 }
             }),
         );
+        let here = self.model.borrow().get(id).map_or(0, |t| t.space);
+        let others: Vec<(u32, String)> = self
+            .spaces
+            .borrow()
+            .all()
+            .iter()
+            .filter(|s| s.id != here)
+            .map(|s| (s.id, format!("{} {}", s.badge(), s.name)))
+            .collect();
+        for (space, label) in others {
+            add(
+                &format!("Mover a {label}"),
+                Box::new(move |b| b.move_tab_to_space(id, space)),
+            );
+        }
         pop.set_child(Some(&col));
         let pop2 = pop.clone();
         pop.connect_closed(move |_| pop2.unparent());

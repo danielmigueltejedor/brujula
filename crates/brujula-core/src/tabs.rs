@@ -12,6 +12,8 @@ pub struct Tab {
     pub pinned: bool,
     pub loading: bool,
     pub audible: bool,
+    /// The space the tab lives in (see `spaces`).
+    pub space: u32,
 }
 
 /// What a change to the model means for the UI.
@@ -29,14 +31,47 @@ pub struct TabModel {
     next_id: u64,
     tabs: Vec<Tab>,
     selected: Option<TabId>,
-    closed: Vec<(String, String, usize)>,
+    closed: Vec<(String, String, usize, u32)>,
+    current_space: u32,
 }
 
 const MAX_CLOSED: usize = 25;
 
 impl TabModel {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            current_space: crate::spaces::FIRST_SPACE,
+            ..Self::default()
+        }
+    }
+
+    /// The space new tabs go to.
+    pub fn current_space(&self) -> u32 {
+        self.current_space
+    }
+
+    pub fn set_current_space(&mut self, space: u32) {
+        self.current_space = space;
+    }
+
+    /// The tabs of one space, in order.
+    pub fn in_space(&self, space: u32) -> impl Iterator<Item = &Tab> {
+        self.tabs.iter().filter(move |t| t.space == space)
+    }
+
+    /// Puts a tab in another space.
+    pub fn set_space(&mut self, id: TabId, space: u32) -> Vec<Change> {
+        self.update(id, |t| t.space = space)
+    }
+
+    /// Moves every tab of `from` to `to` (a space was deleted).
+    pub fn move_space(&mut self, from: u32, to: u32) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for t in self.tabs.iter_mut().filter(|t| t.space == from) {
+            t.space = to;
+            changes.push(Change::Updated(t.id));
+        }
+        changes
     }
 
     pub fn tabs(&self) -> &[Tab] {
@@ -86,6 +121,7 @@ impl TabModel {
                 pinned: false,
                 loading: false,
                 audible: false,
+                space: self.current_space,
             },
         );
         let mut changes = vec![Change::Opened(id)];
@@ -105,17 +141,24 @@ impl TabModel {
         };
         let tab = self.tabs.remove(pos);
         if !tab.url.is_empty() && tab.url != "about:blank" {
-            self.closed.push((tab.url, tab.title, pos));
+            self.closed.push((tab.url, tab.title, pos, tab.space));
             if self.closed.len() > MAX_CLOSED {
                 self.closed.remove(0);
             }
         }
         let mut changes = vec![Change::Closed(id)];
         if self.selected == Some(id) {
-            self.selected = if self.tabs.is_empty() {
-                None
-            } else {
-                Some(self.tabs[pos.min(self.tabs.len() - 1)].id)
+            // The neighbour in the same space if there is one: closing a tab must not throw
+            // the user into another space.
+            let same = |t: &&Tab| t.space == tab.space;
+            let next = self.tabs[pos.min(self.tabs.len())..].iter().find(same);
+            let prev = self.tabs[..pos.min(self.tabs.len())]
+                .iter()
+                .rev()
+                .find(same);
+            self.selected = match next.or(prev) {
+                Some(t) => Some(t.id),
+                None => self.tabs.first().map(|t| t.id),
             };
             if let Some(s) = self.selected {
                 changes.push(Change::Selected(s));
@@ -126,8 +169,10 @@ impl TabModel {
 
     /// Reopens the most recently closed tab in its old position (clamped).
     pub fn reopen(&mut self) -> Option<(TabId, Vec<Change>)> {
-        let (url, title, pos) = self.closed.pop()?;
+        let (url, title, pos, space) = self.closed.pop()?;
+        let current = std::mem::replace(&mut self.current_space, space);
         let (id, mut changes) = self.open(&url, None, true);
+        self.current_space = current;
         let from = self.position(id)?;
         let to = pos.min(self.tabs.len() - 1).max(self.pinned_count());
         if from != to {
@@ -149,15 +194,18 @@ impl TabModel {
         vec![Change::Selected(id)]
     }
 
-    /// Selects the next (`+1`) or previous (`-1`) tab, wrapping around.
+    /// Selects the next (`+1`) or previous (`-1`) tab of the same space, wrapping around.
     pub fn select_relative(&mut self, delta: isize) -> Vec<Change> {
-        let Some(cur) = self.selected.and_then(|s| self.position(s)) else {
+        let Some(cur) = self.selected.and_then(|s| self.get(s)) else {
             return Vec::new();
         };
-        let n = self.tabs.len() as isize;
-        let next = (cur as isize + delta).rem_euclid(n) as usize;
-        let id = self.tabs[next].id;
-        self.select(id)
+        let ids: Vec<TabId> = self.in_space(cur.space).map(|t| t.id).collect();
+        let Some(at) = ids.iter().position(|i| *i == cur.id) else {
+            return Vec::new();
+        };
+        let n = ids.len() as isize;
+        let next = (at as isize + delta).rem_euclid(n) as usize;
+        self.select(ids[next])
     }
 
     /// Pins or unpins. Pinned tabs live at the start, in the order they were pinned; an
@@ -214,10 +262,11 @@ impl TabModel {
 
     /// Closes every tab except `keep` and the pinned ones. Returns the closed ids.
     pub fn close_others(&mut self, keep: TabId) -> Vec<TabId> {
+        let space = self.get(keep).map_or(self.current_space, |t| t.space);
         let ids: Vec<TabId> = self
             .tabs
             .iter()
-            .filter(|t| t.id != keep && !t.pinned)
+            .filter(|t| t.id != keep && !t.pinned && t.space == space)
             .map(|t| t.id)
             .collect();
         for id in &ids {
@@ -231,9 +280,10 @@ impl TabModel {
         let Some(pos) = self.position(from) else {
             return Vec::new();
         };
+        let space = self.tabs[pos].space;
         let ids: Vec<TabId> = self.tabs[pos + 1..]
             .iter()
-            .filter(|t| !t.pinned)
+            .filter(|t| !t.pinned && t.space == space)
             .map(|t| t.id)
             .collect();
         for id in &ids {
@@ -246,6 +296,78 @@ impl TabModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tabs_open_in_the_current_space_and_navigation_stays_inside_it() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        m.set_current_space(2);
+        let (b, _) = m.open("https://b.com", None, false);
+        let (c, _) = m.open("https://c.com", None, false);
+        m.set_current_space(1);
+        let (d, _) = m.open("https://d.com", None, false);
+        assert_eq!(m.in_space(2).count(), 2);
+        m.select(a);
+        m.select_relative(1);
+        assert_eq!(m.selected(), Some(d), "skips the other space");
+        m.select_relative(1);
+        assert_eq!(m.selected(), Some(a), "wraps inside the space");
+        m.select(b);
+        m.select_relative(-1);
+        assert_eq!(m.selected(), Some(c));
+    }
+
+    #[test]
+    fn closing_selects_a_neighbour_of_the_same_space() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        m.set_current_space(2);
+        let (b, _) = m.open("https://b.com", None, false);
+        m.set_current_space(1);
+        let (c, _) = m.open("https://c.com", None, false);
+        m.select(c);
+        m.close(c);
+        assert_eq!(m.selected(), Some(a), "not the tab of space 2");
+        m.close(a);
+        assert_eq!(m.selected(), Some(b), "last resort: anything left");
+    }
+
+    #[test]
+    fn close_others_and_below_stay_in_the_space() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        m.set_current_space(2);
+        let (b, _) = m.open("https://b.com", None, false);
+        m.set_current_space(1);
+        let (c, _) = m.open("https://c.com", None, false);
+        assert_eq!(m.close_others(a), vec![c]);
+        assert!(m.get(b).is_some());
+        let (d, _) = m.open("https://d.com", None, false);
+        assert_eq!(m.close_below(a), vec![d]);
+        assert!(m.get(b).is_some());
+    }
+
+    #[test]
+    fn a_reopened_tab_returns_to_its_space() {
+        let mut m = TabModel::new();
+        m.open("https://a.com", None, true);
+        m.set_current_space(2);
+        let (b, _) = m.open("https://b.com", None, false);
+        m.close(b);
+        m.set_current_space(1);
+        let (id, _) = m.reopen().unwrap();
+        assert_eq!(m.get(id).unwrap().space, 2);
+        assert_eq!(m.current_space(), 1, "the space in front does not change");
+    }
+
+    #[test]
+    fn deleting_a_space_moves_its_tabs() {
+        let mut m = TabModel::new();
+        m.set_current_space(3);
+        let (a, _) = m.open("https://a.com", None, true);
+        m.move_space(3, 1);
+        assert_eq!(m.get(a).unwrap().space, 1);
+    }
 
     fn model(n: usize) -> (TabModel, Vec<TabId>) {
         let mut m = TabModel::new();

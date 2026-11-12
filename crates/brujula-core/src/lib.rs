@@ -4,6 +4,7 @@
 
 pub mod adblock;
 pub mod appearance;
+pub mod bookmarks;
 pub mod downloads;
 pub mod edge;
 pub mod newtab;
@@ -13,5 +14,6 @@ pub mod scriptlets;
 pub mod search;
 pub mod session;
 pub mod settings;
+pub mod spaces;
 pub mod suggest;
 pub mod tabs;

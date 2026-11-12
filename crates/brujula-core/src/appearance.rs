@@ -41,9 +41,11 @@ pub fn css(a: &Appearance) -> String {
         ));
     }
     if a.tabs == TabPosition::Horizontal {
+        // The tab bar sits above the page, which stays an island under it.
         css.push_str(&format!(
-            "window.brujula-horizontal ndl-overlay-split-view > .ndl-content-pane {{ margin-top: {g}px; }}\n",
-            g = a.gap
+            "ndl-overlay-split-view.collapsed.brujula-horizontal > .ndl-content-pane {{ margin: 0 {g}px {g}px {g}px; border-radius: {r}px; }}\n",
+            g = a.gap,
+            r = a.radius,
         ));
     }
     css
@@ -75,6 +77,19 @@ mod tests {
             ..Appearance::default()
         });
         assert!(frame.contains("brujula-frame ndl-overlay-split-view > .ndl-sidebar-pane"));
+    }
+
+    #[test]
+    fn horizontal_tabs_keep_the_page_as_an_island() {
+        let vertical = css(&Appearance::default());
+        assert!(!vertical.contains("brujula-horizontal"));
+        let top = css(&Appearance {
+            tabs: TabPosition::Horizontal,
+            gap: 6,
+            ..Appearance::default()
+        });
+        assert!(top
+            .contains("collapsed.brujula-horizontal > .ndl-content-pane { margin: 0 6px 6px 6px"));
     }
 
     #[test]

@@ -63,9 +63,32 @@ cargo run -p brujula -- https://example.com
 `BRUJULA_LISTS_DIR=<carpeta con listas> cargo test -p brujula-core real_lists -- --nocapture`
 compila listas reales y comprueba que el JSON resultante es válido.
 
+## Apariencia, espacios y marcadores
+
+- **Preferencias** (`brujula://settings`, Ctrl+,): tema, color de acento, color del marco,
+  transparencia, redondeo, separación, ancho de la barra lateral, disposición «islas» o «marco»
+  (una sola isla, la web, rodeada por la barra lateral o la superior, como Zen), pestañas
+  verticales u horizontales, buscador, bloqueador, listas y sitios exentos, espacios y marcadores.
+  La página cambia ajustes navegando a `brujula://set?clave=valor`; el navegador solo lo atiende si
+  viene de esa misma página y `Settings::apply` valida cada valor (rangos, colores `#rrggbb`).
+  La apariencia se aplica en caliente con una segunda hoja de estilos y el `StyleManager` de NDL.
+- **Borde inteligente** (`edge.rs`): con la barra lateral sin anclar, aparece con un movimiento
+  rápido hacia el lateral (a menos de ~140 px) o con uno deliberado cerca (~48 px), no solo al tocar
+  el borde.
+- **Espacios** (`spaces.rs`): grupos de pestañas con nombre e icono; cada pestaña vive en uno, el
+  selector está al pie de la barra, se guardan en la sesión y ⌥↑/⌥↓ cambian de espacio. Cerrar la
+  última pestaña de un espacio deja una en blanco; el cierre y la navegación no salen del espacio.
+- **Marcadores** (`bookmarks.rs`): estrella de la barra o Ctrl+D; solo páginas web; se buscan en el
+  Spotlight (que sin texto los lista) y se gestionan en Preferencias.
+- **Spotlight**: muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
+  nombre o palabra clave («transparencia», «pestañas arriba»…).
+
 ## Qué está verificado
 
-- Núcleo: 56 tests unitarios.
+- Núcleo: 129 tests unitarios.
+- Apariencia, marco, pestañas horizontales, espacios, Spotlight con iconos y ajustes, y la página de
+  preferencias, comprobados bajo Xvfb con capturas (sin pantalla real ni compositor: la
+  transparencia no se ha visto).
 - App: compilada con GTK 4.22, libadwaita 1.9 (solo como dependencia de WebKit) y WebKitGTK 2.52 y
   ejecutada bajo Xvfb: abre, restaura pestañas, abre y cierra, cambia de pestaña, oculta y muestra
   la barra lateral, y con 139 126 reglas reales WebKit bloquea una petición y se ocultan elementos
@@ -76,10 +99,11 @@ compila listas reales y comprueba que el JSON resultante es válido.
 ## Pendiente
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
-- Marcadores, historial, contraseñas, sincronización, extensiones: todo lo que daba Epiphany.
+- Historial, contraseñas, sincronización, extensiones: todo lo que daba Epiphany. Carpetas de
+  marcadores e importación.
 - Permisos (cámara, ubicación, notificaciones), pantalla completa, impresión, descargas con
   interfaz, modo privado, buscador configurable.
 - Página de nueva pestaña, página de error, traducciones (hoy, textos en español).
 - Excepciones del bloqueador por sitio y contador de bloqueados.
-- Historial y marcadores en el Spotlight (hoy solo busca en las pestañas abiertas).
+- Historial en el Spotlight (hoy: pestañas abiertas, marcadores y ajustes).
 - Fijar `nodalia-gtk` a una versión estable cuando NDL la publique.

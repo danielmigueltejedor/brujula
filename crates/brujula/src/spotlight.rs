@@ -15,6 +15,8 @@ pub struct Item {
     pub title: String,
     pub detail: String,
     pub icon: &'static str,
+    /// The site's own icon, when there is one; it replaces `icon`.
+    pub texture: Option<gdk::Texture>,
 }
 
 type Query = Box<dyn Fn(&str) -> Vec<Item>>;
@@ -226,8 +228,14 @@ impl Spotlight {
 }
 
 fn row(item: &Item) -> gtk::ListBoxRow {
-    let icon = gtk::Image::from_icon_name(item.icon);
-    icon.set_pixel_size(16);
+    let icon: gtk::Widget = match &item.texture {
+        Some(texture) => crate::favicons::picture(texture),
+        None => {
+            let img = gtk::Image::from_icon_name(item.icon);
+            img.set_pixel_size(16);
+            img.upcast()
+        }
+    };
     let title = gtk::Label::builder()
         .label(&item.title)
         .xalign(0.0)

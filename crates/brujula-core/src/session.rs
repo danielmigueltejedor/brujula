@@ -2,7 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::spaces::{Spaces, FIRST_SPACE};
 use crate::tabs::TabModel;
+
+fn first_space() -> u32 {
+    FIRST_SPACE
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedTab {
@@ -11,6 +16,8 @@ pub struct SavedTab {
     pub title: String,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default = "first_space")]
+    pub space: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +25,7 @@ pub struct SavedTab {
 pub struct Session {
     pub tabs: Vec<SavedTab>,
     pub selected: usize,
+    pub spaces: Spaces,
 }
 
 /// Only these schemes are restored: a session file must not be able to make the browser open
@@ -30,28 +38,38 @@ fn restorable(url: &str) -> bool {
 }
 
 impl Session {
-    pub fn capture(model: &TabModel) -> Self {
-        let tabs: Vec<SavedTab> = model
-            .tabs()
+    pub fn capture(model: &TabModel, spaces: &Spaces) -> Self {
+        let kept: Vec<_> = model.tabs().iter().filter(|t| restorable(&t.url)).collect();
+        let selected = model
+            .selected()
+            .and_then(|sel| kept.iter().position(|t| t.id == sel))
+            .unwrap_or(0);
+        let tabs = kept
             .iter()
-            .filter(|t| restorable(&t.url))
             .map(|t| SavedTab {
                 url: t.url.clone(),
                 title: t.title.clone(),
                 pinned: t.pinned,
+                space: t.space,
             })
             .collect();
-        let selected = model
-            .selected()
-            .and_then(|id| model.get(id))
-            .and_then(|sel| tabs.iter().position(|t| t.url == sel.url))
-            .unwrap_or(0);
-        Self { tabs, selected }
+        Self {
+            tabs,
+            selected,
+            spaces: spaces.clone(),
+        }
     }
 
     pub fn from_json(text: &str) -> Self {
         let mut s: Session = serde_json::from_str(text).unwrap_or_default();
         s.tabs.retain(|t| restorable(&t.url));
+        s.spaces = s.spaces.sanitized();
+        let home = s.spaces.all()[0].id;
+        for t in &mut s.tabs {
+            if !s.spaces.contains(t.space) {
+                t.space = home;
+            }
+        }
         if s.selected >= s.tabs.len() {
             s.selected = 0;
         }
@@ -73,12 +91,30 @@ mod tests {
         let (a, _) = m.open("https://a.com", None, false);
         let (b, _) = m.open("https://b.com", None, true);
         m.set_pinned(a, true);
-        let s = Session::capture(&m);
+        let s = Session::capture(&m, &Spaces::default());
         assert_eq!(s.tabs.len(), 2);
         assert!(s.tabs[0].pinned);
         assert_eq!(s.selected, 1);
         assert_eq!(Session::from_json(&s.to_json()), s);
         let _ = b;
+    }
+
+    #[test]
+    fn tabs_keep_their_space_and_old_files_land_in_the_first() {
+        let mut spaces = Spaces::default();
+        let work = spaces.add("Trabajo").unwrap();
+        let mut m = TabModel::new();
+        m.open("https://a.com", None, false);
+        m.set_current_space(work);
+        m.open("https://b.com", None, true);
+        let s = Session::from_json(&Session::capture(&m, &spaces).to_json());
+        assert_eq!(s.tabs[0].space, FIRST_SPACE);
+        assert_eq!(s.tabs[1].space, work);
+        assert_eq!(s.spaces.all().len(), 2);
+        let old = Session::from_json(r#"{"tabs":[{"url":"https://ok.com"}],"selected":0}"#);
+        assert_eq!(old.tabs[0].space, FIRST_SPACE);
+        let stray = Session::from_json(r#"{"tabs":[{"url":"https://ok.com","space":42}]}"#);
+        assert_eq!(stray.tabs[0].space, FIRST_SPACE);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod browser;
+mod favicons;
 mod filters;
 mod paths;
 mod spotlight;
