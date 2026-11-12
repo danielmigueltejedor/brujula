@@ -153,20 +153,24 @@ fn build_chrome() -> Chrome {
         .build();
     star.set_tooltip_text(Some("Añadir a marcadores (Ctrl+D)"));
     let toggle = gtk::ToggleButton::builder()
-        .icon_name("sidebar-show-symbolic")
+        .icon_name("ndl-sidebar-symbolic")
         .tooltip_text("Barra lateral (Ctrl+B)")
         .action_name("win.toggle-sidebar")
         .css_classes(["flat"])
         .build();
     let menu = gtk::MenuButton::builder()
-        .icon_name("open-menu-symbolic")
+        .icon_name("ndl-menu-symbolic")
         .menu_model(&main_menu())
         .css_classes(["flat"])
         .build();
     Chrome {
-        back: icon_button("go-previous-symbolic", "Atrás (Alt+←)", "win.back"),
-        forward: icon_button("go-next-symbolic", "Adelante (Alt+→)", "win.forward"),
-        reload: icon_button("view-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload"),
+        back: icon_button("ndl-arrow-left-symbolic", "Atrás (Alt+←)", "win.back"),
+        forward: icon_button(
+            "ndl-arrow-right-symbolic",
+            "Adelante (Alt+→)",
+            "win.forward",
+        ),
+        reload: icon_button("ndl-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload"),
         shield,
         star,
         toggle,
@@ -298,7 +302,7 @@ impl Browser {
             .build();
         let new_tab_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         new_tab_content.set_halign(gtk::Align::Center);
-        new_tab_content.append(&gtk::Image::from_icon_name("list-add-symbolic"));
+        new_tab_content.append(&gtk::Image::from_icon_name("ndl-plus-symbolic"));
         new_tab_content.append(&gtk::Label::new(Some("Nueva pestaña")));
         let new_tab = gtk::Button::builder()
             .child(&new_tab_content)
@@ -377,7 +381,7 @@ impl Browser {
         top_header.set_show_end_title_buttons(true);
         top_header.set_title_widget(Some(&strip_scroll));
         top_header.pack_end(&icon_button(
-            "list-add-symbolic",
+            "ndl-plus-symbolic",
             "Nueva pestaña (Ctrl+T)",
             "win.new-tab",
         ));
@@ -1362,7 +1366,7 @@ impl Browser {
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
-        let favicon_icon = gtk::Image::from_icon_name("web-browser-symbolic");
+        let favicon_icon = gtk::Image::from_icon_name("ndl-globe-symbolic");
         favicon_icon.set_pixel_size(16);
         let favicon_pic = gtk::Picture::new();
         favicon_pic.set_content_fit(gtk::ContentFit::Contain);
@@ -1386,14 +1390,14 @@ impl Browser {
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .css_classes(["brujula-tab-title"])
             .build();
-        let audio = gtk::Image::from_icon_name("audio-volume-high-symbolic");
+        let audio = gtk::Image::from_icon_name("ndl-volume-symbolic");
         audio.set_pixel_size(14);
         audio.set_visible(false);
         let pin = gtk::Image::from_icon_name("ndl-pin-symbolic");
         pin.set_pixel_size(14);
         pin.set_visible(false);
         let close = gtk::Button::builder()
-            .icon_name("window-close-symbolic")
+            .icon_name("ndl-close-symbolic")
             .css_classes(["flat", "circular", "brujula-tab-close"])
             .tooltip_text("Cerrar pestaña")
             .valign(gtk::Align::Center)
@@ -1535,7 +1539,7 @@ impl Browser {
         let reload_icon = if tab.loading {
             "ndl-stop-symbolic"
         } else {
-            "view-refresh-symbolic"
+            "ndl-refresh-symbolic"
         };
         drop(model);
         self.window.set_title(Some(&title));
@@ -1818,7 +1822,7 @@ impl Browser {
                     (Kind::Typed, Action::Search(_)) => "ndl-search-symbolic",
                     (Kind::Bookmark, _) => "ndl-bookmark-symbolic",
                     (Kind::Setting, _) => "ndl-settings-symbolic",
-                    _ => "web-browser-symbolic",
+                    _ => "ndl-globe-symbolic",
                 };
                 let title = match (&s.kind, &s.action) {
                     (Kind::Typed, Action::Search(q)) => {

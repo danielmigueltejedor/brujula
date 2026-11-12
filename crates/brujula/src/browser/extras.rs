@@ -158,7 +158,7 @@ impl Browser {
             self.space_bar.append(&button);
         }
         let add = gtk::Button::builder()
-            .icon_name("list-add-symbolic")
+            .icon_name("ndl-plus-symbolic")
             .tooltip_text("Nuevo espacio")
             .css_classes(["flat", "brujula-space"])
             .build();
@@ -308,7 +308,7 @@ impl Browser {
             let icon: gtk::Widget = match self.views.borrow().get(&id).and_then(|v| v.favicon()) {
                 Some(tex) => favicons::picture(&tex),
                 None => {
-                    let img = gtk::Image::from_icon_name("web-browser-symbolic");
+                    let img = gtk::Image::from_icon_name("ndl-globe-symbolic");
                     img.set_pixel_size(16);
                     img.upcast()
                 }
@@ -320,7 +320,7 @@ impl Browser {
                 .xalign(0.0)
                 .build();
             let close = gtk::Button::builder()
-                .icon_name("window-close-symbolic")
+                .icon_name("ndl-close-symbolic")
                 .css_classes(["flat", "circular", "brujula-tab-close"])
                 .tooltip_text("Cerrar pestaña")
                 .valign(gtk::Align::Center)
