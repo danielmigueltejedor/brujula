@@ -292,6 +292,8 @@ pub struct Extras {
     pub status: String,
     /// Archived tabs: address and title.
     pub archived: Vec<(String, String)>,
+    /// Boosts: site, dark mode, CSS.
+    pub boosts: Vec<(String, bool, String)>,
 }
 
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
@@ -330,6 +332,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Marcadores",
         "Las páginas que guardaste con la estrella.",
         "bookmark",
+    ),
+    (
+        "boosts",
+        "Boosts",
+        "Boosts",
+        "Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.",
+        "sparkle",
     ),
     (
         "archive",
@@ -408,6 +417,29 @@ fn icon_grid(space_id: u32, current: &str) -> String {
         })
         .collect();
     format!(r#"<div class="iconsgrid">{buttons}</div>"#)
+}
+
+/// The boosts: a form to add a site, and one card for each.
+fn boosts_section(view: &Extras) -> String {
+    let add = stacked(
+        "Añadir un sitio",
+        "La dirección o el nombre, como wikipedia.org. Vale también para sus subdominios.",
+        r#"<div class="addrow"><input type="text" id="boost-host" class="field wide" placeholder="sitio.com" maxlength="120" aria-label="Sitio"><button type="button" class="seg plain" data-addboost="1">Añadir</button></div>"#,
+    );
+    let cards: String = view
+        .boosts
+        .iter()
+        .map(|(host, dark, css)| {
+            let h = escape(host);
+            format!(
+                r#"<div class="boost"><div class="row"><div class="what"><b>{h}</b></div><div class="ctl"><span class="status">Modo oscuro</span>{dark}<button type="button" class="seg plain danger" data-k="boost.remove" data-v="{h}" data-removeall="1">Quitar</button></div></div><div class="row stack"><textarea class="css" data-k="boost.css.{h}" rows="6" maxlength="{max}" spellcheck="false" placeholder="CSS de este sitio, por ejemplo: body {{ font-size: 18px !important; }}" aria-label="CSS de {h}">{css}</textarea></div></div>"#,
+                dark = switch(&format!("boost.dark.{host}"), *dark),
+                max = crate::boosts::MAX_CSS,
+                css = escape(css),
+            )
+        })
+        .collect();
+    section("boosts", &format!("{add}{cards}"))
 }
 
 /// The archive: when tabs are archived, and the ones that were.
@@ -755,6 +787,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let bookmarks_section = section("bookmarks", &bookmarks_body);
     let sync_section = sync_section(s, sync);
     let archive_section = archive_section(s, sync);
+    let boosts_section = boosts_section(sync);
     let security = section(
         "security",
         r#"<ul class="facts">
@@ -796,7 +829,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{boosts_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -844,6 +877,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Marcadores",
         "favoritos marcadores guardados estrella",
         "bookmarks",
+    ),
+    (
+        "Boosts",
+        "boost estilo css modo oscuro sitio aspecto personalizar",
+        "boosts",
     ),
     (
         "Archivo de pestañas",
@@ -945,6 +983,9 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .engine:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
 .engine.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .engine b{font-weight:560;font-size:.92rem}
+.css{width:100%;font:12.5px ui-monospace,monospace;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:.7rem;padding:.7rem;resize:vertical}
+.boost .row.stack{padding-top:0;border-top:0}
+.addrow{display:flex;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
 .note{margin:0;padding:1rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
@@ -981,12 +1022,15 @@ const fill=(i)=>i.style.setProperty('--p',((i.value-i.min)*100/(i.max-i.min||1))
 document.addEventListener('click',e=>{
   const nav=e.target.closest('a[href^="#"]');
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
+  const add=e.target.closest('[data-addboost]');
+  if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
   const open=e.target.closest('[data-open]');
   if(open){open.closest('.space').classList.toggle('open');return}
-  const b=e.target.closest('[data-k]');if(!b||b.tagName==='INPUT')return;
+  const b=e.target.closest('[data-k]');if(!b||b.tagName==='INPUT'||b.tagName==='TEXTAREA')return;
   const k=b.dataset.k;
   if(b.dataset.toggle){const on=!b.classList.contains('on');b.classList.toggle('on',on);b.setAttribute('aria-checked',on);send(k,on?'1':'0');return}
   const v=b.dataset.v;
+  if(b.dataset.removeall){const r=b.closest('.boost');if(r)r.remove();send(k,b.dataset.v);return}
   if(b.dataset.remove){const r=b.closest('.row,.space');if(r)r.remove();send(k,v);return}
   send(k,v);
   if(k==='accent'){document.body.style.setProperty('--accent',v)}
@@ -997,7 +1041,7 @@ document.addEventListener('click',e=>{
   if(k==='reset_appearance'){setTimeout(()=>location.reload(),150)}
 });
 document.addEventListener('change',e=>{
-  const i=e.target;if(i.type==='text'&&i.dataset.k)send(i.dataset.k,i.value)
+  const i=e.target;if((i.type==='text'||i.tagName==='TEXTAREA')&&i.dataset.k)send(i.dataset.k,i.value)
 });
 document.addEventListener('input',e=>{
   const i=e.target;if(!i.dataset||!i.dataset.k)return;
@@ -1157,6 +1201,29 @@ mod tests {
         assert!(html.contains("&lt;i&gt;x&lt;/i&gt;") && !html.contains("<i>x</i>"));
         assert!(html.contains(r#"data-k="archive.open""#));
         assert!(!html.contains("q=\"1\""));
+    }
+
+    #[test]
+    fn boosts_are_listed_with_their_css_escaped() {
+        let view = Extras {
+            boosts: vec![(
+                "wiki.org".into(),
+                true,
+                "</textarea><script>x()</script>body{}".into(),
+            )],
+            ..Extras::default()
+        };
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &view,
+        );
+        assert!(html.contains(r#"data-k="boost.dark.wiki.org""#));
+        assert!(html.contains(r#"data-k="boost.css.wiki.org""#));
+        assert!(html.contains("&lt;/textarea&gt;&lt;script&gt;x()"));
+        assert!(!html.contains("<script>x()"));
+        assert!(html.contains(r#"id="boost-host""#));
     }
 
     #[test]

@@ -36,6 +36,10 @@ pub fn notes_file() -> PathBuf {
     data_dir().join("notes.json")
 }
 
+pub fn boosts_file() -> PathBuf {
+    data_dir().join("boosts.json")
+}
+
 pub fn session_file() -> PathBuf {
     data_dir().join("session.json")
 }

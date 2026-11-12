@@ -41,6 +41,7 @@ use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
 mod archive;
+mod boosts;
 mod cloudsync;
 mod extras;
 mod folders;
@@ -222,6 +223,9 @@ pub struct Browser {
     notes_save_queued: Cell<bool>,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// The sites the user restyled, and the style sheets that carry it to the pages.
+    boosts: RefCell<brujula_core::boosts::Boosts>,
+    boost_sheets: RefCell<Vec<webkit6::UserStyleSheet>>,
     /// The card that shows a link in a preview, and the page in it.
     peek: peek::PeekCard,
     peek_view: RefCell<Option<WebView>>,
@@ -545,6 +549,8 @@ impl Browser {
             notes: RefCell::new(notes::load()),
             notes_save_queued: Cell::new(false),
             save_queued: Cell::new(false),
+            boosts: RefCell::new(boosts::load()),
+            boost_sheets: RefCell::new(Vec::new()),
             peek,
             peek_view: RefCell::new(None),
             paired: RefCell::new(None),
@@ -599,6 +605,7 @@ impl Browser {
     fn wire(self: &Rc<Self>) {
         let w = self.window.upcast_ref::<gtk::ApplicationWindow>().clone();
         self.wire_peek();
+        self.apply_boosts();
         self.wire_notes();
 
         let action = |name: &str, f: Handler| {
@@ -1888,6 +1895,10 @@ impl Browser {
             self.change_space(rest, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("boost.") {
+            self.change_boost(what, value);
+            return;
+        }
         if let Some(what) = key.strip_prefix("archive.") {
             self.change_archive(what, value);
             return;
@@ -2240,6 +2251,10 @@ impl Browser {
             }),
         );
         // Folders: move the tab into one, out of it, or into a new one.
+        add(
+            "Boost de este sitio…",
+            Box::new(move |b| b.boost_site_of(id)),
+        );
         // Split view: this tab next to the one in front, or back to one page.
         let in_front = self.model.borrow().selected();
         if self.in_split(id) {

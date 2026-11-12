@@ -46,6 +46,13 @@ impl Browser {
                 .map(|a| (a.id.clone(), a.label(), mounted(&a.mount_dir(&home))))
                 .collect(),
             status: self.sync_status.borrow().clone(),
+            boosts: self
+                .boosts
+                .borrow()
+                .items()
+                .iter()
+                .map(|b| (b.host.clone(), b.dark, b.css.clone()))
+                .collect(),
             archived: self
                 .archive
                 .borrow()
