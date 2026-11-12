@@ -144,6 +144,13 @@ impl Settings {
                 self.search_engine = value.to_owned();
                 self.search_engine_chosen = true;
             }
+            "archive_after" => {
+                let hours = number(value)?;
+                if !crate::settings::ARCHIVE_CHOICES.contains(&hours) {
+                    return Err(format!("not a choice: {hours}"));
+                }
+                self.archive_after_hours = hours;
+            }
             "sync" => {
                 self.sync.enabled = flag(value)?;
                 effect.sync = true;
@@ -276,13 +283,15 @@ fn swatches(key: &str, colours: &[&str], current: &str) -> String {
     format!(r#"<div class="dots">{dots}</div>"#)
 }
 
-/// What the sync section shows besides the settings.
+/// What some sections show besides the settings: the cloud accounts and the archive.
 #[derive(Debug, Default, Clone)]
-pub struct SyncView {
+pub struct Extras {
     /// The cloud accounts of the desktop: id, label, whether the folder is mounted now.
     pub accounts: Vec<(String, String, bool)>,
     /// How the last round went, in words.
     pub status: String,
+    /// Archived tabs: address and title.
+    pub archived: Vec<(String, String)>,
 }
 
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
@@ -321,6 +330,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Marcadores",
         "Las páginas que guardaste con la estrella.",
         "bookmark",
+    ),
+    (
+        "archive",
+        "Archivo",
+        "Archivo",
+        "Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.",
+        "clock",
     ),
     (
         "sync",
@@ -394,8 +410,53 @@ fn icon_grid(space_id: u32, current: &str) -> String {
     format!(r#"<div class="iconsgrid">{buttons}</div>"#)
 }
 
+/// The archive: when tabs are archived, and the ones that were.
+fn archive_section(s: &Settings, view: &Extras) -> String {
+    let choices: String = [
+        (0, "Nunca"),
+        (12, "12 horas"),
+        (24, "1 día"),
+        (168, "1 semana"),
+        (720, "30 días"),
+    ]
+    .iter()
+    .map(|(hours, label)| {
+        let on = if *hours == s.archive_after_hours { " on" } else { "" };
+        format!(r#"<button type="button" class="seg{on}" data-k="archive_after" data-v="{hours}">{label}</button>"#)
+    })
+    .collect();
+    let list = if view.archived.is_empty() {
+        r#"<p class="empty">Ninguna todavía.</p>"#.to_owned()
+    } else {
+        view.archived
+            .iter()
+            .map(|(url, title)| {
+                let name = if title.is_empty() { url } else { title };
+                format!(
+                    r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="archive.open" data-v="{url}" data-remove="1">Abrir</button><button type="button" class="seg plain danger" data-k="archive.remove" data-v="{url}" data-remove="1">Quitar</button></div></div>"#,
+                    escape(name),
+                    escape(url),
+                    url = escape(url)
+                )
+            })
+            .collect()
+    };
+    section(
+        "archive",
+        &[
+            row(
+                "Archivar las pestañas sin usar",
+                "Las ancladas, las de una carpeta y la que tienes delante no se archivan.",
+                &format!(r#"<div class="segs" role="group">{choices}</div>"#),
+            ),
+            list,
+        ]
+        .concat(),
+    )
+}
+
 /// The synchronisation section.
-fn sync_section(s: &Settings, view: &SyncView) -> String {
+fn sync_section(s: &Settings, view: &Extras) -> String {
     let c = &s.sync;
     let accounts = if view.accounts.is_empty() {
         r#"<p class="empty">Ninguna cuenta. Añade Google Drive, OneDrive, Dropbox o iCloud Drive en Ajustes, en las cuentas en la nube.</p>"#.to_owned()
@@ -458,7 +519,7 @@ fn sync_section(s: &Settings, view: &SyncView) -> String {
 }
 
 /// The preferences page for the current settings.
-pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &SyncView) -> String {
+pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -> String {
     let a = &s.appearance;
     let theme = match a.theme {
         Theme::System => "system",
@@ -693,6 +754,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &SyncView)
     };
     let bookmarks_section = section("bookmarks", &bookmarks_body);
     let sync_section = sync_section(s, sync);
+    let archive_section = archive_section(s, sync);
     let security = section(
         "security",
         r#"<ul class="facts">
@@ -734,7 +796,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &SyncView)
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -782,6 +844,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Marcadores",
         "favoritos marcadores guardados estrella",
         "bookmarks",
+    ),
+    (
+        "Archivo de pestañas",
+        "archivar archivo pestañas antiguas cerradas recuperar",
+        "archive",
     ),
     (
         "Sincronización",
@@ -834,7 +901,7 @@ h2{font-size:1.4rem;font-weight:660;letter-spacing:-.02em;margin:0;line-height:1
 .ctl{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .stack .ctl{justify-content:flex-start;gap:.6rem .6rem}
 .segs{display:flex;gap:.2rem;background:var(--chip);padding:.2rem;border-radius:.85rem}
-.seg{font:inherit;font-size:.9rem;color:var(--fg);background:transparent;border:0;border-radius:.65rem;padding:.42rem .9rem;cursor:pointer}
+.seg{white-space:nowrap;font:inherit;font-size:.9rem;color:var(--fg);background:transparent;border:0;border-radius:.65rem;padding:.42rem .9rem;cursor:pointer}
 .seg:hover{background:color-mix(in srgb,var(--fg) 8%,transparent)}
 .seg.on{background:var(--accent);color:var(--on-accent)}
 .seg.plain{background:var(--chip)}.seg.plain:hover{background:color-mix(in srgb,var(--fg) 12%,var(--chip))}
@@ -1049,12 +1116,13 @@ mod tests {
     fn the_sync_section_lists_accounts_and_escapes_them() {
         let mut s = Settings::default();
         s.sync.account = "a1".into();
-        let view = SyncView {
+        let view = Extras {
             accounts: vec![
                 ("a1".into(), "Casa · Dropbox".into(), true),
                 ("b2".into(), "<b>x</b>".into(), false),
             ],
             status: "Hecho".into(),
+            ..Extras::default()
         };
         let html = render(&s, &Bookmarks::default(), &Spaces::default(), &view);
         assert!(html.contains(r#"class="engine on" data-k="sync_account" data-v="a1""#));
@@ -1065,9 +1133,30 @@ mod tests {
             &s,
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         assert!(empty.contains("Ninguna cuenta"));
+    }
+
+    #[test]
+    fn archive_choices_are_checked_and_the_list_is_escaped() {
+        let mut s = Settings::default();
+        assert_eq!(s.archive_after_hours, 24);
+        s.apply("archive_after", "168").unwrap();
+        assert_eq!(s.archive_after_hours, 168);
+        s.apply("archive_after", "0").unwrap();
+        assert!(s.apply("archive_after", "5").is_err());
+        assert!(s.apply("archive_after", "x").is_err());
+        assert_eq!(s.archive_after_hours, 0);
+        let view = Extras {
+            archived: vec![("https://a.example/?q=\"1\"".into(), "<i>x</i>".into())],
+            ..Extras::default()
+        };
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &view);
+        assert!(html.contains(r#"class="seg on" data-k="archive_after" data-v="0""#));
+        assert!(html.contains("&lt;i&gt;x&lt;/i&gt;") && !html.contains("<i>x</i>"));
+        assert!(html.contains(r#"data-k="archive.open""#));
+        assert!(!html.contains("q=\"1\""));
     }
 
     #[test]
@@ -1087,7 +1176,7 @@ mod tests {
             &s,
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         assert!(html.contains(r#"class="tile on" data-k="theme" data-v="dark""#));
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
@@ -1101,7 +1190,7 @@ mod tests {
         spaces.add("<b>x</b>");
         let mut marks = Bookmarks::default();
         marks.toggle("https://a.com/?q=\"1\"", "<i>t</i>");
-        let html = render(&Settings::default(), &marks, &spaces, &SyncView::default());
+        let html = render(&Settings::default(), &marks, &spaces, &Extras::default());
         assert!(html.contains("&lt;b&gt;x&lt;/b&gt;"));
         assert!(html.contains("&lt;i&gt;t&lt;/i&gt;"));
         assert!(!html.contains("<i>t</i>"));
@@ -1118,7 +1207,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &spaces,
-            &SyncView::default(),
+            &Extras::default(),
         );
         assert!(html.contains(&format!(r#"data-k="space.icon.{id}" data-v="backpack""#)));
         // The chosen one is marked, and each icon is drawn inline (nothing is fetched).
@@ -1133,7 +1222,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         for e in ENGINES {
             assert!(html.contains(&e.badge()), "{}", e.id);
@@ -1146,7 +1235,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         for (id, ..) in PAGES {
             assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
@@ -1162,7 +1251,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         assert!(html.contains(&format!(
             r#"data-k="sidebar_width" min="{SIDEBAR_WIDTH_MIN}" max="{SIDEBAR_WIDTH_MAX}""#
@@ -1175,7 +1264,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
-            &SyncView::default(),
+            &Extras::default(),
         );
         for (_, _, id) in SECTIONS {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");

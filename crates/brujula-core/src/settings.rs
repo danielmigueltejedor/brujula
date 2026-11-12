@@ -199,7 +199,12 @@ pub struct Settings {
     /// False until the user has picked one; the new-tab page asks on first run.
     pub search_engine_chosen: bool,
     pub homepage: String,
+    /// Hours a tab can stay out of sight before it is archived; 0 never archives.
+    pub archive_after_hours: u32,
 }
+
+/// The times the user can choose to archive after, in hours (0 is never).
+pub const ARCHIVE_CHOICES: [u32; 5] = [0, 12, 24, 168, 720];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -214,6 +219,7 @@ impl Default for Settings {
             search_engine: DEFAULT_ENGINE.to_owned(),
             search_engine_chosen: false,
             homepage: "about:blank".to_owned(),
+            archive_after_hours: 24,
         }
     }
 }
@@ -227,6 +233,9 @@ impl Settings {
         }
         if !crate::cloud::valid_id(&s.sync.account) {
             s.sync.account.clear();
+        }
+        if !ARCHIVE_CHOICES.contains(&s.archive_after_hours) {
+            s.archive_after_hours = 24;
         }
         s.sync.device_name = s.sync.device_name.chars().take(40).collect();
         s
@@ -378,6 +387,19 @@ mod tests {
         );
         assert!(s.sync.account.is_empty());
         assert!(s.sync.device_id.is_empty());
+    }
+
+    #[test]
+    fn archiving_is_on_by_default_and_odd_values_go_back_to_it() {
+        assert_eq!(Settings::default().archive_after_hours, 24);
+        assert_eq!(
+            Settings::from_json(r#"{"archive_after_hours": 0}"#).archive_after_hours,
+            0
+        );
+        assert_eq!(
+            Settings::from_json(r#"{"archive_after_hours": 7}"#).archive_after_hours,
+            24
+        );
     }
 
     #[test]

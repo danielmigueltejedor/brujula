@@ -4,6 +4,7 @@
 
 pub mod adblock;
 pub mod appearance;
+pub mod archive;
 pub mod bookmarks;
 pub mod cloud;
 pub mod downloads;

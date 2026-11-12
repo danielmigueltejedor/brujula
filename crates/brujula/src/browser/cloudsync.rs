@@ -38,14 +38,21 @@ fn mounted(dir: &std::path::Path) -> bool {
 
 impl Browser {
     /// What the preferences page shows about the accounts and the last round.
-    pub(super) fn sync_view(&self) -> prefs::SyncView {
+    pub(super) fn extras(&self) -> prefs::Extras {
         let home = home();
-        prefs::SyncView {
+        prefs::Extras {
             accounts: accounts()
                 .iter()
                 .map(|a| (a.id.clone(), a.label(), mounted(&a.mount_dir(&home))))
                 .collect(),
             status: self.sync_status.borrow().clone(),
+            archived: self
+                .archive
+                .borrow()
+                .items()
+                .iter()
+                .map(|e| (e.url.clone(), e.title.clone()))
+                .collect(),
         }
     }
 

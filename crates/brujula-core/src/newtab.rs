@@ -132,7 +132,7 @@ pub struct Page<'a> {
 }
 
 const MAX_BOOKMARKS: usize = 8;
-const MAX_RECENT: usize = 6;
+const MAX_RECENT: usize = 9;
 
 fn greeting(hour: u32, spanish: bool) -> &'static str {
     match (hour, spanish) {

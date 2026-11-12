@@ -6,6 +6,8 @@ use std::rc::Rc;
 
 use brujula_core::adblock;
 use brujula_core::appearance;
+use brujula_core::archive::Archive;
+use brujula_core::bookmarks::now_ms;
 use brujula_core::bookmarks::Bookmarks;
 use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
@@ -38,6 +40,7 @@ use crate::filters::Filters;
 use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
+mod archive;
 mod cloudsync;
 mod extras;
 mod folders;
@@ -212,6 +215,8 @@ pub struct Browser {
     folder_button: gtk::Button,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// Tabs closed because they were not used for long.
+    archive: RefCell<Archive>,
     /// How the last synchronisation round went, in words for the preferences page.
     sync_status: RefCell<String>,
     /// True while a round is reading and writing the cloud folder.
@@ -505,6 +510,11 @@ impl Browser {
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
             save_queued: Cell::new(false),
+            archive: RefCell::new(
+                std::fs::read_to_string(paths::archive_file())
+                    .map(|t| Archive::from_json(&t))
+                    .unwrap_or_default(),
+            ),
             sync_status: RefCell::new(String::new()),
             sync_busy: Cell::new(false),
             sync_sent: RefCell::new(String::new()),
@@ -1043,6 +1053,7 @@ impl Browser {
             }
             this.restore(&urls);
             this.start_sync();
+            this.start_archiving();
             if this.settings.borrow().adblock_enabled {
                 let s = this.settings.borrow().clone();
                 this.filters.start(&s);
@@ -1076,6 +1087,15 @@ impl Browser {
                 self.lazy.borrow_mut().insert(id, t.url.clone());
             }
             self.apply(ch);
+            // Only the time the browser was open counts as time unused.
+            let idle = if t.active > 0 {
+                session.saved_at.saturating_sub(t.active)
+            } else {
+                0
+            };
+            self.model
+                .borrow_mut()
+                .touch(id, now_ms().saturating_sub(idle));
             opened.push(id);
         }
         let current = self.spaces.borrow().current();
@@ -1120,7 +1140,8 @@ impl Browser {
             &self.model.borrow(),
             &self.spaces.borrow(),
             &self.folders.borrow(),
-        );
+        )
+        .stamped(now_ms());
         let _ = paths::write_atomic(&paths::session_file(), &s.to_json());
     }
 
@@ -1402,7 +1423,10 @@ impl Browser {
     fn apply(self: &Rc<Self>, changes: Vec<Change>) {
         for change in changes {
             match change {
-                Change::Opened(id) => self.add_row(id),
+                Change::Opened(id) => {
+                    self.model.borrow_mut().touch(id, now_ms());
+                    self.add_row(id);
+                }
                 Change::Closed(id) => {
                     self.lazy.borrow_mut().remove(&id);
                     if let Some(r) = self.rows.borrow_mut().remove(&id) {
@@ -1420,6 +1444,7 @@ impl Browser {
                     }
                 }
                 Change::Selected(id) => {
+                    self.model.borrow_mut().touch(id, now_ms());
                     self.follow_space_of(id);
                     self.stack.set_visible_child_name(&format!("tab-{}", id.0));
                     self.syncing.set(true);
@@ -1795,7 +1820,7 @@ impl Browser {
             &self.settings.borrow(),
             &self.bookmarks.borrow(),
             &self.spaces.borrow(),
-            &self.sync_view(),
+            &self.extras(),
         );
         view.load_html(&html, Some(prefs::SETTINGS_URI));
     }
@@ -1818,6 +1843,10 @@ impl Browser {
         // Bookmarks and spaces are not settings: they have their own stores.
         if let Some(rest) = key.strip_prefix("space.") {
             self.change_space(rest, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("archive.") {
+            self.change_archive(what, value);
             return;
         }
         if key == "bookmark.remove" {
@@ -1990,6 +2019,16 @@ impl Browser {
                 .map(|(title, url)| link(title, url.to_owned(), url, "Cerrada")),
         );
         let devices = self.devices_for_newtab(&link);
+        // Pages archived for lack of use come after the closed ones, which they also are.
+        let archive = self.archive.borrow();
+        recent.retain(|r| archive.items().iter().all(|e| e.url != r.href));
+        recent.extend(
+            archive
+                .items()
+                .iter()
+                .take(3)
+                .map(|e| link(&e.title, e.url.clone(), &e.url, "Archivada")),
+        );
         let theme = match settings.appearance.theme {
             Theme::System => "system",
             Theme::Light => "light",

@@ -21,6 +21,9 @@ pub struct SavedTab {
     pub space: u32,
     #[serde(default)]
     pub folder: Option<u32>,
+    /// When it was last in front (see `Tab::active`).
+    #[serde(default)]
+    pub active: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +33,9 @@ pub struct Session {
     pub selected: usize,
     pub spaces: Spaces,
     pub folders: Folders,
+    /// When it was written, in milliseconds since 1970: what `SavedTab::active` is measured
+    /// against, so time the browser was closed does not count as time a tab went unused.
+    pub saved_at: u64,
 }
 
 /// Only these schemes are restored: a session file must not be able to make the browser open
@@ -56,6 +62,7 @@ impl Session {
                 pinned: t.pinned,
                 space: t.space,
                 folder: t.folder,
+                active: t.active,
             })
             .collect();
         Self {
@@ -63,7 +70,14 @@ impl Session {
             selected,
             spaces: spaces.clone(),
             folders: folders.clone(),
+            saved_at: 0,
         }
+    }
+
+    /// Notes when the session was written.
+    pub fn stamped(mut self, now: u64) -> Self {
+        self.saved_at = now;
+        self
     }
 
     pub fn from_json(text: &str) -> Self {
@@ -110,6 +124,19 @@ mod tests {
         assert_eq!(s.selected, 1);
         assert_eq!(Session::from_json(&s.to_json()), s);
         let _ = b;
+    }
+
+    #[test]
+    fn when_a_tab_was_last_used_and_when_the_session_was_written_come_back() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        m.touch(a, 5_000);
+        let s = Session::capture(&m, &Spaces::default(), &Folders::default()).stamped(9_000);
+        let back = Session::from_json(&s.to_json());
+        assert_eq!((back.tabs[0].active, back.saved_at), (5_000, 9_000));
+        // An old file without the fields still reads.
+        let old = Session::from_json(r#"{"tabs":[{"url":"https://a.com"}]}"#);
+        assert_eq!((old.tabs[0].active, old.saved_at), (0, 0));
     }
 
     #[test]

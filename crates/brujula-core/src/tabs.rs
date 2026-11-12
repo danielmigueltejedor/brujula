@@ -17,6 +17,9 @@ pub struct Tab {
     /// The folder the user put the tab in (see `folders`): `None` leaves it to the smart
     /// folders, `Some(NO_FOLDER)` keeps it out of them.
     pub folder: Option<u32>,
+    /// When the tab was last in front, in milliseconds since 1970 (0 if not known). The tabs
+    /// left alone for long enough are archived (see `archive`).
+    pub active: u64,
 }
 
 /// What a change to the model means for the UI.
@@ -66,6 +69,13 @@ impl TabModel {
     /// (`None`).
     pub fn set_folder(&mut self, id: TabId, folder: Option<u32>) -> Vec<Change> {
         self.update(id, |t| t.folder = folder)
+    }
+
+    /// Notes that the tab was in front at `now`. Not a change the interface needs to show.
+    pub fn touch(&mut self, id: TabId, now: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.active = now;
+        }
     }
 
     /// Puts a tab in another space.
@@ -132,6 +142,7 @@ impl TabModel {
                 audible: false,
                 space: self.current_space,
                 folder: None,
+                active: 0,
             },
         );
         let mut changes = vec![Change::Opened(id)];

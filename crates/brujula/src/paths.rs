@@ -28,6 +28,10 @@ pub fn bookmarks_file() -> PathBuf {
     data_dir().join("bookmarks.json")
 }
 
+pub fn archive_file() -> PathBuf {
+    data_dir().join("archive.json")
+}
+
 pub fn session_file() -> PathBuf {
     data_dir().join("session.json")
 }
