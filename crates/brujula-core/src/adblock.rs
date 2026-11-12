@@ -82,7 +82,7 @@ pub const DEFAULT_LISTS: &[FilterList] = &[
 
 /// Names the format of the cached compiled rules. Change it whenever the `adblock` crate is
 /// upgraded: serialised data is not guaranteed to load across versions.
-pub const CACHE_FORMAT: &str = "adblock-0.13-network-only";
+pub const CACHE_FORMAT: &str = "adblock-0.13-network-and-scriptlets";
 
 /// How long a downloaded list is trusted before it is fetched again.
 pub const REFRESH_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -108,6 +108,8 @@ pub struct Compiled {
     pub content_filters: Vec<String>,
     pub cosmetic: Cosmetic,
     pub rule_count: usize,
+    /// Scripts the lists run inside pages of certain sites.
+    pub scriptlets: crate::scriptlets::Scriptlets,
 }
 
 /// Compiles filter lists given as text. Lines that fail to parse are skipped, as every blocker
@@ -147,6 +149,7 @@ pub fn compile<'a>(lists: impl IntoIterator<Item = &'a str>, allow: &[String]) -
             allow: allow.to_vec(),
         },
         rule_count,
+        scriptlets: crate::scriptlets::parse(lists.iter().copied()),
     }
 }
 

@@ -6,6 +6,7 @@ pub mod adblock;
 pub mod downloads;
 pub mod newtab;
 pub mod omnibox;
+pub mod scriptlets;
 pub mod search;
 pub mod session;
 pub mod settings;
