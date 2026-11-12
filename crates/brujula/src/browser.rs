@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use brujula_core::adblock;
+use brujula_core::downloads;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::search;
@@ -195,6 +196,9 @@ impl Browser {
         if let Some(dm) = session.website_data_manager() {
             dm.set_favicons_enabled(true);
         }
+        // A bad certificate is a failure, never a click-through; trackers get no free ride.
+        session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
+        session.set_itp_enabled(true);
         let ucm = UserContentManager::new();
         let filters = Filters::new(ucm.clone());
 
@@ -699,7 +703,22 @@ impl Browser {
         if let Some(s) = WebViewExt::settings(&view) {
             s.set_enable_developer_extras(true);
             s.set_enable_back_forward_navigation_gestures(true);
+            // Hardening. Pages may not open windows on their own, read local files, track
+            // clicks with `ping=`, or resolve links in advance behind the user's back.
+            s.set_javascript_can_open_windows_automatically(false);
+            s.set_allow_file_access_from_file_urls(false);
+            s.set_allow_universal_access_from_file_urls(false);
+            s.set_allow_modal_dialogs(false);
+            s.set_enable_hyperlink_auditing(false);
+            s.set_enable_dns_prefetching(false);
+            s.set_enable_write_console_messages_to_stdout(false);
         }
+        // Camera, microphone, location, notifications and the like are refused until there is
+        // a prompt to ask the user.
+        view.connect_permission_request(|_, request| {
+            request.deny();
+            true
+        });
 
         let this = Rc::downgrade(self);
         view.connect_title_notify(move |v| {
@@ -793,6 +812,14 @@ impl Browser {
                 .and_then(|r| r.uri())
                 .map(|u| u.to_string())
                 .unwrap_or_default();
+            // A web page never gets to point the browser at a local file.
+            let from_web = v
+                .uri()
+                .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"));
+            if from_web && uri.to_ascii_lowercase().starts_with("file:") {
+                decision.ignore();
+                return true;
+            }
             if !uri.starts_with("brujula://") || uri == newtab::NEWTAB_URI {
                 return false;
             }
@@ -816,19 +843,32 @@ impl Browser {
             }
             true
         });
-        // Downloads go to the user's Downloads folder, without a prompt.
+        // Downloads go to the user's Downloads folder, without a prompt. The page picks the name,
+        // so it is cleaned, and files that can run (scripts, launchers, installers) are refused:
+        // a page must not be able to drop one where a double click would start it.
         let this = Rc::downgrade(self);
         self.session.connect_download_started(move |_, download| {
-            let _ = &this;
-            download.connect_decide_destination(|d, suggested| {
+            let this = this.clone();
+            download.connect_decide_destination(move |d, suggested| {
                 let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
                     .unwrap_or_else(glib::home_dir);
-                let name = if suggested.is_empty() {
-                    "download"
-                } else {
-                    suggested
-                };
-                let name = name.replace(['/', '\\'], "_");
+                let name = downloads::safe_file_name(suggested);
+                if downloads::is_dangerous(&name) {
+                    d.cancel();
+                    if let Some(b) = this.upgrade() {
+                        gtk::AlertDialog::builder()
+                            .message("Descarga bloqueada")
+                            .detail(format!(
+                                "«{name}» es un archivo que se puede ejecutar. Brújula no lo \
+                                 guarda para que ningún sitio web pueda dejar un programa o script \
+                                 en tu equipo."
+                            ))
+                            .buttons(["Entendido"])
+                            .build()
+                            .show(Some(&b.window));
+                    }
+                    return true;
+                }
                 let mut path = dir.join(&name);
                 let mut n = 1;
                 while path.exists() {
