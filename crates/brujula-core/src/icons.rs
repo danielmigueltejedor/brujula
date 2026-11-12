@@ -38,9 +38,10 @@ static SETS: LazyLock<(Vec<Icon>, Vec<Icon>)> = LazyLock::new(|| {
         if line == "@ui" {
             in_ui = true;
         } else if let Some(header) = line.strip_prefix('[') {
-            let Some((id, label)) = header.split_once("] ") else {
+            let Some((id, label)) = header.split_once(']') else {
                 continue;
             };
+            let label = label.trim();
             let (label, drawn_here) = match label.strip_suffix(" drawn") {
                 Some(label) => (label, true),
                 None => (label, false),
@@ -132,6 +133,30 @@ pub fn clean(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_icons_the_pages_use_for_themselves_are_read_too() {
+        for id in [
+            "search",
+            "settings",
+            "layout",
+            "sidebar",
+            "bookmark",
+            "shield-check",
+            "delete",
+            "plus",
+            "info",
+            "lock",
+            "clock",
+            "chevron-right",
+            "check",
+        ] {
+            let icon = get(id).unwrap_or_else(|| panic!("{id} is missing"));
+            assert!(!icon.body.is_empty(), "{id}");
+            assert!(!is_known(id), "{id} is not for spaces");
+            assert_ne!(web_svg(id, 20), web_svg(DEFAULT, 20), "{id}");
+        }
+    }
 
     #[test]
     fn ids_are_unique_and_the_default_is_in_the_set() {

@@ -133,10 +133,58 @@ impl Appearance {
     }
 }
 
+/// Synchronisation through one of the cloud accounts of the desktop (see `cloud`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sync {
+    pub enabled: bool,
+    /// Id of the account in `~/.config/nodalix/cloud.json`; empty until one is chosen.
+    pub account: String,
+    pub bookmarks: bool,
+    pub spaces: bool,
+    pub tabs: bool,
+    /// Names this device's file in the cloud. Made on first use and never shown.
+    pub device_id: String,
+    pub device_name: String,
+}
+
+impl Default for Sync {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            account: String::new(),
+            bookmarks: true,
+            spaces: true,
+            tabs: true,
+            device_id: String::new(),
+            device_name: String::new(),
+        }
+    }
+}
+
+impl Sync {
+    pub fn share(&self) -> crate::sync::Share {
+        crate::sync::Share {
+            bookmarks: self.bookmarks,
+            spaces: self.spaces,
+            tabs: self.tabs,
+        }
+    }
+
+    /// On, with an account, and with something to share.
+    pub fn active(&self) -> bool {
+        self.enabled
+            && !self.account.is_empty()
+            && crate::sync::valid_device_id(&self.device_id)
+            && (self.bookmarks || self.spaces || self.tabs)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub appearance: Appearance,
+    pub sync: Sync,
     /// The sidebar shows when the pointer goes to the left edge, if it is not pinned.
     pub edge_reveal: bool,
     /// Vertical tab sidebar visible. On by default: it is the browser's tab strip.
@@ -157,6 +205,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             appearance: Appearance::default(),
+            sync: Sync::default(),
             edge_reveal: true,
             sidebar_visible: true,
             adblock_enabled: true,
@@ -173,6 +222,13 @@ impl Settings {
     pub fn from_json(text: &str) -> Self {
         let mut s: Self = serde_json::from_str(text).unwrap_or_default();
         s.appearance = s.appearance.sanitized();
+        if !crate::sync::valid_device_id(&s.sync.device_id) {
+            s.sync.device_id.clear();
+        }
+        if !crate::cloud::valid_id(&s.sync.account) {
+            s.sync.account.clear();
+        }
+        s.sync.device_name = s.sync.device_name.chars().take(40).collect();
         s
     }
 
@@ -298,6 +354,30 @@ mod tests {
         assert!(s.set_site_allowed("a.com", false));
         assert!(!s.set_site_allowed("a.com", false));
         assert_eq!(s.allowlist, vec!["b.com"]);
+    }
+
+    #[test]
+    fn sync_is_off_until_an_account_and_a_device_exist() {
+        let mut s = Settings::default();
+        assert!(!s.sync.active());
+        s.sync.enabled = true;
+        s.sync.account = "abc".into();
+        assert!(!s.sync.active(), "no device id yet");
+        s.sync.device_id = "abcdefgh12345678".into();
+        assert!(s.sync.active());
+        s.sync.bookmarks = false;
+        s.sync.spaces = false;
+        s.sync.tabs = false;
+        assert!(!s.sync.active(), "nothing to share");
+    }
+
+    #[test]
+    fn a_bad_account_or_device_id_in_the_file_is_dropped() {
+        let s = Settings::from_json(
+            r#"{"sync": {"enabled": true, "account": "../x", "device_id": "no/pe"}}"#,
+        );
+        assert!(s.sync.account.is_empty());
+        assert!(s.sync.device_id.is_empty());
     }
 
     #[test]

@@ -91,6 +91,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
   que el control deslizante pueda estrecharla de verdad.
 - **Carpetas** (`folders.rs`, `browser/folders.rs`): filas plegables entre las pestañas de la barra, por espacio. Manuales (clic derecho en una pestaña → «Mover a la carpeta…» / «Nueva carpeta con esta pestaña») o **inteligentes**: una regla por sitio (`github.com`) o por texto (título o dirección) recoge solas las pestañas que coinciden; sacar una pestaña a mano la deja fuera. Se guardan en la sesión.
 - **Restauración de pestañas**: la sesión se guarda al cerrar la ventana y también 1,5 s después de cada cambio (pestañas, espacios, carpetas), así que sobrevive a un cierre brusco o a un `kill`; al abrir vuelven todas, con su espacio, carpeta y ancladas, y solo carga la que está delante.
+- **Sincronización** (`sync.rs`, `cloud.rs`, `browser/cloudsync.rs`): marcadores, espacios, carpetas y pestañas abiertas entre dispositivos por medio de las **cuentas en la nube de Nodalix** (Ajustes las da de alta; `~/.config/nodalix/cloud.json`, montadas con rclone en `~/Nube/<nombre>`: Google Drive, OneDrive, Dropbox, iCloud Drive). Brújula no inicia sesión en ningún servicio ni guarda tokens: solo lee y escribe una carpeta ya montada. Cada dispositivo escribe **solo su archivo** (`<nube>/Brujula/<id del dispositivo>.json`) y lee los de los demás, así que nunca hay dos escritores sobre el mismo archivo. Mezcla: marcadores por hora de guardado y de borrado (con lápidas de 90 días); espacios y carpetas por nombre, solo se añaden; las pestañas de otros dispositivos solo se listan en la página de nueva pestaña, nunca se abren solas. Una ronda al arrancar, cada 45 s y con «Sincronizar ahora»; no sube nada si no cambió. Seguridad: los archivos de la nube no son de fiar (solo `<id>.json` regulares, ≤ 2 MiB, ≤ 20 dispositivos, solo direcciones `http(s)`, texto limpio, el id del archivo debe coincidir con el de dentro) y no se escribe si la carpeta no es un punto de montaje real (si no, se llenaría el disco local). Los datos van **sin cifrar** a la nube. `BRUJULA_SYNC_HOME` y `BRUJULA_SYNC_SKIP_MOUNT_CHECK` solo son para pruebas.
 - **Marcadores** (`bookmarks.rs`): estrella de la barra o Ctrl+D; solo páginas web; se buscan en el
   Spotlight (que sin texto los lista) y se gestionan en Preferencias.
 - **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
@@ -98,7 +99,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
 
 ## Qué está verificado
 
-- Núcleo: 152 tests unitarios.
+- Núcleo: 184 tests unitarios.
 - Apariencia, marco, pestañas horizontales, espacios, Spotlight con iconos y ajustes, y la página de
   preferencias, comprobados bajo Xvfb con capturas (sin pantalla real ni compositor: la
   transparencia no se ha visto).
@@ -106,13 +107,14 @@ compila listas reales y comprueba que el JSON resultante es válido.
   ejecutada bajo Xvfb: abre, restaura pestañas, abre y cierra, cambia de pestaña, oculta y muestra
   la barra lateral, y con 139 126 reglas reales WebKit bloquea una petición y se ocultan elementos
   (los del sitio y los genéricos), tanto en un primer arranque como con la caché.
+- Sincronización: probada bajo Xvfb con una carpeta de nube simulada y un segundo dispositivo falso (llegan marcador, espacio con icono, carpeta y pestañas; su archivo se escribe; sin montaje no se escribe nada). **Sin probar con rclone ni una nube real.**
 - Descarga de listas: probada solo hasta el cliente HTTP; el entorno de pruebas no llegaba a los
   servidores de las listas, así que **la descarga real y el refresco están sin verificar**.
 
 ## Pendiente
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
-- Historial, contraseñas, sincronización, extensiones: todo lo que daba Epiphany. Carpetas de
+- Historial, contraseñas, extensiones (la sincronización cubre marcadores, espacios, carpetas y pestañas; no historial ni contraseñas): todo lo que daba Epiphany. Carpetas de
   marcadores e importación.
 - Permisos (cámara, ubicación, notificaciones), pantalla completa, impresión, descargas con
   interfaz, modo privado, buscador configurable.

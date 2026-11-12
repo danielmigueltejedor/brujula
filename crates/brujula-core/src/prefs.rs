@@ -29,6 +29,10 @@ pub struct Effect {
     pub layout: bool,
     /// Blocker on/off, lists, sites: the rules are compiled again.
     pub blocker: bool,
+    /// Synchronisation settings changed: start, stop or redo it.
+    pub sync: bool,
+    /// Sync now, without waiting for the next round.
+    pub sync_now: bool,
 }
 
 /// `key` and `value` of a `brujula://set?key=value` address.
@@ -140,6 +144,32 @@ impl Settings {
                 self.search_engine = value.to_owned();
                 self.search_engine_chosen = true;
             }
+            "sync" => {
+                self.sync.enabled = flag(value)?;
+                effect.sync = true;
+            }
+            "sync_account" => {
+                if !value.is_empty() && !crate::cloud::valid_id(value) {
+                    return Err("not an account".to_owned());
+                }
+                self.sync.account = value.to_owned();
+                effect.sync = true;
+            }
+            "sync_bookmarks" => {
+                self.sync.bookmarks = flag(value)?;
+                effect.sync = true;
+            }
+            "sync_spaces" => {
+                self.sync.spaces = flag(value)?;
+                effect.sync = true;
+            }
+            "sync_tabs" => {
+                self.sync.tabs = flag(value)?;
+                effect.sync = true;
+            }
+            "sync_now" => {
+                effect.sync_now = true;
+            }
             "allow.remove" => {
                 self.set_site_allowed(value, false);
                 effect.blocker = true;
@@ -246,6 +276,15 @@ fn swatches(key: &str, colours: &[&str], current: &str) -> String {
     format!(r#"<div class="dots">{dots}</div>"#)
 }
 
+/// What the sync section shows besides the settings.
+#[derive(Debug, Default, Clone)]
+pub struct SyncView {
+    /// The cloud accounts of the desktop: id, label, whether the folder is mounted now.
+    pub accounts: Vec<(String, String, bool)>,
+    /// How the last round went, in words.
+    pub status: String,
+}
+
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
 const PAGES: &[(&str, &str, &str, &str, &str)] = &[
     (
@@ -282,6 +321,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Marcadores",
         "Las páginas que guardaste con la estrella.",
         "bookmark",
+    ),
+    (
+        "sync",
+        "Sincronización",
+        "Sincronización",
+        "Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.",
+        "cloud",
     ),
     (
         "privacy",
@@ -348,8 +394,71 @@ fn icon_grid(space_id: u32, current: &str) -> String {
     format!(r#"<div class="iconsgrid">{buttons}</div>"#)
 }
 
+/// The synchronisation section.
+fn sync_section(s: &Settings, view: &SyncView) -> String {
+    let c = &s.sync;
+    let accounts = if view.accounts.is_empty() {
+        r#"<p class="empty">Ninguna cuenta. Añade Google Drive, OneDrive, Dropbox o iCloud Drive en Ajustes, en las cuentas en la nube.</p>"#.to_owned()
+    } else {
+        let buttons: String = view
+            .accounts
+            .iter()
+            .map(|(id, label, mounted)| {
+                let on = if *id == c.account { " on" } else { "" };
+                let state = if *mounted { "Conectada" } else { "Sin conectar" };
+                format!(
+                    r#"<button type="button" class="engine{on}" data-k="sync_account" data-v="{id}">{icon}<span class="acct"><b>{label}</b><small>{state}</small></span></button>"#,
+                    id = escape(id),
+                    icon = icons::web_svg("cloud", 20),
+                    label = escape(label),
+                )
+            })
+            .collect();
+        format!(r#"<div class="engines" role="group">{buttons}</div>"#)
+    };
+    let body = [
+        row(
+            "Sincronizar",
+            "Cada dispositivo guarda su estado en un archivo de tu nube y lee el de los demás. No hay servidor de Brújula.",
+            &switch("sync", c.enabled),
+        ),
+        stacked(
+            "Cuenta",
+            "Las cuentas son las de Nodalix: Brújula no pide contraseñas ni inicia sesión en ningún servicio.",
+            &accounts,
+        ),
+        row(
+            "Marcadores",
+            "",
+            &switch("sync_bookmarks", c.bookmarks),
+        ),
+        row(
+            "Espacios y carpetas",
+            "Se unen por nombre; nunca se borra un espacio por sincronizar.",
+            &switch("sync_spaces", c.spaces),
+        ),
+        row(
+            "Pestañas abiertas",
+            "Las de tus otros dispositivos aparecen en la página de nueva pestaña.",
+            &switch("sync_tabs", c.tabs),
+        ),
+        row(
+            "Estado",
+            "",
+            &format!(
+                r#"<span id="sync-status" class="status">{}</span><button type="button" class="seg plain" data-k="sync_now" data-v="1">Sincronizar ahora</button>"#,
+                escape(&view.status)
+            ),
+        ),
+        r#"<p class="note">Los datos van a tu nube sin cifrar, en la carpeta Brújula: quien tenga acceso a tu cuenta podrá leerlos. Solo se guardan direcciones web http y https, nunca contraseñas ni cookies.</p>"#
+            .to_owned(),
+    ]
+    .concat();
+    section("sync", &body)
+}
+
 /// The preferences page for the current settings.
-pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
+pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &SyncView) -> String {
     let a = &s.appearance;
     let theme = match a.theme {
         Theme::System => "system",
@@ -583,6 +692,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
             .collect()
     };
     let bookmarks_section = section("bookmarks", &bookmarks_body);
+    let sync_section = sync_section(s, sync);
     let security = section(
         "security",
         r#"<ul class="facts">
@@ -624,7 +734,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces) -> String {
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -672,6 +782,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Marcadores",
         "favoritos marcadores guardados estrella",
         "bookmarks",
+    ),
+    (
+        "Sincronización",
+        "sincronizar nube icloud onedrive google drive dropbox dispositivos",
+        "sync",
     ),
     (
         "Bloqueador de anuncios",
@@ -763,6 +878,9 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .engine:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
 .engine.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .engine b{font-weight:560;font-size:.92rem}
+.acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
+.status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
+.note{margin:0;padding:1rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
 .eng{display:grid;place-items:center;flex:none;width:1.9rem;height:1.9rem;border-radius:.6rem;color:#fff;font-weight:750;font-size:1rem;font-family:system-ui,sans-serif}
 .space{padding:.85rem 1.25rem;border-top:1px solid var(--line)}
 .space:first-child{border-top:0}
@@ -904,6 +1022,55 @@ mod tests {
     }
 
     #[test]
+    fn sync_settings_are_applied_and_checked() {
+        let mut s = Settings::default();
+        assert!(s.apply("sync", "1").unwrap().sync);
+        assert!(s.sync.enabled);
+        s.apply("sync_account", "abc-1_x").unwrap();
+        assert_eq!(s.sync.account, "abc-1_x");
+        s.apply("sync_tabs", "0").unwrap();
+        assert!(!s.sync.tabs);
+        assert!(s.apply("sync_now", "1").unwrap().sync_now);
+        let before = s.clone();
+        for (k, v) in [
+            ("sync_account", "../etc"),
+            ("sync_account", "a b"),
+            ("sync", "maybe"),
+            ("sync_bookmarks", "2"),
+        ] {
+            assert!(s.apply(k, v).is_err(), "{k}={v}");
+        }
+        assert_eq!(s, before);
+        s.apply("sync_account", "").unwrap();
+        assert!(s.sync.account.is_empty());
+    }
+
+    #[test]
+    fn the_sync_section_lists_accounts_and_escapes_them() {
+        let mut s = Settings::default();
+        s.sync.account = "a1".into();
+        let view = SyncView {
+            accounts: vec![
+                ("a1".into(), "Casa · Dropbox".into(), true),
+                ("b2".into(), "<b>x</b>".into(), false),
+            ],
+            status: "Hecho".into(),
+        };
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &view);
+        assert!(html.contains(r#"class="engine on" data-k="sync_account" data-v="a1""#));
+        assert!(html.contains("Conectada") && html.contains("Sin conectar"));
+        assert!(html.contains("&lt;b&gt;x&lt;/b&gt;") && !html.contains("<b>x</b>"));
+        assert!(html.contains(r#"id="sync-status""#) && html.contains("Hecho"));
+        let empty = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &SyncView::default(),
+        );
+        assert!(empty.contains("Ninguna cuenta"));
+    }
+
+    #[test]
     fn engine_is_stored() {
         let mut s = Settings::default();
         s.apply("engine", "bing").unwrap();
@@ -916,7 +1083,12 @@ mod tests {
         let mut s = Settings::default();
         s.appearance.theme = Theme::Dark;
         s.allowlist = vec!["<script>x</script>".into()];
-        let html = render(&s, &Bookmarks::default(), &Spaces::default());
+        let html = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &SyncView::default(),
+        );
         assert!(html.contains(r#"class="tile on" data-k="theme" data-v="dark""#));
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
         assert!(!html.contains("<script>x</script>"));
@@ -929,7 +1101,7 @@ mod tests {
         spaces.add("<b>x</b>");
         let mut marks = Bookmarks::default();
         marks.toggle("https://a.com/?q=\"1\"", "<i>t</i>");
-        let html = render(&Settings::default(), &marks, &spaces);
+        let html = render(&Settings::default(), &marks, &spaces, &SyncView::default());
         assert!(html.contains("&lt;b&gt;x&lt;/b&gt;"));
         assert!(html.contains("&lt;i&gt;t&lt;/i&gt;"));
         assert!(!html.contains("<i>t</i>"));
@@ -942,7 +1114,12 @@ mod tests {
         let mut spaces = Spaces::default();
         let id = spaces.add("Clase").unwrap();
         spaces.rename(id, "Clase", "backpack");
-        let html = render(&Settings::default(), &Bookmarks::default(), &spaces);
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &spaces,
+            &SyncView::default(),
+        );
         assert!(html.contains(&format!(r#"data-k="space.icon.{id}" data-v="backpack""#)));
         // The chosen one is marked, and each icon is drawn inline (nothing is fetched).
         assert!(html.contains(r#"class="ibtn on" data-k="space.icon."#));
@@ -956,6 +1133,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
+            &SyncView::default(),
         );
         for e in ENGINES {
             assert!(html.contains(&e.badge()), "{}", e.id);
@@ -968,6 +1146,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
+            &SyncView::default(),
         );
         for (id, ..) in PAGES {
             assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
@@ -983,6 +1162,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
+            &SyncView::default(),
         );
         assert!(html.contains(&format!(
             r#"data-k="sidebar_width" min="{SIDEBAR_WIDTH_MIN}" max="{SIDEBAR_WIDTH_MAX}""#
@@ -995,6 +1175,7 @@ mod tests {
             &Settings::default(),
             &Bookmarks::default(),
             &Spaces::default(),
+            &SyncView::default(),
         );
         for (_, _, id) in SECTIONS {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");

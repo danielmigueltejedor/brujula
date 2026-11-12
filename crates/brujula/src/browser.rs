@@ -38,6 +38,7 @@ use crate::filters::Filters;
 use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
+mod cloudsync;
 mod extras;
 mod folders;
 
@@ -211,6 +212,14 @@ pub struct Browser {
     folder_button: gtk::Button,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
+    /// How the last synchronisation round went, in words for the preferences page.
+    sync_status: RefCell<String>,
+    /// True while a round is reading and writing the cloud folder.
+    sync_busy: Cell<bool>,
+    /// What this device last wrote to the cloud, so an unchanged state is not uploaded again.
+    sync_sent: RefCell<String>,
+    /// The other devices' files as of the last round.
+    sync_others: RefCell<Vec<brujula_core::sync::Snapshot>>,
     /// The tab each space had in front when it was left.
     last_in_space: RefCell<HashMap<u32, TabId>>,
     /// The page's column; its width keeps the split view's minimum honest.
@@ -496,6 +505,10 @@ impl Browser {
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
             save_queued: Cell::new(false),
+            sync_status: RefCell::new(String::new()),
+            sync_busy: Cell::new(false),
+            sync_sent: RefCell::new(String::new()),
+            sync_others: RefCell::new(Vec::new()),
             last_in_space: RefCell::new(HashMap::new()),
             content: toolbar,
             appearance_css: gtk::CssProvider::new(),
@@ -1029,6 +1042,7 @@ impl Browser {
                 this.set_shield_tooltip();
             }
             this.restore(&urls);
+            this.start_sync();
             if this.settings.borrow().adblock_enabled {
                 let s = this.settings.borrow().clone();
                 this.filters.start(&s);
@@ -1255,6 +1269,7 @@ impl Browser {
                 if ev == LoadEvent::Finished {
                     hide_elements(&b.filters, v);
                     b.scroll_settings(v);
+                    b.push_sync_status(v);
                 }
             }
         });
@@ -1780,6 +1795,7 @@ impl Browser {
             &self.settings.borrow(),
             &self.bookmarks.borrow(),
             &self.spaces.borrow(),
+            &self.sync_view(),
         );
         view.load_html(&html, Some(prefs::SETTINGS_URI));
     }
@@ -1828,14 +1844,12 @@ impl Browser {
         if effect.blocker {
             self.apply_blocker();
         }
+        if effect.sync || effect.sync_now {
+            self.sync_round();
+        }
         if key == "engine" || effect.appearance {
             // The new-tab pages still open show the old engine, theme or accent.
-            let views: Vec<WebView> = self.views.borrow().values().cloned().collect();
-            for v in views {
-                if v.uri().as_deref() == Some(newtab::NEWTAB_URI) {
-                    self.render_newtab(&v, false);
-                }
-            }
+            self.refresh_newtabs();
         }
     }
 
@@ -1975,6 +1989,7 @@ impl Browser {
                 .take(3)
                 .map(|(title, url)| link(title, url.to_owned(), url, "Cerrada")),
         );
+        let devices = self.devices_for_newtab(&link);
         let theme = match settings.appearance.theme {
             Theme::System => "system",
             Theme::Light => "light",
@@ -1989,6 +2004,7 @@ impl Browser {
             hour,
             bookmarks: &bookmarks,
             recent: &recent,
+            devices: &devices,
         })
     }
 

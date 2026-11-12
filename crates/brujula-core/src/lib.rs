@@ -5,6 +5,7 @@
 pub mod adblock;
 pub mod appearance;
 pub mod bookmarks;
+pub mod cloud;
 pub mod downloads;
 pub mod edge;
 pub mod folders;
@@ -18,4 +19,5 @@ pub mod session;
 pub mod settings;
 pub mod spaces;
 pub mod suggest;
+pub mod sync;
 pub mod tabs;

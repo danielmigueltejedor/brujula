@@ -10,12 +10,37 @@ const MAX_TITLE: usize = 200;
 pub struct Bookmark {
     pub url: String,
     pub title: String,
+    /// When it was saved, in milliseconds since 1970 (0 for bookmarks from before this was
+    /// kept). Sync uses it to tell an old bookmark from one saved after another device removed it.
+    #[serde(default)]
+    pub added: u64,
+}
+
+/// A bookmark that was removed, remembered for a while so that removing it on one device removes
+/// it on the others.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Removal {
+    pub url: String,
+    pub at: u64,
+}
+
+const MAX_REMOVALS: usize = 2000;
+/// How long a removal is remembered: a device that stays off longer than this brings the
+/// bookmark back.
+const REMOVAL_LIFETIME_MS: u64 = 90 * 24 * 3600 * 1000;
+
+/// Milliseconds since 1970.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Bookmarks {
     items: Vec<Bookmark>,
+    removed: Vec<Removal>,
 }
 
 fn is_web(url: &str) -> bool {
@@ -47,7 +72,17 @@ impl Bookmarks {
                 .collect();
         }
         b.items.truncate(MAX_BOOKMARKS);
+        b.removed.retain(|r| is_web(&r.url));
+        b.prune_removals(now_ms());
         b
+    }
+
+    /// Forgets removals that are too old (or too many).
+    fn prune_removals(&mut self, now: u64) {
+        self.removed
+            .retain(|r| now.saturating_sub(r.at) < REMOVAL_LIFETIME_MS);
+        self.removed.sort_by_key(|r| std::cmp::Reverse(r.at));
+        self.removed.truncate(MAX_REMOVALS);
     }
 
     pub fn to_json(&self) -> String {
@@ -64,8 +99,13 @@ impl Bookmarks {
 
     /// Adds a page, or removes it if it is already there. Returns whether it is bookmarked now.
     pub fn toggle(&mut self, url: &str, title: &str) -> bool {
-        if let Some(at) = self.items.iter().position(|i| same_page(&i.url, url)) {
-            self.items.remove(at);
+        self.toggle_at(url, title, now_ms())
+    }
+
+    /// [`toggle`](Self::toggle) at a given time.
+    pub fn toggle_at(&mut self, url: &str, title: &str, now: u64) -> bool {
+        if self.items.iter().any(|i| same_page(&i.url, url)) {
+            self.remove_at(url, now);
             return false;
         }
         if !is_web(url) {
@@ -85,16 +125,79 @@ impl Bookmarks {
                 } else {
                     title
                 },
+                added: now,
             },
         );
         self.items.truncate(MAX_BOOKMARKS);
+        // Saving a page again cancels the memory of having removed it.
+        self.removed.retain(|r| !same_page(&r.url, url));
         true
     }
 
     pub fn remove(&mut self, url: &str) -> bool {
+        self.remove_at(url, now_ms())
+    }
+
+    /// Removes a page and remembers when, for the other devices.
+    pub fn remove_at(&mut self, url: &str, at: u64) -> bool {
         let before = self.items.len();
         self.items.retain(|i| !same_page(&i.url, url));
-        self.items.len() != before
+        let went = self.items.len() != before;
+        if is_web(url) {
+            self.removed.retain(|r| !same_page(&r.url, url));
+            self.removed.push(Removal {
+                url: url.to_owned(),
+                at,
+            });
+            self.prune_removals(at);
+        }
+        went
+    }
+
+    /// The removals still remembered.
+    pub fn removals(&self) -> &[Removal] {
+        &self.removed
+    }
+
+    /// When the page was saved, if it is bookmarked.
+    pub fn added_at(&self, url: &str) -> Option<u64> {
+        self.items
+            .iter()
+            .find(|i| same_page(&i.url, url))
+            .map(|i| i.added)
+    }
+
+    /// When the page was last removed, if it was.
+    pub fn removed_at(&self, url: &str) -> Option<u64> {
+        self.removed
+            .iter()
+            .filter(|r| same_page(&r.url, url))
+            .map(|r| r.at)
+            .max()
+    }
+
+    /// Adds a bookmark that came from another device. Does nothing if the page is there already
+    /// or is not a web page. Keeps the list newest first.
+    pub fn insert_synced(&mut self, url: &str, title: &str, added: u64) -> bool {
+        if !is_web(url) || self.contains(url) || self.items.len() >= MAX_BOOKMARKS {
+            return false;
+        }
+        let title: String = title
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TITLE)
+            .collect();
+        self.items.push(Bookmark {
+            url: url.to_owned(),
+            title: if title.trim().is_empty() {
+                url.to_owned()
+            } else {
+                title
+            },
+            added,
+        });
+        self.items.sort_by_key(|b| std::cmp::Reverse(b.added));
+        true
     }
 
     /// Bookmarks whose title or address contains every word of `query`.

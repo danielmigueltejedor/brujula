@@ -18,6 +18,8 @@ pub struct Strings {
     pub bookmarks: &'static str,
     pub no_bookmarks: &'static str,
     pub recent: &'static str,
+    /// Heading of the tabs open on other devices; the device's name follows.
+    pub elsewhere: &'static str,
 }
 
 pub fn strings(lang: &str) -> Strings {
@@ -31,6 +33,7 @@ pub fn strings(lang: &str) -> Strings {
             bookmarks: "Marcadores",
             no_bookmarks: "Guarda páginas con la estrella de la barra (Ctrl+D) y las tendrás aquí.",
             recent: "Recientes",
+            elsewhere: "En",
         }
     } else {
         Strings {
@@ -42,6 +45,7 @@ pub fn strings(lang: &str) -> Strings {
             bookmarks: "Bookmarks",
             no_bookmarks: "Save pages with the star in the toolbar (Ctrl+D) and they will be here.",
             recent: "Recent",
+            elsewhere: "On",
         }
     }
 }
@@ -101,6 +105,16 @@ fn icon_is_safe(icon: &str) -> bool {
         })
 }
 
+/// The tabs open on another device, as its last sync left them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTabs {
+    pub name: String,
+    pub links: Vec<Link>,
+}
+
+const MAX_DEVICES: usize = 3;
+const MAX_DEVICE_TABS: usize = 5;
+
 /// What the page needs to draw itself.
 pub struct Page<'a> {
     pub engine: &'a Engine,
@@ -114,6 +128,7 @@ pub struct Page<'a> {
     pub hour: u32,
     pub bookmarks: &'a [Link],
     pub recent: &'a [Link],
+    pub devices: &'a [DeviceTabs],
 }
 
 const MAX_BOOKMARKS: usize = 8;
@@ -194,22 +209,31 @@ fn bookmark_tiles(links: &[Link], s: &Strings) -> String {
     )
 }
 
-fn recent_list(links: &[Link], s: &Strings) -> String {
-    let rows: String = links
+/// Rows for `links`; `web_only` leaves out the ones that switch to a tab here.
+fn link_rows(links: &[Link], max: usize, web_only: bool) -> String {
+    links
         .iter()
-        .filter(|l| link_is_safe(&l.href))
-        .take(MAX_RECENT)
+        .filter(|l| link_is_safe(&l.href) && (!web_only || parse_tab(&l.href).is_none()))
+        .take(max)
         .map(|l| {
+            let tag = if l.tag.is_empty() {
+                String::new()
+            } else {
+                format!(r#"<span class="tag">{}</span>"#, escape(l.tag))
+            };
             format!(
-                r#"<li><a href="{}"><span class="fav">{}</span><span class="what"><b>{}</b><small>{}</small></span><span class="tag">{}</span></a></li>"#,
+                r#"<li><a href="{}"><span class="fav">{}</span><span class="what"><b>{}</b><small>{}</small></span>{tag}</a></li>"#,
                 escape(&l.href),
                 favicon(l),
                 escape(&title_of(l)),
                 escape(&host_of(&l.site)),
-                escape(l.tag),
             )
         })
-        .collect();
+        .collect()
+}
+
+fn recent_list(links: &[Link], s: &Strings) -> String {
+    let rows = link_rows(links, MAX_RECENT, false);
     if rows.is_empty() {
         return String::new();
     }
@@ -219,6 +243,24 @@ fn recent_list(links: &[Link], s: &Strings) -> String {
     )
 }
 
+/// One list per device that has tabs open, headed with the device's name.
+fn device_lists(devices: &[DeviceTabs], s: &Strings) -> String {
+    devices
+        .iter()
+        .take(MAX_DEVICES)
+        .filter_map(|d| {
+            let rows = link_rows(&d.links, MAX_DEVICE_TABS, true);
+            (!rows.is_empty()).then(|| {
+                format!(
+                    r#"<section><h2>{} {}</h2><ul class="recent">{rows}</ul></section>"#,
+                    escape(s.elsewhere),
+                    escape(&d.name)
+                )
+            })
+        })
+        .collect()
+}
+
 pub fn render(page: &Page) -> String {
     let s = strings(page.lang);
     let spanish = page.lang.to_lowercase().starts_with("es");
@@ -226,10 +268,11 @@ pub fn render(page: &Page) -> String {
         picker(&s)
     } else {
         format!(
-            "{}{}{}",
+            "{}{}{}{}",
             search_box(page.engine, &s),
             bookmark_tiles(page.bookmarks, &s),
-            recent_list(page.recent, &s)
+            recent_list(page.recent, &s),
+            device_lists(page.devices, &s)
         )
     };
     let theme = match page.theme {
@@ -380,6 +423,7 @@ mod tests {
             hour: 10,
             bookmarks: &[],
             recent: &[],
+            devices: &[],
         }
     }
 
@@ -456,6 +500,34 @@ mod tests {
         assert!(html.contains("<small>hilo.example</small>"));
         assert!(html.contains("Cerrada"));
         assert!(html.contains("Recientes"));
+    }
+
+    #[test]
+    fn tabs_of_other_devices_are_listed_under_the_device_name_and_only_as_web_pages() {
+        let mut p = page(search::by_id("google").unwrap(), false, "es");
+        let devices = [
+            DeviceTabs {
+                name: "<Portátil>".into(),
+                links: vec![
+                    Link {
+                        tag: "",
+                        ..link("Lejos", "https://lejos.example/")
+                    },
+                    link("Local", "brujula://tab/3"),
+                ],
+            },
+            DeviceTabs {
+                name: "Vacío".into(),
+                links: Vec::new(),
+            },
+        ];
+        p.devices = &devices;
+        let html = render(&p);
+        assert!(html.contains("En &lt;Portátil&gt;"));
+        assert!(html.contains(r#"href="https://lejos.example/""#));
+        assert!(!html.contains("brujula://tab/3"));
+        assert!(!html.contains("Vacío"));
+        assert!(!html.contains(r#"class="tag""#));
     }
 
     #[test]

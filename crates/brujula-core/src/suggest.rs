@@ -234,6 +234,7 @@ mod tests {
         Bookmark {
             url: url.into(),
             title: title.into(),
+            added: 0,
         }
     }
 
