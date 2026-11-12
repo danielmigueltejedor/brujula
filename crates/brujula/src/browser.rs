@@ -44,6 +44,7 @@ mod archive;
 mod cloudsync;
 mod extras;
 mod folders;
+mod notes;
 mod peek;
 mod split;
 
@@ -215,6 +216,10 @@ pub struct Browser {
     folder_rows: RefCell<HashMap<u32, folders::FolderRow>>,
     /// The button that makes a folder.
     folder_button: gtk::Button,
+    /// Opens the notepad of the space in front.
+    notes_button: gtk::Button,
+    notes: RefCell<brujula_core::notes::Notes>,
+    notes_save_queued: Cell<bool>,
     /// Set while a save is queued, so a burst of changes writes the session once.
     save_queued: Cell<bool>,
     /// The card that shows a link in a preview, and the page in it.
@@ -303,6 +308,12 @@ impl Browser {
         side_header.set_show_end_title_buttons(false);
         side_header.set_show_start_title_buttons(false);
         side_header.pack_end(&side_chrome.toggle);
+        let notes_button = gtk::Button::builder()
+            .icon_name("ndl-file-text-symbolic")
+            .css_classes(["flat", "brujula-newfolder"])
+            .tooltip_text("Notas de este espacio")
+            .build();
+        side_header.pack_start(&notes_button);
         // The window's title says nothing the tab does not, and takes room the sidebar needs.
         side_header.set_title_widget(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
 
@@ -339,7 +350,11 @@ impl Browser {
         let new_tab_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         new_tab_content.set_halign(gtk::Align::Center);
         new_tab_content.append(&gtk::Image::from_icon_name("ndl-plus-symbolic"));
-        new_tab_content.append(&gtk::Label::new(Some("Nueva pestaña")));
+        // The label gives way when the sidebar is narrow, so the buttons beside it never keep it
+        // from shrinking.
+        let new_tab_label = gtk::Label::new(Some("Nueva pestaña"));
+        new_tab_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        new_tab_content.append(&new_tab_label);
         let new_tab = gtk::Button::builder()
             .child(&new_tab_content)
             .css_classes(["flat", "brujula-newtab"])
@@ -526,6 +541,9 @@ impl Browser {
             folders: RefCell::new(Folders::default()),
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
+            notes_button,
+            notes: RefCell::new(notes::load()),
+            notes_save_queued: Cell::new(false),
             save_queued: Cell::new(false),
             peek,
             peek_view: RefCell::new(None),
@@ -581,6 +599,7 @@ impl Browser {
     fn wire(self: &Rc<Self>) {
         let w = self.window.upcast_ref::<gtk::ApplicationWindow>().clone();
         self.wire_peek();
+        self.wire_notes();
 
         let action = |name: &str, f: Handler| {
             let a = gio::SimpleAction::new(name, None);
@@ -901,6 +920,7 @@ impl Browser {
         self.window.connect_close_request(move |_| {
             if let Some(b) = this.upgrade() {
                 b.save_session();
+                b.save_notes();
             }
             glib::Propagation::Proceed
         });

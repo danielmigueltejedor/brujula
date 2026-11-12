@@ -12,6 +12,7 @@ pub mod edge;
 pub mod folders;
 pub mod icons;
 pub mod newtab;
+pub mod notes;
 pub mod omnibox;
 pub mod prefs;
 pub mod scriptlets;
