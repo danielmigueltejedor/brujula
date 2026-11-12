@@ -19,7 +19,7 @@ fn main() -> gtk::glib::ExitCode {
     app.connect_startup(|app| {
         // Window controls at the left, over the sidebar, like Zen and Arc.
         if let Some(settings) = gtk::Settings::default() {
-            settings.set_gtk_decoration_layout(Some("close,minimize,maximize:"));
+            settings.set_gtk_decoration_layout(Some(":minimize,maximize,close"));
         }
         ndl::init();
         browser::install_css();

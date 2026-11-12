@@ -103,6 +103,10 @@ impl Spotlight {
         self.refresh();
     }
 
+    pub fn is_open(&self) -> bool {
+        self.root.is_visible()
+    }
+
     pub fn close(&self) {
         if !self.root.is_visible() {
             return;
