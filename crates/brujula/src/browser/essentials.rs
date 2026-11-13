@@ -52,6 +52,8 @@ pub(super) struct EssentialsUi {
     pub rail: gtk::Box,
     colors: gtk::CssProvider,
     queued: Cell<bool>,
+    /// What the tiles on screen show; the tiles are built again only when it changes.
+    drawn: RefCell<String>,
     /// Hidden pages that are fetching the icon of a site, and the hosts already tried.
     loaders: RefCell<Vec<WebView>>,
     tried: RefCell<std::collections::HashSet<String>>,
@@ -89,6 +91,7 @@ impl EssentialsUi {
             rail,
             colors,
             queued: Cell::new(false),
+            drawn: RefCell::new(String::new()),
             loaders: RefCell::new(Vec::new()),
             tried: RefCell::new(std::collections::HashSet::new()),
         }
@@ -178,6 +181,30 @@ impl Browser {
                 .and_then(|id| m.get(id))
                 .and_then(|t| t.essential)
         };
+
+        // Pages report titles, loading and icons all the time, and each report asks for the tiles
+        // to be drawn again. Building them anew under the pointer flickers and eats clicks that
+        // were half made, so only what a tile shows decides.
+        let drawn: String = list
+            .iter()
+            .map(|e| {
+                let icon = favicons::lookup(&e.url).map_or(0, |tex| tex.as_ptr() as usize);
+                format!(
+                    "{}|{}|{}|{}|{}|{}|{icon};",
+                    e.id,
+                    e.name,
+                    e.url,
+                    theme_icon(e).unwrap_or(""),
+                    front == Some(e.id),
+                    self.model.borrow().essential_tab(e.id).is_some(),
+                )
+            })
+            .collect::<String>()
+            + if horizontal { "horizontal" } else { "grid" };
+        if *self.ess.drawn.borrow() == drawn {
+            return;
+        }
+        *self.ess.drawn.borrow_mut() = drawn;
 
         while let Some(child) = self.ess.grid.first_child() {
             self.ess.grid.remove(&child);

@@ -89,7 +89,7 @@ pub fn render(page: &Page) -> String {
         .unwrap_or_else(|| crate::settings::ACCENT_DEFAULT.to_owned());
     format!(
         r#"<!doctype html>
-<html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">
+<html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">{csp}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>{faces}{css}</style></head>
@@ -99,6 +99,7 @@ pub fn render(page: &Page) -> String {
 {body}
 </main></body></html>
 "#,
+        csp = crate::csp::meta(None),
         mascot = MASCOT,
         lang = escape(if page.lang.is_empty() {
             "en"

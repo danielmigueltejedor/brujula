@@ -358,6 +358,8 @@ pub struct Browser {
     system_dark: Cell<bool>,
     /// What the tab chips of the horizontal layout last showed.
     strip_key: RefCell<String>,
+    /// Where each tab was put the last time the rows were put in order (see `layout_key`).
+    layout_key: RefCell<String>,
     /// Sites that did not answer on HTTPS; they open as asked until the browser is closed.
     http_only: RefCell<std::collections::HashSet<String>>,
     /// True while the saved tabs are being put back; the tab that ends up in front loads then.
@@ -788,6 +790,7 @@ impl Browser {
             lazy: RefCell::new(HashMap::new()),
             https_tried: RefCell::new(HashMap::new()),
             strip_key: RefCell::new(String::new()),
+            layout_key: RefCell::new(String::new()),
             system_dark: Cell::new(gtk::Settings::default().is_some_and(|s| {
                 s.gtk_interface_color_scheme() == gtk::InterfaceColorScheme::Dark
             })),
@@ -1823,6 +1826,12 @@ impl Browser {
                 decision.ignore();
                 return true;
             }
+            // Nor to the browser's own addresses: they are how its pages ask for changes, and a
+            // web page has no business speaking to them.
+            if from_web && brujula_core::is_internal_address(&uri) {
+                decision.ignore();
+                return true;
+            }
             if !uri.starts_with("brujula://")
                 || uri == newtab::NEWTAB_URI
                 || uri == prefs::SETTINGS_URI
@@ -1891,8 +1900,13 @@ impl Browser {
 
     /// Brings the widgets in line with the model after a change.
     fn apply(self: &Rc<Self>, changes: Vec<Change>) {
+        // Tabs coming, going, moving or being selected change what the list shows. A title, an
+        // address or the loading state does not, unless it sends the tab to another folder, and
+        // pages report those all the time: the rows are put in order again only when needed.
+        let mut structural = changes.is_empty();
         for change in changes {
             self.emit_tab_change(&change);
+            structural |= !matches!(change, Change::Updated(_));
             match change {
                 Change::Opened(id) => {
                     self.model.borrow_mut().touch(id, now_ms());
@@ -1948,8 +1962,10 @@ impl Browser {
             return;
         }
         // Opened tabs appear at their model position.
-        self.reorder_rows();
-        self.list.invalidate_filter();
+        if structural || self.layout_changed() {
+            self.reorder_rows();
+            self.list.invalidate_filter();
+        }
         self.schedule_save();
         if self.horizontal() {
             self.rebuild_strip();
@@ -2062,6 +2078,7 @@ impl Browser {
     fn reorder_rows(&self) {
         let model = self.model.borrow();
         let folders = self.folders.borrow();
+        *self.layout_key.borrow_mut() = brujula_core::folders::layout_key(&model, &folders);
         let rows = self.rows.borrow();
         let folder_rows = self.folder_rows.borrow();
         let folder_of =
@@ -2134,6 +2151,12 @@ impl Browser {
                 self.syncing.set(false);
             }
         }
+    }
+
+    /// Whether any tab sits somewhere else than when the rows were last put in order.
+    fn layout_changed(&self) -> bool {
+        brujula_core::folders::layout_key(&self.model.borrow(), &self.folders.borrow())
+            != *self.layout_key.borrow()
     }
 
     /// Writes the session soon, once, however many changes come before then, so a crash or a

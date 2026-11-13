@@ -133,14 +133,32 @@ pub fn session_file() -> PathBuf {
 
 use nodalia_gtk::gtk;
 
-/// Writes atomically so a crash never leaves half a file.
+/// Writes atomically so a crash never leaves half a file. What Brújula keeps is the person's
+/// own (sessions, history, bookmarks, notes), so the file is for its owner alone.
 pub fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+    write_owned(path, text, false)
+}
+
+/// Makes the folders Brújula keeps its files in readable by their owner only, whatever the
+/// umask was when they were first made, so no file in them (the cookies and the cache of the
+/// pages among them) can be read by another user of the computer.
+pub fn secure_dirs() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    for dir in [root_data_dir(), root_config_dir(), root_cache_dir()] {
+        match std::fs::metadata(&dir) {
+            Ok(meta) => {
+                if meta.is_dir() && meta.permissions().mode() & 0o077 != 0 {
+                    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+            Err(_) => {
+                let _ = std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(&dir);
+            }
+        }
     }
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(tmp, path)
 }
 
 /// Where the installed extensions live: one folder per id, with the unpacked package in `pkg`.
@@ -152,8 +170,13 @@ pub fn extensions_file() -> PathBuf {
     data_dir().join("extensions.json")
 }
 
-/// Like `write_atomic`, for a file only its owner may read.
+/// Like `write_atomic`, and the data is on the disk before the old file is replaced: for what
+/// cannot be lost (the vault).
 pub fn write_private(path: &std::path::Path, bytes: &str) -> std::io::Result<()> {
+    write_owned(path, bytes, true)
+}
+
+fn write_owned(path: &std::path::Path, text: &str, sync: bool) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     if let Some(dir) = path.parent() {
@@ -166,7 +189,46 @@ pub fn write_private(path: &std::path::Path, bytes: &str) -> std::io::Result<()>
         .truncate(true)
         .mode(0o600)
         .open(&tmp)?;
-    f.write_all(bytes.as_bytes())?;
-    f.sync_all()?;
+    f.write_all(text.as_bytes())?;
+    if sync {
+        f.sync_all()?;
+    }
     std::fs::rename(tmp, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn temp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("brujula-paths-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn what_brujula_writes_is_for_its_owner_alone() {
+        let dir = temp("owner");
+        for (name, strong) in [("a.json", false), ("b.vault", true)] {
+            let file = dir.join(name);
+            if strong {
+                write_private(&file, "{}").unwrap();
+            } else {
+                write_atomic(&file, "{}").unwrap();
+            }
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{name} is {mode:o}");
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), "{}");
+        }
+        // Writing again replaces the file and keeps it private; no temporary file stays.
+        write_atomic(&dir.join("a.json"), "[1]").unwrap();
+        let mode = std::fs::metadata(dir.join("a.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0);
+        assert!(!dir.join("a.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

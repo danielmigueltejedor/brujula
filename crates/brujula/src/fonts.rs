@@ -11,6 +11,11 @@ use webkit6::URISchemeRequest;
 
 pub const SCHEME: &str = "brujula-font";
 
+thread_local! {
+    static CACHE: std::cell::RefCell<std::collections::HashMap<&'static str, glib::Bytes>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// Which file each name stands for.
 const FILES: [(&str, &str); 2] = [
     ("inter", "Inter[opsz,wght].ttf"),
@@ -41,12 +46,19 @@ pub fn serve(req: &URISchemeRequest) {
         .iter()
         .find(|(n, _)| Some(*n) == name)
         .map(|(_, f)| *f);
-    let (Some(file), Some(dir)) = (file, font_dir()) else {
+    let Some(file) = file else {
         return fail("unknown font");
     };
-    match std::fs::read(dir.join(file)) {
+    // Every page of the browser's own asks for both: they are read from the disk once.
+    let cached = CACHE.with(|c| c.borrow().get(file).cloned());
+    let bytes = cached.or_else(|| {
+        let bytes = glib::Bytes::from_owned(std::fs::read(font_dir()?.join(file)).ok()?);
+        CACHE.with(|c| c.borrow_mut().insert(file, bytes.clone()));
+        Some(bytes)
+    });
+    match bytes.ok_or(()) {
         Ok(bytes) => {
-            let stream = gio::MemoryInputStream::from_bytes(&glib::Bytes::from_owned(bytes));
+            let stream = gio::MemoryInputStream::from_bytes(&bytes);
             let response = webkit6::URISchemeResponse::new(&stream, -1);
             response.set_content_type("font/ttf");
             let headers =

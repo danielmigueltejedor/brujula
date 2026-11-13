@@ -1694,7 +1694,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 
     format!(
         r##"<!doctype html>
-<html lang="es" data-theme="{theme}"><head><meta charset="utf-8">
+<html lang="es" data-theme="{theme}"><head><meta charset="utf-8">{csp}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Preferencias</title>
 <style>{faces}{css}</style></head>
@@ -1706,6 +1706,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <script>{js}</script>
 </body></html>
 "##,
+        csp = crate::csp::meta(Some(JS)),
         faces = crate::fonts::FACES,
         css = CSS,
         js = JS,

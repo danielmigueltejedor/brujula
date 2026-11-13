@@ -12,6 +12,7 @@ pub mod bookmarks;
 pub mod boosts;
 pub mod browser_data;
 pub mod cloud;
+pub mod csp;
 pub mod downloads;
 pub mod edge;
 pub mod essentials;
@@ -64,6 +65,14 @@ pub fn is_own_page(uri: &str) -> bool {
     .contains(&uri)
 }
 
+/// Whether an address belongs to the browser itself (`brujula://…`): its own pages and the
+/// requests they make. Compared without regard to case, as schemes are.
+pub fn is_internal_address(uri: &str) -> bool {
+    uri.trim_start()
+        .get(..8)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("brujula:"))
+}
+
 /// Text suitable for a user-visible name: no control characters, surrounding whitespace or
 /// more characters than the field can store.
 pub(crate) fn clean_name(name: &str, max: usize) -> String {
@@ -89,6 +98,27 @@ mod tests {
             file.file_name().and_then(|n| n.to_str()),
             Some("cookies.sqlite")
         );
+    }
+
+    #[test]
+    fn the_browsers_own_addresses_are_told_apart_from_the_web() {
+        for own in [
+            "brujula://settings",
+            "BRUJULA://settings/set?x=1",
+            "  brujula://newtab",
+        ] {
+            assert!(is_internal_address(own), "{own}");
+        }
+        for other in [
+            "https://brujula.example/",
+            "brujula-ext://abc/page.html",
+            "brujula-font://inter",
+            "brujula",
+            "ñandú://x",
+            "",
+        ] {
+            assert!(!is_internal_address(other), "{other}");
+        }
     }
 
     #[test]

@@ -53,6 +53,22 @@ const DANGEROUS: &[&str] = &[
     "pif",
     "gadget",
     "workflow",
+    // Java Web Start, Windows shortcuts and scripts, Python bundles: they run when opened or
+    // are taken to a computer that runs them.
+    "jnlp",
+    "pyw",
+    "pyz",
+    "wsh",
+    "wsc",
+    "msc",
+    "inf",
+    "scf",
+    "url",
+    "msp",
+    "mst",
+    "ade",
+    "adp",
+    "mde",
 ];
 
 /// A file name that is safe to create in the Downloads folder: no path, no control characters,
@@ -141,6 +157,9 @@ mod tests {
             "report.pdf.sh",
             "a.tar.gz.bin",
             "x.jar",
+            "launch.jnlp",
+            "pay.URL",
+            "tool.pyz",
         ] {
             assert!(is_dangerous(name), "{name}");
         }
