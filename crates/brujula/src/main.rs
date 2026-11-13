@@ -4,6 +4,7 @@ mod filters;
 mod icons;
 mod paths;
 mod spotlight;
+mod webapp;
 
 use gtk::prelude::*;
 use ndl::gtk;
@@ -15,6 +16,17 @@ thread_local! {
 }
 
 fn main() -> gtk::glib::ExitCode {
+    // `brujula --webapp <id>` is a web app: a site in a window of its own, in its own process.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(at) = args.iter().position(|a| a == "--webapp") {
+        return match args.get(at + 1) {
+            Some(id) => webapp::run(id),
+            None => {
+                eprintln!("brujula: --webapp needs the id of a web app");
+                gtk::glib::ExitCode::FAILURE
+            }
+        };
+    }
     gtk::glib::set_prgname(Some("brujula"));
     gtk::glib::set_application_name("Brújula");
 

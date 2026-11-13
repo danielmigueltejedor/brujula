@@ -30,6 +30,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+          fetch-depth: 0
+      # A release made before the packaging existed (v0.1.0) is built from its own source with the
+      # packaging files of the commit this workflow runs from.
+      - name: Take the packaging files from the workflow's commit if the tag has none
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [ ! -x packaging/appimage/build.sh ]; then
+            git checkout "${{ github.sha }}" -- packaging
+          fi
       - name: Build
         run: cargo build --release --locked -p brujula
       - name: Fetch the packaging tools

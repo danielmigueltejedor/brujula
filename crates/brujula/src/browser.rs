@@ -53,10 +53,12 @@ mod float;
 mod folders;
 mod history;
 mod notes;
+mod passwords;
 mod peek;
 mod sleep;
 mod split;
 mod system_theme;
+mod webapps;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -323,6 +325,8 @@ pub struct Browser {
     /// The pages visited.
     history: RefCell<History>,
     history_save_queued: Cell<bool>,
+    /// The saved passwords, while the vault is open.
+    pw: passwords::PwState,
     /// The Chromium extensions installed and running.
     ext: RefCell<ext::ExtState>,
     filters: Rc<Filters>,
@@ -686,6 +690,7 @@ impl Browser {
                     .unwrap_or_default()
             }),
             history_save_queued: Cell::new(false),
+            pw: passwords::PwState::default(),
             ext: RefCell::new(ext::ExtState::default()),
             filters,
             settings: RefCell::new(settings),
@@ -803,6 +808,7 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
         action(
             "open-extensions",
             Box::new(|b| b.open_settings(Some("extensions"))),
@@ -1049,6 +1055,7 @@ impl Browser {
                 b.save_session();
                 b.save_notes();
                 b.flush_history();
+                b.pw_lock();
                 b.unfloat_all();
                 if b.private {
                     // The window goes, and with it the session and everything it held.
@@ -1236,6 +1243,7 @@ impl Browser {
             }
             if !this.private {
                 this.start_extensions();
+                this.start_passwords();
             }
             this.restore(&urls);
             if !this.private {
@@ -2159,6 +2167,14 @@ impl Browser {
             self.change_history(what, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("webapp.") {
+            self.change_webapp(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("pw.") {
+            self.change_passwords(what, value);
+            return;
+        }
         let result = self.settings.borrow_mut().apply(key, value);
         let effect = match result {
             Ok(effect) => effect,
@@ -2653,6 +2669,16 @@ impl Browser {
 /// permissions. Camera, microphone, location, notifications and the like are refused until there
 /// is a prompt to ask the user.
 fn harden(view: &WebView) {
+    harden_settings(view);
+    view.connect_permission_request(|_, request| {
+        request.deny();
+        true
+    });
+}
+
+/// The settings every view gets; a view that asks the user about permissions (a web app) adds
+/// its own handler instead of the one that refuses all.
+pub(crate) fn harden_settings(view: &WebView) {
     if let Some(s) = WebViewExt::settings(view) {
         s.set_enable_developer_extras(true);
         s.set_enable_back_forward_navigation_gestures(true);
@@ -2662,10 +2688,6 @@ fn harden(view: &WebView) {
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
     }
-    view.connect_permission_request(|_, request| {
-        request.deny();
-        true
-    });
 }
 
 fn icon_button(icon: &str, tip: &str, action: &str) -> gtk::Button {
@@ -2702,6 +2724,10 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     opts.append(Some("Extensiones"), Some("win.open-extensions"));
+    opts.append(
+        Some("Instalar como aplicación web…"),
+        Some("win.install-webapp"),
+    );
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
     m

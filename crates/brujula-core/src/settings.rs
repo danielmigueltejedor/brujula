@@ -246,6 +246,8 @@ pub struct Settings {
     pub https_first: bool,
     /// Remember the pages visited (never in a private window).
     pub history_enabled: bool,
+    /// Offer to save the passwords typed in pages, and fill them in (never in a private window).
+    pub passwords_enabled: bool,
 }
 
 /// The times the user can choose to archive after, in hours (0 is never).
@@ -271,6 +273,7 @@ impl Default for Settings {
             sleep_after_minutes: 30,
             https_first: true,
             history_enabled: true,
+            passwords_enabled: true,
         }
     }
 }

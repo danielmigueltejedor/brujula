@@ -216,6 +216,9 @@ impl Settings {
             "history_enabled" => {
                 self.history_enabled = flag(value)?;
             }
+            "passwords_enabled" => {
+                self.passwords_enabled = flag(value)?;
+            }
             "sleep_after" => {
                 let minutes = number(value)?;
                 if !crate::settings::SLEEP_CHOICES.contains(&minutes) {
@@ -469,6 +472,21 @@ pub struct Extras {
     pub history: Vec<(String, String)>,
     /// How many pages the history holds in all.
     pub history_total: usize,
+    /// The password vault: whether it exists, whether it is open, and what it holds.
+    pub vault: VaultView,
+    /// The web apps: id, name and address.
+    pub webapps: Vec<(String, String, String)>,
+}
+
+/// What the preferences page shows of the password vault. Never a password.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct VaultView {
+    pub exists: bool,
+    pub open: bool,
+    /// The saved logins: id, site and user name.
+    pub logins: Vec<(u64, String, String)>,
+    /// The sites the user asked never to be offered a save for.
+    pub never: Vec<String>,
 }
 
 /// An installed extension, as the page lists it.
@@ -530,6 +548,20 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Historial",
         "Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.",
         "history",
+    ),
+    (
+        "passwords",
+        "Contraseñas",
+        "Contraseñas",
+        "Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.",
+        "lock",
+    ),
+    (
+        "webapps",
+        "Aplicaciones web",
+        "Aplicaciones web",
+        "Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».",
+        "globe",
     ),
     (
         "boosts",
@@ -684,6 +716,94 @@ fn history_section(s: &Settings, view: &Extras) -> String {
         ""
     };
     section("history", &format!("{controls}{items}{empty}"))
+}
+
+/// The password vault: the switch, the master password, and what is saved (never the passwords).
+fn passwords_section(s: &Settings, view: &Extras) -> String {
+    let v = &view.vault;
+    let switch_row = row(
+        "Guardar contraseñas",
+        "Brújula pregunta antes de guardar una y solo la rellena en el sitio exacto donde se guardó, cuando tú tocas el campo.",
+        &switch("passwords_enabled", s.passwords_enabled),
+    );
+    let state = if !v.exists {
+        row(
+            "Contraseña maestra",
+            "Todavía no hay contraseñas guardadas. La maestra cifra el archivo; si la olvidas no se puede recuperar.",
+            r#"<button type="button" class="seg plain" data-k="pw.create" data-v="1">Crear…</button>"#,
+        )
+    } else if !v.open {
+        row(
+            "Bloqueadas",
+            "Se piden la contraseña maestra para verlas o rellenarlas.",
+            r#"<button type="button" class="seg plain" data-k="pw.unlock" data-v="1">Desbloquear…</button><button type="button" class="seg plain danger" data-k="pw.wipe" data-v="1">Borrar…</button>"#,
+        )
+    } else {
+        row(
+            "Desbloqueadas",
+            "Se bloquean solas tras unos minutos sin usarlas y al cerrar la ventana.",
+            r#"<button type="button" class="seg plain" data-k="pw.lock" data-v="1" data-redraw="1">Bloquear</button><button type="button" class="seg plain" data-k="pw.change" data-v="1">Cambiar maestra…</button><button type="button" class="seg plain danger" data-k="pw.wipe" data-v="1">Borrar…</button>"#,
+        )
+    };
+    let logins: String = v
+        .logins
+        .iter()
+        .filter(|_| v.open)
+        .map(|(id, site, user)| {
+            format!(
+                r#"<div class="row"><div class="what"><b>{site}</b><p>{user}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="pw.copy" data-v="{id}">Copiar</button><button type="button" class="seg plain danger" data-k="pw.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                site = escape(site),
+                user = escape(user),
+            )
+        })
+        .collect();
+    let never: String = v
+        .never
+        .iter()
+        .filter(|_| v.open)
+        .map(|site| {
+            format!(
+                r#"<div class="row"><div class="what"><b>{site}</b><p>No se ofrece guardar contraseñas aquí.</p></div><div class="ctl"><button type="button" class="seg plain" data-k="pw.unnever" data-v="{site}" data-remove="1">Volver a ofrecer</button></div></div>"#,
+                site = escape(site),
+            )
+        })
+        .collect();
+    let empty = if v.open && v.logins.is_empty() {
+        r#"<p class="empty">Todavía no hay contraseñas guardadas.</p>"#
+    } else {
+        ""
+    };
+    section(
+        "passwords",
+        &format!("{switch_row}{state}{logins}{empty}{never}"),
+    )
+}
+
+/// The web apps: a form to make one, and the ones that exist.
+fn webapps_section(view: &Extras) -> String {
+    let add = stacked(
+        "Crear una aplicación web",
+        "La dirección del sitio y, si quieres, un nombre. Su perfil (cookies y sesiones) queda aparte del navegador y de las demás aplicaciones; los enlaces de otros sitios se abren en tu navegador.",
+        r#"<div class="addrow"><input type="text" id="webapp-name" class="field" placeholder="Nombre (opcional)" maxlength="40" aria-label="Nombre"><input type="text" id="webapp-url" class="field wide" placeholder="https://…" maxlength="2048" aria-label="Dirección"><button type="button" class="seg plain" data-addwebapp="1">Crear</button></div>"#,
+    );
+    let items: String = view
+        .webapps
+        .iter()
+        .map(|(id, name, url)| {
+            let id = escape(id);
+            format!(
+                r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="webapp.open" data-v="{id}">Abrir</button><button type="button" class="seg plain danger" data-k="webapp.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                escape(name),
+                escape(url),
+            )
+        })
+        .collect();
+    let empty = if view.webapps.is_empty() {
+        r#"<p class="empty">Todavía no hay aplicaciones web.</p>"#
+    } else {
+        ""
+    };
+    section("webapps", &format!("{add}{items}{empty}"))
 }
 
 /// The extensions: ways to add one, and a card for each that is installed.
@@ -1150,6 +1270,8 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let archive_section = archive_section(s, sync);
     let boosts_section = boosts_section(sync);
     let history_section = history_section(s, sync);
+    let passwords_section = passwords_section(s, sync);
+    let webapps_section = webapps_section(sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1201,7 +1323,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1259,6 +1381,16 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Ventana privada",
         "privado privada incógnito incognito sin rastro navegación",
         "history",
+    ),
+    (
+        "Aplicaciones web",
+        "webapp webapps aplicaciones web instalar pwa ventana lanzador atajo",
+        "webapps",
+    ),
+    (
+        "Contraseñas",
+        "contraseñas claves login usuario guardar rellenar maestra bóveda cifrado",
+        "passwords",
     ),
     (
         "Boosts",
@@ -1414,6 +1546,8 @@ document.addEventListener('click',e=>{
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
+  const wa=e.target.closest('[data-addwebapp]');
+  if(wa){const u=document.getElementById('webapp-url'),n=document.getElementById('webapp-name');if(u&&u.value.trim()){send('webapp.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const ext=e.target.closest('[data-addext]');
   if(ext){const h=document.getElementById('ext-store');if(h&&h.value.trim())send('ext.install_store',h.value.trim());return}
   const open=e.target.closest('[data-open]');
@@ -1891,5 +2025,46 @@ mod tests {
         for (_, _, id) in SECTIONS {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
         }
+    }
+
+    #[test]
+    fn the_passwords_page_lists_sites_and_users_but_never_a_password() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let closed = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(closed.contains(r#"data-k="pw.create""#));
+        extras.vault = VaultView {
+            exists: true,
+            open: true,
+            logins: vec![(7, "https://a.example".into(), "ana<b>".into())],
+            never: vec!["https://n.example".into()],
+        };
+        let open = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(open.contains(r#"data-k="pw.copy" data-v="7""#));
+        assert!(open.contains("ana&lt;b&gt;"));
+        assert!(open.contains(r#"data-k="pw.unnever""#));
+        extras.vault.open = false;
+        let locked = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(locked.contains(r#"data-k="pw.unlock""#));
+        assert!(!locked.contains("https://a.example"));
+        let mut s = s;
+        s.apply("passwords_enabled", "0").unwrap();
+        assert!(!s.passwords_enabled);
+    }
+
+    #[test]
+    fn the_web_apps_page_lists_the_apps_and_has_a_form() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addwebapp="1""#));
+        extras.webapps = vec![(
+            "mi-correo".into(),
+            "Mi <correo>".into(),
+            "https://mail.example/".into(),
+        )];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains(r#"data-k="webapp.open" data-v="mi-correo""#));
+        assert!(html.contains("Mi &lt;correo&gt;"));
     }
 }

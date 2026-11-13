@@ -36,6 +36,23 @@ pub fn history_file() -> PathBuf {
     data_dir().join("history.json")
 }
 
+pub fn vault_file() -> PathBuf {
+    data_dir().join("passwords.vault")
+}
+
+pub fn webapps_file() -> PathBuf {
+    data_dir().join("webapps.json")
+}
+
+/// The profile of a web app: its own cookies and storage.
+pub fn webapp_data_dir(id: &str) -> PathBuf {
+    data_dir().join("webapps").join(id)
+}
+
+pub fn webapp_cache_dir(id: &str) -> PathBuf {
+    cache_dir().join("webapps").join(id)
+}
+
 pub fn notes_file() -> PathBuf {
     data_dir().join("notes.json")
 }
@@ -67,4 +84,23 @@ pub fn extensions_dir() -> PathBuf {
 
 pub fn extensions_file() -> PathBuf {
     data_dir().join("extensions.json")
+}
+
+/// Like `write_atomic`, for a file only its owner may read.
+pub fn write_private(path: &std::path::Path, bytes: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    f.write_all(bytes.as_bytes())?;
+    f.sync_all()?;
+    std::fs::rename(tmp, path)
 }

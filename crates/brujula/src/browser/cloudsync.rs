@@ -114,6 +114,12 @@ impl Browser {
         prefs::Extras {
             history,
             history_total,
+            vault: self.vault_view(),
+            webapps: crate::webapp::registry()
+                .items()
+                .iter()
+                .map(|a| (a.id.clone(), a.name.clone(), a.url.clone()))
+                .collect(),
             folders: offered_folders(),
             accounts: accounts()
                 .iter()
