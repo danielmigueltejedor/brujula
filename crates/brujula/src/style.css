@@ -40,6 +40,9 @@
 .brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
 .brujula-spotlight-row { min-height: 44px; }
+.brujula-marks { padding: var(--ndl-space-xs) 0; }
+.brujula-marks flowboxchild { padding: 0; background: none; }
+.brujula-mark-initial { font-weight: 700; font-size: 1.1em; color: var(--ndl-color-accent-default); }
 
 .brujula-progress { min-height: 2px; }
 
@@ -104,6 +107,20 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-who-face { border-radius: 50%; transition: transform 140ms ease; }
 .brujula-who:hover .brujula-who-face { transform: scale(1.06); }
 .brujula-who-name { font-size: 1.2em; font-weight: 500; }
+
+/* A page shown full screen fills the window: no frame, no rounded corners. */
+.brujula-fullscreen .brujula-page { border-radius: 0; }
+.brujula-fullscreen ndl-overlay-split-view > .ndl-content-pane { margin: 0; border-radius: 0; }
+
+/* Dragging a tile of the essentials: a line on the side where it will land. */
+.brujula-ess.brujula-dragging { opacity: .5; }
+.brujula-ess.brujula-ess-before { box-shadow: inset 3px 0 0 var(--ndl-color-accent-default); }
+.brujula-ess.brujula-ess-after { box-shadow: inset -3px 0 0 var(--ndl-color-accent-default); }
+.brujula-rail .brujula-ess.brujula-ess-before { box-shadow: inset 0 3px 0 var(--ndl-color-accent-default); }
+.brujula-rail .brujula-ess.brujula-ess-after { box-shadow: inset 0 -3px 0 var(--ndl-color-accent-default); }
+
+/* The code of the second step, big enough to read from the side. */
+.brujula-totp-code { font-family: monospace; font-size: 2.4em; font-weight: 700; letter-spacing: 0.06em; margin: 8px 0; }
 
 /* The AI assistant's panel. */
 .brujula-ai { margin-left: var(--ndl-space-sm); }

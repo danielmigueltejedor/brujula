@@ -24,32 +24,91 @@ fn dark_from(value: &glib::Variant) -> Option<bool> {
     v.get::<u32>().map(|n| n == 1)
 }
 
+thread_local! {
+    /// The desktop's own settings, kept alive so that their changes keep arriving.
+    static DESKTOP: RefCell<Vec<gio::Settings>> = const { RefCell::new(Vec::new()) };
+}
+
+/// How many times, and how long apart, the portal is asked again when it did not answer: right
+/// after logging in it may not be up yet.
+const RETRIES: [u32; 3] = [0, 3, 10];
+
+/// `org.gnome.desktop.interface` `color-scheme`, which is what the desktop's settings write and
+/// what the portal reports. `None` where the schema is not installed.
+fn desktop_settings() -> Option<gio::Settings> {
+    let schema =
+        gio::SettingsSchemaSource::default()?.lookup("org.gnome.desktop.interface", true)?;
+    schema
+        .has_key("color-scheme")
+        .then(|| gio::Settings::new_full(&schema, None::<&gio::SettingsBackend>, None))
+}
+
+fn dark_from_desktop(settings: &gio::Settings) -> bool {
+    settings.string("color-scheme") == "prefer-dark"
+}
+
 impl Browser {
     /// Reads the preference now and follows it while the window lives.
     pub(super) fn watch_system_theme(self: &Rc<Self>) {
+        // First the desktop's own setting, which needs no bus: it is right at once where the
+        // portal is slow or missing. The portal, when it answers, has the last word.
+        let from_desktop = desktop_settings();
+        if let Some(settings) = &from_desktop {
+            self.set_system_dark(dark_from_desktop(settings));
+            let this = Rc::downgrade(self);
+            settings.connect_changed(Some("color-scheme"), move |s, _| {
+                if let Some(b) = this.upgrade() {
+                    b.set_system_dark(dark_from_desktop(s));
+                }
+            });
+        }
+        let initial = self.system_dark.get();
+        let from_gtk = gtk::Settings::default()
+            .map(|s| s.gtk_interface_color_scheme() == gtk::InterfaceColorScheme::Dark);
+        if let Some(settings) = from_desktop {
+            DESKTOP.with(|d| d.borrow_mut().push(settings));
+        }
         let this = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let Ok(conn) = gio::bus_get_future(gio::BusType::Session).await else {
+                eprintln!(
+                    "brujula: tema del sistema: sin bus de sesión (GtkSettings: {from_gtk:?})"
+                );
                 return;
             };
             let params = (NAMESPACE, KEY).to_variant();
-            let reply = conn
-                .call_future(
-                    Some(PORTAL),
-                    PATH,
-                    IFACE,
-                    "Read",
-                    Some(&params),
-                    None,
-                    gio::DBusCallFlags::NONE,
-                    2000,
-                )
-                .await;
-            if let (Some(b), Ok(reply)) = (this.upgrade(), reply) {
-                if let Some(dark) = dark_from(&reply.child_value(0)) {
-                    b.set_system_dark(dark);
+            let mut portal = None;
+            for wait in RETRIES {
+                if wait > 0 {
+                    glib::timeout_future_seconds(wait).await;
+                }
+                let reply = conn
+                    .call_future(
+                        Some(PORTAL),
+                        PATH,
+                        IFACE,
+                        "Read",
+                        Some(&params),
+                        None,
+                        gio::DBusCallFlags::NONE,
+                        2000,
+                    )
+                    .await;
+                let Some(b) = this.upgrade() else { return };
+                match reply {
+                    Ok(reply) => {
+                        portal = dark_from(&reply.child_value(0));
+                        if let Some(dark) = portal {
+                            b.set_system_dark(dark);
+                            break;
+                        }
+                    }
+                    Err(e) => eprintln!("brujula: el portal no dio el tema ({e})"),
                 }
             }
+            eprintln!(
+                "brujula: tema del sistema: al arrancar {initial}, GtkSettings {from_gtk:?}, portal {portal:?}"
+            );
             let this = this.clone();
             // The replacement hands back a guard that unsubscribes when dropped; this one lasts as
             // long as the connection, which is what is wanted here.

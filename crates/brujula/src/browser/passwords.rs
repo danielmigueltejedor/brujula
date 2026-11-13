@@ -11,6 +11,7 @@ use super::*;
 
 use std::collections::HashSet;
 
+use brujula_core::totp::{self, Totp};
 use brujula_core::vault::{origin_of, Offer, Vault, VaultError};
 use serde_json::{json, Value};
 use webkit6::{javascriptcore, UserContentInjectedFrames, UserScript, UserScriptInjectionTime};
@@ -110,7 +111,24 @@ impl Browser {
             return done(nothing());
         }
         match m["t"].as_str().unwrap_or("") {
-            "list" => self.pw_list(&href, origin, done),
+            "list" => self.pw_list(&href, origin, false, done),
+            // The logins of this page that have one-time codes, and then one code.
+            "otp" => self.pw_list(&href, origin, true, done),
+            "otpfill" => {
+                let code = m["id"].as_u64().and_then(|id| {
+                    let g = self.pw.vault.borrow();
+                    let l = g.as_ref()?.find(id)?;
+                    if l.origin != origin {
+                        return None;
+                    }
+                    let totp = Totp::parse(&l.totp)?;
+                    Some(json!({"c": totp.code(now_ms() / 1000)}))
+                });
+                if code.is_some() {
+                    self.pw_touch();
+                }
+                done(code.unwrap_or_else(nothing));
+            }
             "fill" => {
                 let found = m["id"].as_u64().and_then(|id| {
                     let g = self.pw.vault.borrow();
@@ -132,16 +150,24 @@ impl Browser {
         }
     }
 
-    /// The saved users for a page, never their passwords. A closed vault is asked to open once
+    /// The saved users for a page (only those with one-time codes when `only_totp`), never their
+    /// passwords. A closed vault is asked to open once
     /// per site, when the user touches a login field.
-    fn pw_list(self: &Rc<Self>, href: &str, origin: String, done: Box<dyn FnOnce(Value)>) {
-        let list = |b: &Browser, href: &str| {
+    fn pw_list(
+        self: &Rc<Self>,
+        href: &str,
+        origin: String,
+        only_totp: bool,
+        done: Box<dyn FnOnce(Value)>,
+    ) {
+        let list = move |b: &Browser, href: &str| {
             let g = b.pw.vault.borrow();
             let logins: Vec<Value> = g
                 .as_ref()
                 .map(|v| {
                     v.for_page(href)
                         .iter()
+                        .filter(|l| !only_totp || !l.totp.is_empty())
                         .map(|l| json!({"id": l.id, "u": l.username}))
                         .collect()
                 })
@@ -561,6 +587,17 @@ impl Browser {
                 self.pw_touch();
                 self.save_vault();
             }
+            "totp_add" => self.pw_totp_add(value),
+            "totp_show" => self.pw_totp_show(value),
+            "totp_remove" => {
+                if let (Ok(id), Some(v)) =
+                    (value.parse::<u64>(), self.pw.vault.borrow_mut().as_mut())
+                {
+                    v.set_totp(id, None, now_ms());
+                }
+                self.pw_touch();
+                self.save_vault();
+            }
             "unnever" => {
                 if let Some(v) = self.pw.vault.borrow_mut().as_mut() {
                     v.forget_never(value);
@@ -611,6 +648,12 @@ impl Browser {
             return;
         };
         self.pw_touch();
+        self.copy_secret(secret);
+    }
+
+    /// Puts a secret on the clipboard, and takes it off a moment later if nothing else was
+    /// copied since.
+    fn copy_secret(&self, secret: Zeroizing<String>) {
         let clip = self.window.clipboard();
         clip.set_text(&secret);
         glib::timeout_add_seconds_local_once(CLIPBOARD_SECS, move || {
@@ -622,6 +665,156 @@ impl Browser {
                 }
             });
         });
+    }
+
+    /// Asks for the secret of the one-time codes (2FA) of login `id`: the key a site shows next
+    /// to its QR code, or the `otpauth://` address inside it.
+    fn pw_totp_add(self: &Rc<Self>, id: &str) {
+        let Ok(id) = id.parse::<u64>() else { return };
+        let found = self.pw.vault.borrow().as_ref().and_then(|v| {
+            v.find(id)
+                .map(|l| format!("{} · {}", host_of(&l.origin), l.username))
+        });
+        let Some(who) = found else { return };
+        self.pw_touch();
+        let this = self.clone();
+        dialogs::ask_secret(
+            &self.window,
+            "Añadir verificación en dos pasos (2FA)",
+            &format!(
+                "Para {who}. Pega la clave de configuración que te muestra el sitio (junto al código QR) o la dirección otpauth:// del QR."
+            ),
+            "Guardar",
+            move |text| {
+                let text = Zeroizing::new(text);
+                let saved = this
+                    .pw
+                    .vault
+                    .borrow_mut()
+                    .as_mut()
+                    .is_some_and(|v| v.set_totp(id, Some(&text), now_ms()));
+                if saved {
+                    this.save_vault();
+                    this.redraw_settings();
+                } else {
+                    dialogs::notice(
+                        &this.window,
+                        "Eso no es una clave válida",
+                        "Tiene que ser la clave en letras y números (base32) o una dirección que empiece por otpauth://totp/.",
+                    );
+                }
+            },
+        );
+    }
+
+    /// Shows the code of login `id`, with the seconds it has left, and keeps it current until
+    /// the window is closed.
+    fn pw_totp_show(self: &Rc<Self>, id: &str) {
+        let found = id.parse::<u64>().ok().and_then(|id| {
+            let g = self.pw.vault.borrow();
+            let l = g.as_ref()?.find(id)?;
+            Some((
+                Totp::parse(&l.totp)?,
+                format!("{} · {}", host_of(&l.origin), l.username),
+            ))
+        });
+        let Some((totp, who)) = found else { return };
+        self.pw_touch();
+        let win = ndl::Dialog::builder()
+            .title("Código 2FA")
+            .content_width(380)
+            .build();
+        let col = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        for set in [
+            gtk::Box::set_margin_top,
+            gtk::Box::set_margin_bottom,
+            gtk::Box::set_margin_start,
+            gtk::Box::set_margin_end,
+        ] {
+            set(&col, 20);
+        }
+        col.append(
+            &gtk::Label::builder()
+                .label("Código de verificación")
+                .css_classes(["title-3"])
+                .xalign(0.0)
+                .build(),
+        );
+        col.append(
+            &gtk::Label::builder()
+                .label(&who)
+                .wrap(true)
+                .xalign(0.0)
+                .css_classes(["dim-label"])
+                .build(),
+        );
+        let code = gtk::Label::builder()
+            .css_classes(["brujula-totp-code"])
+            .build();
+        col.append(&code);
+        let bar = gtk::ProgressBar::new();
+        col.append(&bar);
+        let left = gtk::Label::builder().css_classes(["dim-label"]).build();
+        col.append(&left);
+        let close = gtk::Button::with_label("Cerrar");
+        let copy = gtk::Button::builder()
+            .label("Copiar")
+            .css_classes(["suggested-action"])
+            .build();
+        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        buttons.set_homogeneous(true);
+        buttons.append(&close);
+        buttons.append(&copy);
+        col.append(&buttons);
+        win.set_child(Some(&col));
+
+        let totp = Rc::new(totp);
+        let current = Rc::new(RefCell::new(Zeroizing::new(String::new())));
+        let tick = {
+            let (totp, code, bar, left, current) = (
+                totp.clone(),
+                code.clone(),
+                bar.clone(),
+                left.clone(),
+                current.clone(),
+            );
+            move || {
+                let now = now_ms() / 1000;
+                let value = totp.code(now);
+                code.set_label(&totp::grouped(&value));
+                let secs = totp.seconds_left(now);
+                bar.set_fraction(secs as f64 / totp.period() as f64);
+                left.set_label(&format!("Cambia en {secs} s"));
+                *current.borrow_mut() = Zeroizing::new(value);
+            }
+        };
+        tick();
+        let open = Rc::new(Cell::new(true));
+        {
+            let open = open.clone();
+            glib::timeout_add_seconds_local(1, move || {
+                if !open.get() {
+                    return glib::ControlFlow::Break;
+                }
+                tick();
+                glib::ControlFlow::Continue
+            });
+        }
+        {
+            let open = open.clone();
+            win.connect_closed(move |_| open.set(false));
+        }
+        {
+            let win = win.clone();
+            close.connect_clicked(move |_| win.force_close());
+        }
+        {
+            let this = self.clone();
+            copy.connect_clicked(move |_| {
+                this.copy_secret(Zeroizing::new(current.borrow().to_string()));
+            });
+        }
+        win.present(Some(&self.window));
     }
 
     /// What the preferences page shows of the vault: never a password.
@@ -636,6 +829,16 @@ impl Browser {
                     v.logins()
                         .iter()
                         .map(|l| (l.id, l.origin.clone(), l.username.clone()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            totp: g
+                .as_ref()
+                .map(|v| {
+                    v.logins()
+                        .iter()
+                        .filter(|l| !l.totp.is_empty())
+                        .map(|l| l.id)
                         .collect()
                 })
                 .unwrap_or_default(),

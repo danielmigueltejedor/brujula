@@ -363,27 +363,4 @@ impl Browser {
         };
         self.set_sync_status(&format!("Sincronizado a las {time}, {devices}."));
     }
-
-    /// The tabs other devices have open, for the new-tab page.
-    pub(super) fn devices_for_newtab(
-        &self,
-        link: &dyn Fn(&str, String, &str, &'static str) -> newtab::Link,
-    ) -> Vec<newtab::DeviceTabs> {
-        let cfg = self.settings.borrow();
-        if !(cfg.sync.enabled && cfg.sync.tabs) {
-            return Vec::new();
-        }
-        self.sync_others
-            .borrow()
-            .iter()
-            .map(|d| newtab::DeviceTabs {
-                name: d.device_name.clone(),
-                links: d
-                    .tabs
-                    .iter()
-                    .map(|t| link(&t.title, t.url.clone(), &t.url, ""))
-                    .collect(),
-            })
-            .collect()
-    }
 }

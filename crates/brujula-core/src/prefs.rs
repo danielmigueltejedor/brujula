@@ -525,6 +525,8 @@ pub struct VaultView {
     pub open: bool,
     /// The saved logins: id, site and user name.
     pub logins: Vec<(u64, String, String)>,
+    /// The ids of the logins that have a secret for one-time codes (2FA).
+    pub totp: Vec<u64>,
     /// The sites the user asked never to be offered a save for.
     pub never: Vec<String>,
 }
@@ -717,8 +719,18 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         .iter()
         .filter(|_| v.open)
         .map(|(id, site, user)| {
+            // The codes of two-step verification: show them, or add the secret.
+            let codes = if v.totp.contains(id) {
+                format!(
+                    r#"<button type="button" class="seg plain" data-k="pw.totp_show" data-v="{id}">Código 2FA</button><button type="button" class="seg plain danger" data-k="pw.totp_remove" data-v="{id}" data-redraw="1">Quitar 2FA</button>"#
+                )
+            } else {
+                format!(
+                    r#"<button type="button" class="seg plain" data-k="pw.totp_add" data-v="{id}">Añadir 2FA…</button>"#
+                )
+            };
             format!(
-                r#"<div class="row"><div class="what"><b>{site}</b><p>{user}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="pw.copy" data-v="{id}">Copiar</button><button type="button" class="seg plain danger" data-k="pw.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                r#"<div class="row"><div class="what"><b>{site}</b><p>{user}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="pw.copy" data-v="{id}">Copiar</button>{codes}<button type="button" class="seg plain danger" data-k="pw.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
                 site = escape(site),
                 user = escape(user),
             )
@@ -2449,11 +2461,20 @@ mod tests {
         extras.vault = VaultView {
             exists: true,
             open: true,
-            logins: vec![(7, "https://a.example".into(), "ana<b>".into())],
+            logins: vec![
+                (7, "https://a.example".into(), "ana<b>".into()),
+                (8, "https://b.example".into(), "beto".into()),
+            ],
+            totp: vec![8],
             never: vec!["https://n.example".into()],
         };
         let open = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
         assert!(open.contains(r#"data-k="pw.copy" data-v="7""#));
+        // The login with a secret for codes shows them; the other offers to add one.
+        assert!(open.contains(r#"data-k="pw.totp_show" data-v="8""#));
+        assert!(open.contains(r#"data-k="pw.totp_remove" data-v="8""#));
+        assert!(open.contains(r#"data-k="pw.totp_add" data-v="7""#));
+        assert!(!open.contains(r#"data-k="pw.totp_add" data-v="8""#));
         assert!(open.contains("ana&lt;b&gt;"));
         assert!(open.contains(r#"data-k="pw.unnever""#));
         extras.vault.open = false;

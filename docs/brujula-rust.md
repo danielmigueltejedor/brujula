@@ -87,7 +87,7 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - **Nueva pestaña** (`newtab.rs`): saludo según la hora, buscador con el icono del motor elegido,
   marcadores como mosaicos y pestañas recientes (abiertas en el espacio y cerradas hace poco; las
   abiertas se activan en vez de duplicarse). Sin scripts; solo enlaces `https:` y `brujula://tab/<id>`.
-- **Barra lateral**: 180 px por defecto, de 160 a 420; los botones de navegación son compactos para
+- **Barra lateral**: 200 px por defecto, de 160 a 420; los botones de navegación son compactos para
   que el control deslizante pueda estrecharla de verdad.
 - **Carpetas** (`folders.rs`, `browser/folders.rs`): filas plegables entre las pestañas de la barra, por espacio. Manuales (clic derecho en una pestaña → «Mover a la carpeta…» / «Nueva carpeta con esta pestaña») o **inteligentes**: una regla por sitio (`github.com`) o por texto (título o dirección) recoge solas las pestañas que coinciden; sacar una pestaña a mano la deja fuera. Se guardan en la sesión.
 - **Restauración de pestañas**: la sesión se guarda al cerrar la ventana y también 1,5 s después de cada cambio (pestañas, espacios, carpetas), así que sobrevive a un cierre brusco o a un `kill`; al abrir vuelven todas, con su espacio, carpeta y ancladas, y solo carga la que está delante.

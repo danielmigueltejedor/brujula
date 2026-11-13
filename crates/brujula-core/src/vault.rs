@@ -60,6 +60,10 @@ pub struct Login {
     pub origin: String,
     pub username: String,
     pub password: String,
+    /// The secret of the one-time codes (2FA) of this login: an `otpauth://` address or a base32
+    /// key, empty when there is none.
+    #[serde(default)]
+    pub totp: String,
     #[zeroize(skip)]
     pub created: u64,
     #[zeroize(skip)]
@@ -308,6 +312,7 @@ impl Vault {
                 origin,
                 username,
                 password: password.to_owned(),
+                totp: String::new(),
                 created: now,
                 modified: now,
             },
@@ -317,6 +322,27 @@ impl Vault {
 
     pub fn remove(&mut self, id: u64) {
         self.contents.logins.retain(|l| l.id != id);
+    }
+
+    /// Keeps the secret of the one-time codes of login `id` (what a site showed next to its QR
+    /// code, or the `otpauth://` address in it), or takes it away when `secret` is `None`.
+    /// Refuses, and keeps what there was, a text that is not a valid secret.
+    pub fn set_totp(&mut self, id: u64, secret: Option<&str>, now: u64) -> bool {
+        let value = match secret {
+            Some(text) => {
+                if crate::totp::Totp::parse(text).is_none() {
+                    return false;
+                }
+                text.trim().to_owned()
+            }
+            None => String::new(),
+        };
+        let Some(l) = self.contents.logins.iter_mut().find(|l| l.id == id) else {
+            return false;
+        };
+        l.totp = value;
+        l.modified = now;
+        true
     }
 
     pub fn find(&self, id: u64) -> Option<&Login> {
@@ -372,6 +398,46 @@ mod tests {
             Vault::open(&text, "wrong horse").err(),
             Some(VaultError::Unlock)
         );
+    }
+
+    /// A password that is not written out in the source: these tests do not depend on its value.
+    fn some_password(tag: u8) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        (u64::from(nanos) + u64::from(tag)).to_string()
+    }
+
+    #[test]
+    fn the_secret_of_the_codes_is_kept_sealed_and_checked() {
+        let mut v = vault();
+        let id = v
+            .put("https://example.com/", "ana", &some_password(1), 1)
+            .unwrap();
+        assert!(!v.set_totp(id, Some("not a key!"), 2));
+        assert!(!v.set_totp(id + 1, Some("GEZDGNBVGY3TQOJQ"), 2));
+        assert!(v.find(id).unwrap().totp.is_empty());
+        assert!(v.set_totp(id, Some("  GEZDGNBVGY3TQOJQ \n"), 3));
+        let text = v.seal();
+        assert!(!text.contains("GEZDGNBV"));
+        let again = Vault::open(&text, "correct horse").unwrap();
+        assert_eq!(again.find(id).unwrap().totp, "GEZDGNBVGY3TQOJQ");
+        // A new password for the same user keeps the codes.
+        let mut again = again;
+        again.put("https://example.com/", "ana", &some_password(2), 4);
+        assert_eq!(again.find(id).unwrap().totp, "GEZDGNBVGY3TQOJQ");
+        assert!(again.set_totp(id, None, 5));
+        assert!(again.find(id).unwrap().totp.is_empty());
+    }
+
+    #[test]
+    fn a_vault_from_before_the_codes_still_opens() {
+        // Old files hold logins without the field; the serde default covers them.
+        let old: Contents = serde_json::from_str(
+            r#"{"logins":[{"id":1,"origin":"https://a.example","username":"u","password":"p","created":1,"modified":1}],"never":[],"next_id":1}"#,
+        )
+        .unwrap();
+        assert!(old.logins[0].totp.is_empty());
     }
 
     #[test]

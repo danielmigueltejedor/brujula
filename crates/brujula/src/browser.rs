@@ -368,7 +368,8 @@ pub struct Browser {
     progress: gtk::ProgressBar,
     chromes: Vec<Chrome>,
     spotlight: Rc<Spotlight>,
-    /// Where the Spotlight sends its result: the current tab, or a new one.
+    /// The blank tab a new-tab Spotlight opened, until the user has chosen something in it.
+    fresh_tab: Cell<Option<TabId>>,
     session: NetworkSession,
     ucm: UserContentManager,
     /// A private window: nothing it does is written to disk, and it has its own session.
@@ -456,7 +457,7 @@ impl Browser {
         let slim_chrome = build_chrome();
         let top_chrome = build_chrome();
 
-        // Sidebar, top to bottom: window controls, navigation, address, tabs, new tab.
+        // Sidebar, top to bottom: window controls, navigation, address, essentials, new tab, tabs, downloads.
         let side_header = ndl::HeaderBar::new();
         side_header.set_show_end_title_buttons(false);
         side_header.set_show_start_title_buttons(false);
@@ -536,6 +537,8 @@ impl Browser {
         side.append(&side_chrome.url_button);
         let ess = essentials::EssentialsUi::new();
         side.append(&ess.grid);
+        let new_tab_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        side.append(&new_tab_row);
         let hist = history_panel::HistoryUi::new(&scroller);
         side.append(&hist.stack);
         // Next to the notes, in the top row.
@@ -548,11 +551,15 @@ impl Browser {
             .build();
         new_tab.set_hexpand(true);
         let dl = downloads_panel::DownloadsUi::new();
+        // The button of a new tab sits right above the tabs, with the one of a new folder.
+        new_tab_row.set_margin_start(8);
+        new_tab_row.set_margin_end(8);
+        new_tab_row.append(&new_tab);
+        new_tab_row.append(&folder_button);
+        // The downloads button stays at the bottom, on its own.
         let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         bottom.set_margin_start(8);
         bottom.append(&dl.slot_side);
-        bottom.append(&new_tab);
-        bottom.append(&folder_button);
         bottom.set_margin_end(8);
         side.append(&bottom);
         let space_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -696,6 +703,7 @@ impl Browser {
         let weak: Rc<RefCell<Option<std::rc::Weak<Browser>>>> = Rc::new(RefCell::new(None));
         let w1 = weak.clone();
         let w2 = weak.clone();
+        let w3 = weak.clone();
         let spotlight = Spotlight::new(
             move |text| {
                 w1.borrow()
@@ -708,6 +716,13 @@ impl Browser {
                 if let Some(b) = w2.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
                     b.run_action(action);
                 }
+            },
+            move || {
+                w3.borrow()
+                    .as_ref()
+                    .and_then(std::rc::Weak::upgrade)
+                    .map(|b| b.bookmark_icons())
+                    .unwrap_or_default()
             },
         );
         let overlay = gtk::Overlay::new();
@@ -783,6 +798,7 @@ impl Browser {
             progress,
             chromes: vec![side_chrome, slim_chrome, top_chrome],
             spotlight,
+            fresh_tab: Cell::new(None),
             session,
             ucm,
             private,
@@ -853,12 +869,7 @@ impl Browser {
             });
             w.add_action(&a);
         };
-        action(
-            "new-tab",
-            Box::new(|b| {
-                b.open_tab(newtab::NEWTAB_URI, None, true);
-            }),
-        );
+        action("new-tab", Box::new(|b| b.new_tab(false)));
         action(
             "close-tab",
             Box::new(|b| {
@@ -1065,8 +1076,12 @@ impl Browser {
 
         // Closing the Spotlight hands the keyboard back to the page.
         let this = Rc::downgrade(self);
-        self.spotlight.set_on_closed(move || {
+        self.spotlight.set_on_closed(move |chosen| {
             if let Some(b) = this.upgrade() {
+                // Left without choosing: the blank tab the new-tab Spotlight opened goes again.
+                if !chosen {
+                    b.cancel_new_tab();
+                }
                 if let Some(v) = b.current_view() {
                     v.grab_focus();
                 }
@@ -1234,6 +1249,9 @@ impl Browser {
         let this = Rc::downgrade(self);
         motion.connect_motion(move |_, x, _| {
             let Some(b) = this.upgrade() else { return };
+            if b.window.has_css_class("brujula-fullscreen") {
+                return;
+            }
             let (floating, wakes, width) = {
                 let s = b.settings.borrow();
                 (
@@ -1442,7 +1460,13 @@ impl Browser {
             // The first thing a person sees; the new-tab page waits behind it.
             self.open_tab(WELCOME_URI, None, true);
         } else if self.model.borrow().is_empty() {
-            self.open_tab(newtab::NEWTAB_URI, None, true);
+            let this = Rc::downgrade(self);
+            // The window is not on the screen yet: the Spotlight opens once it is.
+            glib::idle_add_local_once(move || {
+                if let Some(b) = this.upgrade() {
+                    b.new_tab(true);
+                }
+            });
         }
         // After an update the first thing to see is what is new; then the check for the next.
         self.show_news_once();
@@ -1609,6 +1633,27 @@ impl Browser {
                     b.sync_row(id);
                 }
             }
+        });
+        // A video (or anything else) that asks for the full screen gets the whole window: the
+        // sidebar, the bars and the frame go away until it is over. The default handler of the
+        // web view then makes the window itself full screen.
+        let this = Rc::downgrade(self);
+        view.connect_enter_fullscreen(move |v| {
+            if let Some(b) = this.upgrade() {
+                if b.current_view().as_ref() == Some(v) {
+                    b.set_web_fullscreen(true);
+                }
+            }
+            false
+        });
+        let this = Rc::downgrade(self);
+        view.connect_leave_fullscreen(move |v| {
+            if let Some(b) = this.upgrade() {
+                if b.current_view().as_ref() == Some(v) {
+                    b.set_web_fullscreen(false);
+                }
+            }
+            false
         });
         let this = Rc::downgrade(self);
         view.connect_estimated_load_progress_notify(move |v| {
@@ -1802,9 +1847,7 @@ impl Browser {
             if page != newtab::NEWTAB_URI {
                 return true;
             }
-            if let Some(tab) = newtab::parse_tab(&uri) {
-                b.switch_from_newtab(tab);
-            } else if uri == newtab::CHOOSE_ENGINE_URI {
+            if uri == newtab::CHOOSE_ENGINE_URI {
                 b.render_newtab(v, true);
             } else if let Some(engine) = newtab::parse_set_engine(&uri) {
                 {
@@ -2440,10 +2483,30 @@ impl Browser {
         }
     }
 
+    /// Hides everything around the page while a page is shown full screen, and puts it back
+    /// when it leaves.
+    fn set_web_fullscreen(&self, on: bool) {
+        if on {
+            self.window.add_css_class("brujula-fullscreen");
+            self.split.set_collapsed(true);
+            self.split.set_show_sidebar(false);
+            self.left_hot.set_visible(false);
+            self.top_hot.set_visible(false);
+            self.bar_revealer.set_reveal_child(false);
+            self.bar_revealer.set_visible(false);
+            self.topbar.set_visible(false);
+            self.ess.rail.set_visible(false);
+        } else {
+            self.window.remove_css_class("brujula-fullscreen");
+            self.bar_revealer.set_visible(true);
+            self.apply_layout();
+        }
+    }
+
     /// Sidebar width, pinned or floating, and whether the edge wakes it.
     fn apply_layout(&self) {
         let s = self.settings.borrow();
-        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(180);
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(200);
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));
@@ -2502,7 +2565,6 @@ impl Browser {
 
     fn newtab_html(&self, choosing: bool) -> String {
         let settings = self.settings.borrow();
-        let engine = search::engine_or_default(&settings.search_engine);
         let choosing = choosing || !settings.search_engine_chosen;
         let lang = glib::language_names()
             .first()
@@ -2512,107 +2574,99 @@ impl Browser {
             .ok()
             .and_then(|d| u32::try_from(d.hour()).ok())
             .unwrap_or(12);
-        let link = |title: &str, href: String, site: &str, tag: &'static str| newtab::Link {
-            title: title.to_owned(),
-            href,
-            site: site.to_owned(),
-            icon: favicons::data_uri(site),
-            tag,
-        };
-        let bookmarks: Vec<newtab::Link> = self
-            .bookmarks
-            .borrow()
-            .items()
-            .iter()
-            .map(|b| link(&b.title, b.url.clone(), &b.url, ""))
-            .collect();
-        let model = self.model.borrow();
-        let blank = |url: &str| {
-            url.is_empty()
-                || url == "about:blank"
-                || url == newtab::NEWTAB_URI
-                || url == prefs::SETTINGS_URI
-                || url == WELCOME_URI
-                || url == NEWS_URI
-        };
-        // Tabs open in this space (newest first), then the ones closed lately.
-        let mut recent: Vec<newtab::Link> = model
-            .in_space(model.current_space())
-            .filter(|t| !blank(&t.url))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(3)
-            .map(|t| {
-                link(
-                    &t.title,
-                    format!("{}{}", newtab::TAB_PREFIX, t.id.0),
-                    &t.url,
-                    "Abierta",
-                )
-            })
-            .collect();
-        recent.extend(
-            model
-                .recently_closed(8)
-                .into_iter()
-                .filter(|(_, url)| !blank(url))
-                .take(3)
-                .map(|(title, url)| link(title, url.to_owned(), url, "Cerrada")),
-        );
-        let devices = self.devices_for_newtab(&link);
-        // Pages archived for lack of use come after the closed ones, which they also are.
-        let archive = self.archive.borrow();
-        recent.retain(|r| archive.items().iter().all(|e| e.url != r.href));
-        recent.extend(
-            archive
-                .items()
-                .iter()
-                .take(3)
-                .map(|e| link(&e.title, e.url.clone(), &e.url, "Archivada")),
-        );
         let theme = match settings.appearance.theme {
             Theme::System => "system",
             Theme::Light => "light",
             Theme::Dark => "dark",
         };
         newtab::render(&newtab::Page {
-            engine,
             choosing,
             lang: &lang,
             theme,
             accent: &settings.appearance.accent,
             hour,
-            bookmarks: &bookmarks,
-            recent: &recent,
-            devices: &devices,
         })
     }
 
-    /// Shows the open tab a link on the new-tab page points at, and drops the blank tab that was
-    /// showing the page.
-    fn switch_from_newtab(self: &Rc<Self>, target: u64) {
-        let target = TabId(target);
-        if self.model.borrow().get(target).is_none() {
+    /// A new tab: a blank page in front and the Spotlight over it, with the bookmarks as icons.
+    /// Leaving the Spotlight without choosing anything takes the blank tab away again, unless
+    /// `keep` says it is all there is to show (the browser has just opened).
+    fn new_tab(self: &Rc<Self>, keep: bool) {
+        let blank = self
+            .current_tab_url()
+            .is_some_and(|u| u == newtab::NEWTAB_URI)
+            .then(|| self.model.borrow().selected())
+            .flatten();
+        let reused = blank.is_some();
+        let id = blank.unwrap_or_else(|| self.open_tab(newtab::NEWTAB_URI, None, true));
+        // Until a search engine is chosen the page shows the picker; the Spotlight would hide it.
+        if !self.settings.borrow().search_engine_chosen {
             return;
         }
-        let blank = self.model.borrow().selected();
-        let changes = self.model.borrow_mut().select(target);
-        self.apply(changes);
-        if let Some(blank) = blank.filter(|b| *b != target) {
-            let is_newtab = self
-                .model
-                .borrow()
-                .get(blank)
-                .is_some_and(|t| t.url == newtab::NEWTAB_URI);
-            if is_newtab {
-                self.close_tab(blank);
-            }
+        self.fresh_tab.set((!keep && !reused).then_some(id));
+        self.spotlight.open("");
+    }
+
+    fn current_tab_url(&self) -> Option<String> {
+        let m = self.model.borrow();
+        m.selected().and_then(|id| m.get(id).map(|t| t.url.clone()))
+    }
+
+    /// The Spotlight of a new tab was closed with nothing chosen: the blank tab goes, and the
+    /// one before it is shown again. A lone blank tab stays.
+    fn cancel_new_tab(self: &Rc<Self>) {
+        let Some(id) = self.fresh_tab.take() else {
+            return;
+        };
+        let blank = self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.url == newtab::NEWTAB_URI);
+        if blank && self.model.borrow().selected() == Some(id) && self.model.borrow().len() > 1 {
+            self.close_tab(id);
         }
+    }
+
+    /// The tab a new-tab Spotlight opened, if it is still blank and not the one in front: the
+    /// user went somewhere else, so it has no reason to stay.
+    fn drop_fresh_tab(self: &Rc<Self>) {
+        let Some(id) = self.fresh_tab.take() else {
+            return;
+        };
+        let blank = self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.url == newtab::NEWTAB_URI);
+        if blank && self.model.borrow().selected() != Some(id) {
+            self.close_tab(id);
+        }
+    }
+
+    /// The bookmarks as the icons the Spotlight shows while nothing is typed.
+    fn bookmark_icons(&self) -> Vec<Item> {
+        self.bookmarks
+            .borrow()
+            .items()
+            .iter()
+            .take(24)
+            .map(|b| Item {
+                action: Action::Go(b.url.clone()),
+                title: b.title.clone(),
+                detail: b.url.clone(),
+                icon: "ndl-bookmark-symbolic",
+                texture: favicons::lookup(&b.url),
+            })
+            .collect()
     }
 
     /// What the Spotlight lists for `text`.
     fn spotlight_items(&self, text: &str) -> Vec<Item> {
+        // Nothing typed: the Spotlight shows the bookmarks as icons, not as rows.
+        if text.trim().is_empty() {
+            return Vec::new();
+        }
         let settings = self.settings.borrow();
         let engine = search::engine_or_default(&settings.search_engine);
         let model = self.model.borrow();
@@ -2709,6 +2763,7 @@ impl Browser {
                 self.navigate(url.as_str());
             }
         }
+        self.drop_fresh_tab();
     }
 
     fn navigate(self: &Rc<Self>, url: &str) {
@@ -2927,6 +2982,8 @@ pub(crate) fn harden_settings(view: &WebView) {
         s.set_allow_universal_access_from_file_urls(false);
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
+        // Linux, always: WebKitGTK would say Macintosh to some sites.
+        s.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
     }
 }
 

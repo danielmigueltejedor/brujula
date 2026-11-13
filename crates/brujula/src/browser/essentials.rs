@@ -5,6 +5,15 @@ use brujula_core::essentials::{Essential, Essentials};
 
 use super::*;
 
+thread_local! {
+    /// A tile dropped on another waits here for its drag to end before the tiles are drawn
+    /// again (see `tab_drag`: changing the widgets during a drag leaves its picture floating).
+    static PENDING: Cell<Option<(u32, u32, bool)>> = const { Cell::new(None) };
+}
+
+/// What a dragged tile carries, so that a dragged tab is not taken for one.
+const DRAG_PREFIX: &str = "essential:";
+
 /// A name for a site from its host: `Youtube` for `www.youtube.com`, `Google` for
 /// `mail.google.com`.
 fn site_name(host: &str) -> String {
@@ -134,6 +143,7 @@ impl Browser {
         // Only the page's head is needed: no scripts, no media.
         settings.set_enable_javascript(false);
         settings.set_enable_media(false);
+        settings.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
         let view = WebView::builder()
             .network_session(&self.session)
             .settings(&settings)
@@ -250,7 +260,99 @@ impl Browser {
             }
         });
         button.add_controller(click);
+        self.wire_essential_drag(&button, id);
         button
+    }
+
+    /// Makes the tile draggable and a place to drop other tiles: the dragged one lands before
+    /// or after the one it is dropped on. A line on that side shows where.
+    fn wire_essential_drag(self: &Rc<Self>, button: &gtk::Button, id: u32) {
+        // In the column of the horizontal layout the tiles go down, in the grid they go across.
+        let vertical = self.settings.borrow().appearance.tabs == TabPosition::Horizontal;
+        let source = gtk::DragSource::builder()
+            .actions(gdk::DragAction::MOVE)
+            .build();
+        source.connect_prepare(move |_, _, _| {
+            Some(gdk::ContentProvider::for_value(
+                &format!("{DRAG_PREFIX}{id}").to_value(),
+            ))
+        });
+        let dragged = button.clone();
+        source.connect_drag_begin(move |s, _| {
+            s.set_icon(Some(&gtk::WidgetPaintable::new(Some(&dragged))), 0, 0);
+            dragged.add_css_class("brujula-dragging");
+        });
+        let dragged = button.clone();
+        let this = Rc::downgrade(self);
+        source.connect_drag_end(move |_, _, _| {
+            dragged.remove_css_class("brujula-dragging");
+            if let Some((from, to, after)) = PENDING.take() {
+                let this = this.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(b) = this.upgrade() {
+                        b.essentials.borrow_mut().move_next_to(from, to, after);
+                        b.save_essentials();
+                        b.refresh_essentials();
+                    }
+                });
+            }
+        });
+        source.connect_drag_cancel(move |_, _, _| {
+            PENDING.set(None);
+            false
+        });
+        button.add_controller(source);
+
+        let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
+        target.set_preload(true);
+        let over = button.clone();
+        target.connect_motion(move |t, x, y| {
+            let carries_tile = t
+                .value()
+                .and_then(|v| v.get::<String>().ok())
+                .is_some_and(|text| text.starts_with(DRAG_PREFIX));
+            if !carries_tile {
+                return gdk::DragAction::empty();
+            }
+            let after = if vertical {
+                y > f64::from(over.height()) / 2.0
+            } else {
+                x > f64::from(over.width()) / 2.0
+            };
+            let (on, off) = if after {
+                ("brujula-ess-after", "brujula-ess-before")
+            } else {
+                ("brujula-ess-before", "brujula-ess-after")
+            };
+            over.add_css_class(on);
+            over.remove_css_class(off);
+            gdk::DragAction::MOVE
+        });
+        let over = button.clone();
+        target.connect_leave(move |_| {
+            over.remove_css_class("brujula-ess-before");
+            over.remove_css_class("brujula-ess-after");
+        });
+        let over = button.clone();
+        target.connect_drop(move |_, value, x, y| {
+            over.remove_css_class("brujula-ess-before");
+            over.remove_css_class("brujula-ess-after");
+            let Some(from) = value
+                .get::<String>()
+                .ok()
+                .and_then(|t| t.strip_prefix(DRAG_PREFIX)?.parse::<u32>().ok())
+            else {
+                return false;
+            };
+            let after = if vertical {
+                y > f64::from(over.height()) / 2.0
+            } else {
+                x > f64::from(over.width()) / 2.0
+            };
+            PENDING.set(Some((from, id, after)));
+            true
+        });
+        button.add_controller(target);
     }
 
     /// The essential's page is its own tab: it comes to the front, or opens the first time. It
