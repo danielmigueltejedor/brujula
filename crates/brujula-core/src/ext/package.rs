@@ -97,7 +97,10 @@ pub fn crx_zip(bytes: &[u8]) -> Result<(&[u8], Option<String>), String> {
     };
     match word(4) {
         Some(2) => {
-            let (key_len, sig_len) = (word(8).ok_or("crx truncado")?, word(12).ok_or("crx truncado")?);
+            let (key_len, sig_len) = (
+                word(8).ok_or("crx truncado")?,
+                word(12).ok_or("crx truncado")?,
+            );
             let key_end = 16usize.checked_add(key_len).ok_or("crx truncado")?;
             let zip_at = key_end.checked_add(sig_len).ok_or("crx truncado")?;
             let key = bytes.get(16..key_end).ok_or("crx truncado")?;
@@ -145,7 +148,10 @@ pub fn extract(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
             continue;
         }
         // Symbolic links and other special files are not extensions' business.
-        if file.unix_mode().is_some_and(|m| m & 0o170_000 != 0o100_000 && m & 0o170_000 != 0) {
+        if file
+            .unix_mode()
+            .is_some_and(|m| m & 0o170_000 != 0o100_000 && m & 0o170_000 != 0)
+        {
             continue;
         }
         if file.size() > MAX_FILE_BYTES {
@@ -176,7 +182,8 @@ mod tests {
     fn zip_of(files: &[(&str, &[u8])]) -> Vec<u8> {
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for (name, data) in files {
-            w.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            w.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
             w.write_all(data).unwrap();
         }
         w.finish().unwrap().into_inner()

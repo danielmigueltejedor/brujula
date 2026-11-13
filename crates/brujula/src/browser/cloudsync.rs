@@ -117,6 +117,7 @@ impl Browser {
                 .map(|a| (a.id.clone(), a.label(), mounted(&a.mount_dir(&home))))
                 .collect(),
             status: self.sync_status.borrow().clone(),
+            extensions: self.ext_view_list(),
             boosts: self
                 .boosts
                 .borrow()

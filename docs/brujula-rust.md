@@ -110,6 +110,17 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
   nombre o palabra clave («transparencia», «pestañas arriba»…).
 
+## Extensiones de Chromium
+
+Código: núcleo sin interfaz en `crates/brujula-core/src/ext/` (manifiesto, paquetes `.crx`/zip, patrones de coincidencia, textos `_locales`, reglas `declarativeNetRequest`, registro, `shim.js` con la API `chrome.*`, `css.rs`) y motor en `crates/brujula/src/browser/ext*.rs`.
+
+- **Instalar** (Preferencias → Extensiones): desde una carpeta con `manifest.json`, un `.crx`/`.zip` o la dirección (o id) de una página de la Chrome Web Store (se descarga el `.crx` de `clients2.google.com`). Se desempaqueta en un directorio temporal, se lee, y **se pide confirmación con lo que podrá hacer** antes de copiarla a `~/.local/share/brujula/extensions/<id>/pkg`. Las firmas del `.crx` no se comprueban: instala el usuario.
+- **Qué funciona**: scripts y CSS de contenido (`matches`, `exclude_matches`, `run_at`, `all_frames`, `world: MAIN`), fondo (service worker o scripts MV2 en una página oculta; `importScripts` por XHR síncrono), ventana emergente en un popover del botón de la barra, página de opciones (ventana propia), `chrome.runtime` (mensajes, puertos, `getURL`, `getManifest`, `onInstalled`), `chrome.storage` (local/sync/session, en disco, con `onChanged`), `chrome.tabs` (query, get, create, update, remove, reload, sendMessage, connect, eventos), `chrome.scripting.executeScript/insertCSS` y sus equivalentes MV2, `chrome.action`/`browserAction` (título, popup, badge), `chrome.i18n`, `chrome.alarms`, `fetch` entre orígenes con los permisos de host del manifiesto, y reglas estáticas `declarativeNetRequest` (bloqueo, permitir y subir a HTTPS) convertidas a bloqueador de contenido de WebKit.
+- **Qué no**: `webRequest` (ni bloqueante), redirecciones y cambios de cabeceras de DNR, reglas dinámicas, scripts de contenido registrados en vuelo, menús contextuales, cookies, historial, marcadores, notificaciones, mensajería nativa, gestores de contraseñas. Esas API aceptan la llamada y no hacen nada, para que una extensión que las usa de refilón siga funcionando. **No todas las extensiones funcionarán** (ni siquiera todas las MV3).
+- **Aislamiento**: los scripts de contenido corren en un mundo propio (`brujula-ext-<id>`) del gestor de contenido de las pestañas y solo ese mundo ve el manejador `brujulaExt_<id>`; las páginas de la extensión (fondo, ventana emergente, opciones) usan un gestor propio por extensión, nunca muestran web (cualquier navegación fuera de `brujula-ext://<id>/` se bloquea; un enlace abre una pestaña) y solo ellas pueden leer todos los archivos; una web solo lee lo que el manifiesto marca como `web_accessible_resources`. Comprobado: una web no ve el manejador ni `chrome`, y no puede cargar archivos de la extensión.
+- WebKit solo admite hojas de usuario a nivel de usuario (las de autor no se aplican), así que el CSS de las extensiones se reescribe con `!important` (`css.rs`) para que gane a la web como en Chrome.
+- Los ids de pestaña empiezan en 1 (en el modelo, en 0).
+
 ## Qué está verificado
 
 - Núcleo: 213 tests unitarios.
@@ -123,13 +134,14 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - Sincronización: probada bajo Xvfb con una carpeta de nube simulada y un segundo dispositivo falso (llegan marcador, espacio con icono, carpeta y pestañas; su archivo se escribe; sin montaje no se escribe nada). **Sin probar con rclone ni una nube real.**
 - Archivo, vista dividida, Peek, notas, Boosts (hoja de usuario y modo oscuro) y ventana flotante: probados bajo Xvfb con un servidor local; sin compositor ni gestor de ventanas, así que el aspecto de la ventana flotante y de las transparencias no se ha visto en un escritorio real.
 - Sincronizar con carpeta (se escribe el archivo del dispositivo en la carpeta elegida; la página se vuelve a pintar en la sección), pestañas dormidas (duerme y recarga con servidor local, con tiempos acortados temporalmente), HTTPS primero (se ve el `ClientHello` en el puerto 443 y, al no haber TLS, se abre la original) y la barra horizontal en Islas y Marco: probados bajo Xvfb. **El diálogo «Elegir carpeta…» y una nube real, sin probar.**
+- Extensiones: probadas bajo Xvfb con una extensión MV3 propia (`tests/fixtures/test-extension`): script y CSS de contenido, mensajes en ambos sentidos, puertos, storage con `onChanged`, `tabs.query`, `scripting.executeScript`, `fetch` con permisos de host, bloqueo de un script por regla DNR, ventana emergente, página de opciones, e instalación desde carpeta con el diálogo de permisos y la sección de Preferencias. **No se ha probado ninguna extensión real de la Chrome Web Store ni la descarga desde la tienda** (el entorno de pruebas no llegaba), ni `.crx` firmados de verdad más allá de los tests unitarios del formato.
 - Descarga de listas: probada solo hasta el cliente HTTP; el entorno de pruebas no llegaba a los
   servidores de las listas, así que **la descarga real y el refresco están sin verificar**.
 
 ## Pendiente
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
-- Historial, contraseñas, extensiones (la sincronización cubre marcadores, espacios, carpetas y pestañas; no historial ni contraseñas): todo lo que daba Epiphany. Carpetas de
+- Historial, contraseñas (la sincronización cubre marcadores, espacios, carpetas y pestañas; no historial ni contraseñas): todo lo que daba Epiphany. Carpetas de
   marcadores e importación.
 - Permisos (cámara, ubicación, notificaciones), pantalla completa, impresión, descargas con
   interfaz, modo privado, buscador configurable.

@@ -78,7 +78,14 @@ fn resource_types(names: &[String]) -> Vec<&'static str> {
 }
 
 const NOT_DOCUMENTS: &[&str] = &[
-    "image", "style-sheet", "script", "font", "raw", "media", "ping", "websocket",
+    "image",
+    "style-sheet",
+    "script",
+    "font",
+    "raw",
+    "media",
+    "ping",
+    "websocket",
 ];
 
 fn domains(v: Option<&Value>) -> Vec<String> {
@@ -89,7 +96,8 @@ fn domains(v: Option<&Value>) -> Vec<String> {
                 .filter(|d| {
                     !d.is_empty()
                         && d.len() <= 253
-                        && d.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+                        && d.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
                 })
                 .map(|d| format!("*{}", d.to_ascii_lowercase()))
                 .take(1000)
@@ -100,7 +108,12 @@ fn domains(v: Option<&Value>) -> Vec<String> {
 
 fn strings(v: Option<&Value>) -> Vec<String> {
     v.and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -178,8 +191,11 @@ pub fn convert(rules_json: &str) -> Result<Converted, String> {
         return Err("las reglas no son una lista JSON".to_owned());
     };
     let total = rules.len().min(MAX_RULES);
-    let mut done: Vec<(i64, bool, Value)> =
-        rules.iter().take(MAX_RULES).filter_map(convert_rule).collect();
+    let mut done: Vec<(i64, bool, Value)> = rules
+        .iter()
+        .take(MAX_RULES)
+        .filter_map(convert_rule)
+        .collect();
     done.sort_by_key(|(p, allow, _)| (*p, *allow));
     let converted = done.len();
     let list: Vec<Value> = done.into_iter().map(|(_, _, r)| r).collect();
@@ -202,7 +218,10 @@ mod tests {
             filter_to_regex("||example.com^").unwrap(),
             "^[a-z][a-z0-9+.-]*://([^/]*\\.)?example\\.com[^a-zA-Z0-9_.%-]"
         );
-        assert_eq!(filter_to_regex("|https://a.b/x|").unwrap(), "^https://a\\.b/x$");
+        assert_eq!(
+            filter_to_regex("|https://a.b/x|").unwrap(),
+            "^https://a\\.b/x$"
+        );
         assert_eq!(filter_to_regex("").unwrap(), ".*");
         assert_eq!(filter_to_regex("a?b=1").unwrap(), "a\\?b=1");
         assert!(filter_to_regex("ñ").is_none());
@@ -225,7 +244,10 @@ mod tests {
         // The default priority is 1. At the same priority the blocks come before the allow, and
         // priority 2 comes last.
         assert_eq!(list[0]["action"]["type"], "block");
-        assert_eq!(list[0]["trigger"]["resource-type"], json!(["script", "image"]));
+        assert_eq!(
+            list[0]["trigger"]["resource-type"],
+            json!(["script", "image"])
+        );
         assert_eq!(list[1]["trigger"]["load-type"], json!(["third-party"]));
         assert_eq!(list[2]["action"]["type"], "make-https");
         assert_eq!(list[3]["action"]["type"], "ignore-previous-rules");

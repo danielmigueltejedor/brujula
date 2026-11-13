@@ -102,6 +102,7 @@ dependencies = [
 name = "brujula"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "brujula-core",
  "nodalia-gtk",
  "serde",

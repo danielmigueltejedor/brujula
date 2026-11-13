@@ -54,6 +54,8 @@ pub struct Background {
     /// Scripts to run, in order (one for a service worker).
     pub scripts: Vec<String>,
     pub module: bool,
+    /// An HTML page that holds them instead (Manifest V2 `background.page`).
+    pub page: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,7 +126,9 @@ fn icon_map(v: Option<&Value>) -> BTreeMap<u32, String> {
             .filter_map(|(k, v)| Some((k.parse().ok()?, safe_path(v.as_str()?)?)))
             .collect(),
         // A single file for every size.
-        Some(Value::String(s)) => safe_path(s).map(|p| BTreeMap::from([(32, p)])).unwrap_or_default(),
+        Some(Value::String(s)) => safe_path(s)
+            .map(|p| BTreeMap::from([(32, p)]))
+            .unwrap_or_default(),
         _ => BTreeMap::new(),
     }
 }
@@ -142,7 +146,11 @@ fn web_accessible(v: Option<&Value>) -> Vec<String> {
     for item in a.iter().take(200) {
         match item {
             Value::String(s) => out.extend(safe_glob(s)),
-            Value::Object(_) => out.extend(strings(item.get("resources")).iter().filter_map(|r| safe_glob(r))),
+            Value::Object(_) => out.extend(
+                strings(item.get("resources"))
+                    .iter()
+                    .filter_map(|r| safe_glob(r)),
+            ),
             _ => {}
         }
     }
@@ -151,7 +159,10 @@ fn web_accessible(v: Option<&Value>) -> Vec<String> {
 
 fn safe_glob(g: &str) -> Option<String> {
     let t = g.trim_start_matches('/');
-    let ok = !t.is_empty() && t.len() <= 300 && !t.contains(['\\', '\0']) && !t.split('/').any(|s| s == ".." || s == ".");
+    let ok = !t.is_empty()
+        && t.len() <= 300
+        && !t.contains(['\\', '\0'])
+        && !t.split('/').any(|s| s == ".." || s == ".");
     ok.then(|| t.to_owned())
 }
 
@@ -198,7 +209,8 @@ impl Manifest {
                 a.iter()
                     .take(MAX_SCRIPTS)
                     .filter_map(|c| {
-                        let matches = parse_all(strings(c.get("matches")).iter().map(String::as_str));
+                        let matches =
+                            parse_all(strings(c.get("matches")).iter().map(String::as_str));
                         let js = paths(c.get("js"));
                         let css = paths(c.get("css"));
                         if matches.is_empty() || (js.is_empty() && css.is_empty()) {
@@ -241,9 +253,11 @@ impl Manifest {
             } else {
                 paths(b.get("scripts"))
             };
-            (!scripts.is_empty()).then(|| Background {
+            let page = b.get("page").and_then(Value::as_str).and_then(safe_path);
+            (!scripts.is_empty() || page.is_some()).then(|| Background {
                 scripts,
                 module: b.get("type").and_then(Value::as_str) == Some("module"),
+                page,
             })
         });
 
@@ -287,7 +301,11 @@ impl Manifest {
             default_locale: v
                 .get("default_locale")
                 .and_then(Value::as_str)
-                .filter(|l| l.len() <= 16 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+                .filter(|l| {
+                    l.len() <= 16
+                        && l.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                })
                 .map(str::to_owned),
             icons: icon_map(v.get("icons")),
             rulesets,
@@ -298,7 +316,9 @@ impl Manifest {
 
     /// Whether a web page may load `path` from the extension.
     pub fn is_web_accessible(&self, path: &str) -> bool {
-        self.web_accessible.iter().any(|g| super::pattern::glob_match(g, path))
+        self.web_accessible
+            .iter()
+            .any(|g| super::pattern::glob_match(g, path))
     }
 
     pub fn has_permission(&self, name: &str) -> bool {
@@ -350,7 +370,10 @@ mod tests {
         assert_eq!(m.name, "Nombre");
         assert_eq!(m.manifest_version, 3);
         assert_eq!(m.permissions, vec!["storage", "tabs"]);
-        assert_eq!(m.hosts_text, vec!["https://*.example.com/*", "https://legacy.example/*"]);
+        assert_eq!(
+            m.hosts_text,
+            vec!["https://*.example.com/*", "https://legacy.example/*"]
+        );
         assert_eq!(m.content_scripts.len(), 2);
         let c = &m.content_scripts[0];
         assert_eq!(c.js, vec!["a.js", "b.js"]);

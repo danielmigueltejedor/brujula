@@ -12,8 +12,8 @@ use nodalia_gtk::gtk::gio;
 use nodalia_gtk::gtk::glib;
 use soup::prelude::*;
 use webkit6::{
-    UserContentFilterStore, UserContentInjectedFrames, UserContentManager, UserScript,
-    UserScriptInjectionTime,
+    UserContentFilter, UserContentFilterStore, UserContentInjectedFrames, UserContentManager,
+    UserScript, UserScriptInjectionTime,
 };
 
 use crate::paths;
@@ -36,6 +36,12 @@ pub struct Filters {
     /// Bumped by every compile and by `disable`; a compile that finishes after another one
     /// started (or after blocking was turned off) throws its result away.
     generation: Cell<u64>,
+    /// Rules that extensions brought, kept in place whenever the lists change.
+    extra: RefCell<Vec<UserContentFilter>>,
+    /// The list rules in WebKit now.
+    own: RefCell<Vec<UserContentFilter>>,
+    /// The scriptlet script in the pages now; other scripts in the manager are not ours.
+    scriptlet_script: RefCell<Option<UserScript>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -109,7 +115,35 @@ impl Filters {
             allow: RefCell::new(Vec::new()),
             lists: RefCell::new(Vec::new()),
             generation: Cell::new(0),
+            extra: RefCell::new(Vec::new()),
+            own: RefCell::new(Vec::new()),
+            scriptlet_script: RefCell::new(None),
         })
+    }
+
+    /// Puts `filters` in WebKit instead of the ones there, and the extensions' rules with them.
+    fn replace_filters(&self, filters: &[UserContentFilter]) {
+        *self.own.borrow_mut() = filters.to_vec();
+        self.refresh_extra();
+    }
+
+    /// The rules the extensions brought (compiled by [`store`](Self::store)); they stay
+    /// when the lists are rebuilt.
+    pub fn set_extra(&self, extra: Vec<UserContentFilter>) {
+        *self.extra.borrow_mut() = extra;
+    }
+
+    /// Re-applies the current lists after the extensions' rules changed.
+    pub fn refresh_extra(&self) {
+        self.ucm.remove_all_filters();
+        let own = self.own.borrow();
+        for f in own.iter().chain(self.extra.borrow().iter()) {
+            self.ucm.add_filter(f);
+        }
+    }
+
+    pub fn store(&self) -> &UserContentFilterStore {
+        &self.store
     }
 
     /// `f(first)` runs after rules are applied; `first` is true when there was nothing
@@ -171,10 +205,7 @@ impl Filters {
                 Err(_) => return false,
             }
         }
-        self.ucm.remove_all_filters();
-        for f in &filters {
-            self.ucm.add_filter(f);
-        }
+        self.replace_filters(&filters);
         *self.cosmetic.borrow_mut() = Some(Arc::new(cosmetic));
         *self.rule_count.borrow_mut() = manifest.rules;
         let scriptlets = load_scriptlets();
@@ -195,27 +226,36 @@ impl Filters {
     /// Puts the scriptlets into pages of the sites that have rules for them. They run before
     /// the page's own scripts, which is the only moment they can change what those read.
     fn install_scriptlets(&self, scriptlets: &Scriptlets) {
-        self.ucm.remove_all_scripts();
+        self.remove_scriptlets();
         if scriptlets.is_empty() {
             return;
         }
         let patterns = scriptlets.url_patterns();
         let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
         let source = scriptlets.user_script(UBO_SCRIPTLETS, &self.allow.borrow());
-        self.ucm.add_script(&UserScript::new(
+        let script = UserScript::new(
             &source,
             UserContentInjectedFrames::AllFrames,
             UserScriptInjectionTime::Start,
             &patterns,
             &[],
-        ));
+        );
+        self.ucm.add_script(&script);
+        *self.scriptlet_script.borrow_mut() = Some(script);
+    }
+
+    fn remove_scriptlets(&self) {
+        let old = self.scriptlet_script.borrow_mut().take();
+        if let Some(script) = old {
+            self.ucm.remove_script(&script);
+        }
     }
 
     /// Stops all blocking (network rules removed from WebKit, cosmetic dropped).
     pub fn disable(&self) {
         self.generation.set(self.generation.get() + 1);
-        self.ucm.remove_all_filters();
-        self.ucm.remove_all_scripts();
+        self.replace_filters(&[]);
+        self.remove_scriptlets();
         *self.cosmetic.borrow_mut() = None;
         *self.rule_count.borrow_mut() = 0;
     }
@@ -315,10 +355,7 @@ impl Filters {
             // Do not half-apply, and do not undo a newer compile or a switch-off.
             return;
         }
-        self.ucm.remove_all_filters();
-        for f in &filters {
-            self.ucm.add_filter(f);
-        }
+        self.replace_filters(&filters);
         self.install_scriptlets(&compiled.scriptlets);
         *self.cosmetic.borrow_mut() = Some(Arc::new(compiled.cosmetic));
         *self.rule_count.borrow_mut() = compiled.rule_count;

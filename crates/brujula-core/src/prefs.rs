@@ -460,6 +460,24 @@ pub struct Extras {
     pub archived: Vec<(String, String)>,
     /// Boosts: site, dark mode, CSS.
     pub boosts: Vec<(String, bool, String)>,
+    /// The Chromium extensions that are installed.
+    pub extensions: Vec<ExtItem>,
+}
+
+/// An installed extension, as the page lists it.
+#[derive(Debug, Default, Clone)]
+pub struct ExtItem {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub enabled: bool,
+    /// Whether it has an options page to open.
+    pub options: bool,
+    /// What it can do, in words.
+    pub permissions: Vec<String>,
+    /// It is on but could not be read.
+    pub problem: bool,
 }
 
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
@@ -505,6 +523,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Boosts",
         "Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.",
         "sparkle",
+    ),
+    (
+        "extensions",
+        "Extensiones",
+        "Extensiones",
+        "Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.",
+        "blocks",
     ),
     (
         "archive",
@@ -606,6 +631,55 @@ fn boosts_section(view: &Extras) -> String {
         })
         .collect();
     section("boosts", &format!("{add}{cards}"))
+}
+
+/// The extensions: ways to add one, and a card for each that is installed.
+fn extensions_section(view: &Extras) -> String {
+    let add = stacked(
+        "Instalar una extensión",
+        "Desde una carpeta con su manifest.json, un archivo .crx o .zip, o la dirección (o el identificador) de su página en la Chrome Web Store. Antes de instalar verás lo que podrá hacer.",
+        r#"<div class="addrow"><button type="button" class="seg plain" data-k="ext.install_folder" data-v="1">Elegir carpeta…</button><button type="button" class="seg plain" data-k="ext.install_file" data-v="1">Elegir archivo…</button></div><div class="addrow"><input type="text" id="ext-store" class="field wide" placeholder="https://chromewebstore.google.com/detail/… o identificador" maxlength="300" aria-label="Chrome Web Store"><button type="button" class="seg plain" data-addext="1">Instalar</button></div>"#,
+    );
+    let cards: String = view
+        .extensions
+        .iter()
+        .map(|e| {
+            let id = escape(&e.id);
+            let perms: String = if e.permissions.is_empty() {
+                String::new()
+            } else {
+                let items: String = e
+                    .permissions
+                    .iter()
+                    .map(|p| format!("<li>{}</li>", escape(p)))
+                    .collect();
+                format!(r#"<ul class="facts">{items}</ul>"#)
+            };
+            let note = if e.problem {
+                r#"<span class="status">No se pudo leer: reinstálala.</span>"#.to_owned()
+            } else {
+                String::new()
+            };
+            let options = if e.options {
+                format!(r#"<button type="button" class="seg plain" data-k="ext.options" data-v="{id}">Opciones</button>"#)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<div class="boost"><div class="row"><div class="what"><b>{name}</b> <span class="status">{version}</span><p>{desc}</p>{note}</div><div class="ctl">{options}{switch}<button type="button" class="seg plain danger" data-k="ext.remove" data-v="{id}" data-removeall="1">Quitar</button></div></div>{perms}</div>"#,
+                name = escape(&e.name),
+                version = escape(&e.version),
+                desc = escape(&e.description),
+                switch = switch(&format!("ext.enable.{}", e.id), e.enabled),
+            )
+        })
+        .collect();
+    let empty = if view.extensions.is_empty() {
+        r#"<p class="empty">Todavía no hay extensiones instaladas.</p>"#
+    } else {
+        ""
+    };
+    section("extensions", &format!("{add}{cards}{empty}"))
 }
 
 /// The archive: when tabs are archived, and the ones that were.
@@ -1022,6 +1096,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let sync_section = sync_section(s, sync);
     let archive_section = archive_section(s, sync);
     let boosts_section = boosts_section(sync);
+    let extensions_section = extensions_section(sync);
     let security = section(
         "security",
         &[
@@ -1072,7 +1147,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{boosts_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1125,6 +1200,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Boosts",
         "boost estilo css modo oscuro sitio aspecto personalizar",
         "boosts",
+    ),
+    (
+        "Extensiones",
+        "extensiones chrome chromium complementos plugins addons instalar crx",
+        "extensions",
     ),
     (
         "Archivo de pestañas",
@@ -1270,6 +1350,8 @@ document.addEventListener('click',e=>{
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
+  const ext=e.target.closest('[data-addext]');
+  if(ext){const h=document.getElementById('ext-store');if(h&&h.value.trim())send('ext.install_store',h.value.trim());return}
   const open=e.target.closest('[data-open]');
   if(open){open.closest('.space').classList.toggle('open');return}
   const b=e.target.closest('[data-k]');if(!b||b.tagName==='INPUT'||b.tagName==='TEXTAREA')return;
@@ -1603,6 +1685,36 @@ mod tests {
         assert!(html.contains("&lt;/textarea&gt;&lt;script&gt;x()"));
         assert!(!html.contains("<script>x()"));
         assert!(html.contains(r#"id="boost-host""#));
+    }
+
+    #[test]
+    fn extensions_are_listed_with_their_text_escaped() {
+        let view = Extras {
+            extensions: vec![ExtItem {
+                id: "a".repeat(32),
+                name: "<img src=x>".into(),
+                version: "1.0".into(),
+                description: "<b>d</b>".into(),
+                enabled: true,
+                options: true,
+                permissions: vec!["Leer <todo>".into()],
+                problem: false,
+            }],
+            ..Extras::default()
+        };
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &view,
+        );
+        assert!(html.contains(&format!(r#"data-k="ext.enable.{}""#, "a".repeat(32))));
+        assert!(
+            html.contains(r#"data-k="ext.options""#) && html.contains(r#"data-k="ext.remove""#)
+        );
+        assert!(html.contains("&lt;img src=x&gt;") && html.contains("Leer &lt;todo&gt;"));
+        assert!(!html.contains("<img src=x>") && !html.contains("<b>d</b>"));
+        assert!(html.contains(r#"id="ext-store""#));
     }
 
     #[test]

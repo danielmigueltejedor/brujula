@@ -38,8 +38,18 @@ impl Registry {
         r.items.retain(|i| valid_id(&i.id));
         r.items.truncate(MAX_EXTENSIONS);
         for i in &mut r.items {
-            i.name = i.name.chars().filter(|c| !c.is_control()).take(200).collect();
-            i.version = i.version.chars().filter(|c| !c.is_control()).take(40).collect();
+            i.name = i
+                .name
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(200)
+                .collect();
+            i.version = i
+                .version
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(40)
+                .collect();
             if !matches!(i.source.as_str(), "store" | "crx" | "folder") {
                 i.source = "folder".to_owned();
             }

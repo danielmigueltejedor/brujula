@@ -85,7 +85,9 @@ impl Browser {
                 let c = self.model.borrow_mut().select(t);
                 self.apply(c);
             }
-            None => self.open_tab(newtab::NEWTAB_URI, None, true),
+            None => {
+                self.open_tab(newtab::NEWTAB_URI, None, true);
+            }
         }
     }
 
@@ -114,7 +116,9 @@ impl Browser {
                     let c = self.model.borrow_mut().select(o);
                     self.apply(c);
                 }
-                None => self.open_tab(newtab::NEWTAB_URI, None, true),
+                None => {
+                    self.open_tab(newtab::NEWTAB_URI, None, true);
+                }
             }
         }
         let c = self.model.borrow_mut().set_space(id, space);

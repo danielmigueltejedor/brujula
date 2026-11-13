@@ -60,9 +60,9 @@ impl Messages {
         while let Some(i) = rest.find('$') {
             out.push_str(&rest[..i]);
             let after = &rest[i + 1..];
-            if after.starts_with('$') {
+            if let Some(tail) = after.strip_prefix('$') {
                 out.push('$');
-                rest = &after[1..];
+                rest = tail;
             } else if let Some(d) = after.chars().next().filter(char::is_ascii_digit) {
                 let n = d.to_digit(10).unwrap_or(0) as usize;
                 if n >= 1 {
@@ -112,6 +112,13 @@ impl Messages {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+
+    /// Adds what `other` has and this lacks: the texts of a language fall back on the next one.
+    pub fn fill_from(&mut self, other: &Messages) {
+        for (k, v) in &other.map {
+            self.map.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
 }
 
 /// The `_locales` folders to try, best first: the user's language with and without the region,
@@ -120,7 +127,11 @@ pub fn locale_candidates(languages: &[String], default_locale: Option<&str>) -> 
     let mut out: Vec<String> = Vec::new();
     let mut push = |l: &str| {
         let l = l.replace('-', "_");
-        if !l.is_empty() && l.len() <= 16 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !out.contains(&l) {
+        if !l.is_empty()
+            && l.len() <= 16
+            && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !out.contains(&l)
+        {
             out.push(l);
         }
     };

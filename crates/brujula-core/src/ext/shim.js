@@ -1,17 +1,23 @@
 // The `chrome.*` API of an extension, over the browser's own message channel. Injected before
-// the extension's scripts, with `__brujulaCtx` set to {id, kind, manifest, messages, base, tab}:
-// kind is "content" (a content script), "background", "popup" or "page".
+// the extension's scripts, with `__brujulaCtx` set to {id, handler, kind, manifest, messages, base,
+// lang, popup, fresh}: kind is "content" (a content script) or "extpage", which becomes
+// "background", "popup" or "page" below, by the address of the page it runs in.
 (function () {
   'use strict';
   const ctx = globalThis.__brujulaCtx;
   if (!ctx || globalThis.__brujulaExt) return;
   const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[ctx.handler];
+  if (ctx.kind === 'extpage') {
+    const path = location.pathname;
+    ctx.kind = path === '/__background.html' ? 'background' : ctx.popup && path === '/' + ctx.popup ? 'popup' : 'page';
+  }
   const isContent = ctx.kind === 'content';
 
   // ---- the channel to the browser: {ok, value} or {ok: false, error}
   async function call(op, args) {
     if (!handler) throw new Error('El navegador no responde');
-    const reply = await handler.postMessage({ op, args: args === undefined ? null : args, href: location.href, tab: ctx.tab });
+    const raw = await handler.postMessage(JSON.stringify({ op, args: args === undefined ? null : args, href: location.href, tab: globalThis.__brujulaTab === undefined ? null : globalThis.__brujulaTab, kind: ctx.kind }));
+    const reply = raw ? JSON.parse(raw) : null;
     if (reply && reply.ok === false) throw new Error(reply.error || 'error');
     return reply ? reply.value : undefined;
   }
@@ -65,6 +71,7 @@
   };
 
   // ---- chrome.runtime
+  const onConnect = makeEvent();
   const events = {};
   const ev = (name) => (events[name] || (events[name] = makeEvent()));
   Object.assign(runtime, {
@@ -81,19 +88,48 @@
     reload: () => {},
     getBackgroundPage: (cb) => cb && cb(null),
     setUninstallURL: (u, cb) => cb && cb(),
-    connect() { return makePort(); },
+    connect(...a) {
+      const info = (typeof a[0] === 'object' && a[0]) || (typeof a[1] === 'object' && a[1]) || {};
+      return openPort(info.name || '', { kind: 'ext' });
+    },
     onMessage,
     onMessageExternal: makeEvent(),
-    onConnect: makeEvent(),
+    onConnect,
     onInstalled: ev('runtime.onInstalled'),
     onStartup: ev('runtime.onStartup'),
     onSuspend: makeEvent(),
     onUpdateAvailable: makeEvent(),
   });
-  function makePort() {
-    const port = { name: '', onMessage: makeEvent(), onDisconnect: makeEvent(), postMessage(m) { runtime.sendMessage(m, (r) => { if (r !== undefined && r !== null) port.onMessage._fire(r); }); }, disconnect() {} };
+  // ---- ports: long-lived connections between two contexts of the extension
+  const ports = new Map();
+  function makePort(id, name, sender, opener) {
+    const port = {
+      name, sender,
+      onMessage: makeEvent(), onDisconnect: makeEvent(),
+      postMessage(m) { call('port.post', { port: id, msg: m === undefined ? null : m, opener }).catch(() => {}); },
+      disconnect() { if (ports.delete(id)) call('port.close', { port: id, opener }).catch(() => {}); },
+    };
+    ports.set(id, port);
     return port;
   }
+  function openPort(name, target) {
+    const id = ctx.kind + '-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const port = makePort(id, name, undefined, true);
+    call('port.open', { port: id, name, target }).then((ok) => { if (ok === false) { ports.delete(id); port.onDisconnect._fire(port); } }, () => { ports.delete(id); port.onDisconnect._fire(port); });
+    return port;
+  }
+  globalThis.__brujulaPort = function (what, id, data, sender) {
+    if (what === 'open') {
+      const port = makePort(id, data && data.name || '', senderOf(sender), false);
+      onConnect._fire(port);
+    } else if (what === 'msg') {
+      const port = ports.get(id);
+      if (port) port.onMessage._fire(data, port);
+    } else if (what === 'close') {
+      const port = ports.get(id);
+      if (port) { ports.delete(id); port.onDisconnect._fire(port); }
+    }
+  };
 
   // ---- chrome.storage
   function area(name) {
@@ -139,8 +175,15 @@
     remove: dual('tabs.remove', (ids) => ({ ids: Array.isArray(ids) ? ids : [ids] })),
     reload: dual('tabs.reload', (id) => ({ id: typeof id === 'number' ? id : null })),
     sendMessage: dual('tabs.sendMessage', (id, msg) => ({ id, msg })),
-    executeScript: dual('scripting.executeScript', (...a) => (typeof a[0] === 'number' ? { id: a[0], details: a[1] || {} } : { id: null, details: a[0] || {} })),
-    insertCSS: dual('scripting.insertCSS', (...a) => (typeof a[0] === 'number' ? { id: a[0], details: a[1] || {} } : { id: null, details: a[0] || {} })),
+    connect: (id, info) => openPort((info && info.name) || '', { kind: 'tab', tab: id }),
+    executeScript: dual('scripting.executeScript', (...a) => {
+      const id = typeof a[0] === 'number' ? a[0] : null, d = (typeof a[0] === 'number' ? a[1] : a[0]) || {};
+      return { id, files: d.file ? [d.file] : null, code: typeof d.code === 'string' ? d.code : null, mv3: false };
+    }),
+    insertCSS: dual('scripting.insertCSS', (...a) => {
+      const id = typeof a[0] === 'number' ? a[0] : null, d = (typeof a[0] === 'number' ? a[1] : a[0]) || {};
+      return { id, files: d.file ? [d.file] : null, css: typeof d.code === 'string' ? d.code : null, mv3: false };
+    }),
     onCreated: ev('tabs.onCreated'), onUpdated: ev('tabs.onUpdated'), onRemoved: ev('tabs.onRemoved'),
     onActivated: ev('tabs.onActivated'), onReplaced: makeEvent(), onMoved: makeEvent(), onHighlighted: makeEvent(),
     TAB_ID_NONE: -1,
@@ -151,11 +194,16 @@
     onFocusChanged: makeEvent(), onCreated: makeEvent(), onRemoved: makeEvent(),
     WINDOW_ID_NONE: -1, WINDOW_ID_CURRENT: -2,
   };
+  const target = (d) => (d && d.target ? d.target.tabId : null);
   const scripting = {
-    executeScript: dual('scripting.executeScript', (d) => ({ id: d && d.target ? d.target.tabId : null, details: d || {}, mv3: true })),
-    insertCSS: dual('scripting.insertCSS', (d) => ({ id: d && d.target ? d.target.tabId : null, details: d || {}, mv3: true })),
+    executeScript: dual('scripting.executeScript', (d) => {
+      d = d || {};
+      const code = typeof d.func === 'function' ? '(' + d.func + ').apply(null,' + JSON.stringify(d.args || []) + ')' : null;
+      return { id: target(d), files: d.files || null, code, mv3: true };
+    }),
+    insertCSS: dual('scripting.insertCSS', (d) => ({ id: target(d), files: (d && d.files) || null, css: (d && d.css) || null, mv3: true })),
     removeCSS: dual('storage.noop'),
-    registerContentScripts: dual('storage.noop'), unregisterContentScripts: dual('storage.noop'),
+    registerContentScripts: dual('storage.noop'), unregisterContentScripts: dual('storage.noop'), updateContentScripts: dual('storage.noop'),
     getRegisteredContentScripts: (cb) => (cb ? cb([]) : Promise.resolve([])),
   };
 
@@ -264,6 +312,22 @@
   Object.defineProperty(globalThis, 'chrome', { value: chromeObj, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'browser', { value: chromeObj, configurable: true, writable: true });
 
+  // ---- the background page stands in for a service worker
+  if (ctx.kind === 'background') {
+    globalThis.importScripts = function (...urls) {
+      for (const u of urls) {
+        const x = new XMLHttpRequest();
+        x.open('GET', new URL(u, location.href).href, false);
+        x.send();
+        if (x.status >= 400 || x.status === 0) throw new Error('importScripts: ' + u);
+        (0, eval)(x.responseText + '\n//# sourceURL=' + u);
+      }
+    };
+    globalThis.skipWaiting = () => Promise.resolve();
+    globalThis.clients = { claim: () => Promise.resolve(), matchAll: () => Promise.resolve([]), get: () => Promise.resolve(undefined) };
+    globalThis.registration = { scope: ctx.base, active: null, showNotification: () => Promise.resolve() };
+  }
+
   // ---- events pushed by the browser: tab changes, storage changes, the install event
   globalThis.__brujulaEmit = function (name, args) {
     const e = events[name];
@@ -304,7 +368,9 @@
   }
   // The window of a popup or page can be closed by the extension.
   if (ctx.kind === 'background') {
-    setTimeout(() => ev('runtime.onStartup')._fire(), 0);
-    if (ctx.fresh) setTimeout(() => ev('runtime.onInstalled')._fire({ reason: 'install' }), 0);
+    addEventListener('load', () => setTimeout(() => {
+      ev('runtime.onStartup')._fire();
+      if (ctx.fresh) ev('runtime.onInstalled')._fire({ reason: 'install' });
+    }, 0));
   }
 })();

@@ -28,10 +28,8 @@ impl Pattern {
         if !(scheme == "*" || matches!(scheme, "http" | "https")) {
             return None;
         }
-        let (host, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => return None,
-        };
+        let i = rest.find('/')?;
+        let (host, path) = (&rest[..i], &rest[i..]);
         if host.is_empty()
             || host.contains(['@', ':', ' '])
             || host.matches('*').count() > 1
@@ -143,23 +141,38 @@ mod tests {
 
     #[test]
     fn hosts_and_wildcards() {
-        assert!(m("https://*.example.com/*", "https://a.b.example.com/x?y=1"));
+        assert!(m(
+            "https://*.example.com/*",
+            "https://a.b.example.com/x?y=1"
+        ));
         assert!(m("https://*.example.com/*", "https://example.com/"));
         assert!(!m("https://*.example.com/*", "https://badexample.com/"));
         assert!(!m("https://*.example.com/*", "http://a.example.com/"));
         assert!(m("*://example.com/*", "http://example.com/a"));
         assert!(m("*://example.com/*", "https://example.com/"));
         assert!(!m("https://example.com/*", "https://example.com.evil.org/"));
-        assert!(!m("https://example.com/*", "https://evil.org/https://example.com/"));
+        assert!(!m(
+            "https://example.com/*",
+            "https://evil.org/https://example.com/"
+        ));
     }
 
     #[test]
     fn paths_and_queries() {
         assert!(m("https://example.com/a/*", "https://example.com/a/b/c"));
         assert!(!m("https://example.com/a/*", "https://example.com/b/a/"));
-        assert!(m("https://example.com/*/watch*", "https://example.com/x/watch?v=1"));
-        assert!(m("https://example.com/search?q=*", "https://example.com/search?q=rust"));
-        assert!(!m("https://example.com/exact", "https://example.com/exact2"));
+        assert!(m(
+            "https://example.com/*/watch*",
+            "https://example.com/x/watch?v=1"
+        ));
+        assert!(m(
+            "https://example.com/search?q=*",
+            "https://example.com/search?q=rust"
+        ));
+        assert!(!m(
+            "https://example.com/exact",
+            "https://example.com/exact2"
+        ));
     }
 
     #[test]
@@ -174,9 +187,16 @@ mod tests {
     #[test]
     fn bad_patterns_are_refused() {
         for p in [
-            "", "example.com", "https://", "https://example.com", "ftp://example.com/*",
-            "https://exa*mple.com/*", "https://*.*.example.com/*", "https://user@example.com/*",
-            "https://example.com:8080/*", "javascript:alert(1)",
+            "",
+            "example.com",
+            "https://",
+            "https://example.com",
+            "ftp://example.com/*",
+            "https://exa*mple.com/*",
+            "https://*.*.example.com/*",
+            "https://user@example.com/*",
+            "https://example.com:8080/*",
+            "javascript:alert(1)",
         ] {
             assert!(Pattern::parse(p).is_none(), "{p}");
         }

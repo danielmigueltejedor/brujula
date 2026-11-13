@@ -44,6 +44,9 @@ use crate::spotlight::{Item, Spotlight};
 mod archive;
 mod boosts;
 mod cloudsync;
+mod ext;
+mod ext_api;
+mod ext_install;
 mod extras;
 mod float;
 mod folders;
@@ -129,6 +132,8 @@ struct Chrome {
     forward: gtk::Button,
     reload: gtk::Button,
     shield: gtk::ToggleButton,
+    /// Opens the list of extensions; shown once there is one.
+    ext: gtk::MenuButton,
     star: gtk::ToggleButton,
     toggle: gtk::ToggleButton,
     menu: gtk::MenuButton,
@@ -163,6 +168,13 @@ fn build_chrome() -> Chrome {
         .css_classes(["flat"])
         .build();
     shield.set_tooltip_text(Some("Bloqueador de anuncios (Ctrl+Mayús+B)"));
+    let ext = gtk::MenuButton::builder()
+        .icon_name("ndl-blocks-symbolic")
+        .tooltip_text("Extensiones")
+        .css_classes(["flat"])
+        .visible(false)
+        .build();
+    ext.set_popover(Some(&gtk::Popover::new()));
     let star = gtk::ToggleButton::builder()
         .icon_name("ndl-star-symbolic")
         .action_name("win.toggle-bookmark")
@@ -189,6 +201,7 @@ fn build_chrome() -> Chrome {
         ),
         reload: icon_button("ndl-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload"),
         shield,
+        ext,
         star,
         toggle,
         menu,
@@ -283,6 +296,8 @@ pub struct Browser {
     /// Where the Spotlight sends its result: the current tab, or a new one.
     session: NetworkSession,
     ucm: UserContentManager,
+    /// The Chromium extensions installed and running.
+    ext: RefCell<ext::ExtState>,
     filters: Rc<Filters>,
 
     settings: RefCell<Settings>,
@@ -349,6 +364,7 @@ impl Browser {
         spacer.set_hexpand(true);
         nav.append(&spacer);
         nav.append(&side_chrome.star);
+        nav.append(&side_chrome.ext);
         nav.append(&side_chrome.shield);
         nav.append(&side_chrome.menu);
 
@@ -479,6 +495,7 @@ impl Browser {
         top_chrome.url_button.set_margin_end(8);
         top_nav.append(&top_chrome.url_button);
         top_nav.append(&top_chrome.star);
+        top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
         top_nav.append(&top_chrome.menu);
         let top_header = ndl::HeaderBar::new();
@@ -611,6 +628,7 @@ impl Browser {
             spotlight,
             session,
             ucm,
+            ext: RefCell::new(ext::ExtState::default()),
             filters,
             settings: RefCell::new(settings),
             model: RefCell::new(TabModel::new()),
@@ -636,6 +654,14 @@ impl Browser {
 
     fn wire(self: &Rc<Self>) {
         let w = self.window.upcast_ref::<gtk::ApplicationWindow>().clone();
+        for c in &self.chromes {
+            let this = Rc::downgrade(self);
+            c.ext.set_create_popup_func(move |mb| {
+                if let (Some(b), Some(p)) = (this.upgrade(), mb.popover()) {
+                    b.fill_ext_popover(&p);
+                }
+            });
+        }
         self.wire_peek();
         self.apply_boosts();
         self.wire_notes();
@@ -719,6 +745,10 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action(
+            "open-extensions",
+            Box::new(|b| b.open_settings(Some("extensions"))),
+        );
         action(
             "next-space",
             Box::new(|b| {
@@ -1141,6 +1171,7 @@ impl Browser {
             if this.settings.borrow().adblock_enabled && this.filters.load_compiled().await {
                 this.set_shield_tooltip();
             }
+            this.start_extensions();
             this.restore(&urls);
             this.start_sync();
             this.start_archiving();
@@ -1241,7 +1272,7 @@ impl Browser {
         self.views.borrow().get(&id).cloned()
     }
 
-    pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) {
+    pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) -> TabId {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
         } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI {
@@ -1254,6 +1285,7 @@ impl Browser {
         let (id, changes) = self.model.borrow_mut().open(&url, after, select);
         self.create_view(id, &url, None);
         self.apply(changes);
+        id
     }
 
     fn close_tab(self: &Rc<Self>, id: TabId) {
@@ -1367,6 +1399,14 @@ impl Browser {
                     if let Some(uri) = v.uri() {
                         b.https_tried.borrow_mut().remove(uri.as_str());
                     }
+                    if let Some(id) = b.id_of(v) {
+                        b.ext_committed(id, v);
+                    }
+                }
+                if ev == LoadEvent::Finished {
+                    if let Some(id) = b.id_of(v) {
+                        b.ext_finished(id);
+                    }
                 }
                 if ev == LoadEvent::Finished {
                     hide_elements(&b.filters, v);
@@ -1468,6 +1508,10 @@ impl Browser {
             let from_web = v
                 .uri()
                 .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"));
+            if from_web && uri.to_ascii_lowercase().starts_with("brujula-ext:") {
+                decision.ignore();
+                return true;
+            }
             if from_web && uri.to_ascii_lowercase().starts_with("file:") {
                 decision.ignore();
                 return true;
@@ -1568,6 +1612,7 @@ impl Browser {
     /// Brings the widgets in line with the model after a change.
     fn apply(self: &Rc<Self>, changes: Vec<Change>) {
         for change in changes {
+            self.emit_tab_change(&change);
             match change {
                 Change::Opened(id) => {
                     self.model.borrow_mut().touch(id, now_ms());
@@ -1961,7 +2006,9 @@ impl Browser {
                     self.scroll_settings(&v);
                 }
             }
-            None => self.open_tab(prefs::SETTINGS_URI, None, true),
+            None => {
+                self.open_tab(prefs::SETTINGS_URI, None, true);
+            }
         }
     }
 
@@ -2016,6 +2063,10 @@ impl Browser {
         }
         if key == "redraw" {
             self.redraw_settings();
+            return;
+        }
+        if let Some(what) = key.strip_prefix("ext.") {
+            self.change_extension(what, value);
             return;
         }
         let result = self.settings.borrow_mut().apply(key, value);
@@ -2312,7 +2363,9 @@ impl Browser {
     fn navigate(self: &Rc<Self>, url: &str) {
         match self.current_view() {
             Some(v) => v.load_uri(url),
-            None => self.open_tab(url, None, true),
+            None => {
+                self.open_tab(url, None, true);
+            }
         }
     }
 
@@ -2543,6 +2596,7 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Barra lateral"), Some("win.toggle-sidebar"));
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
+    opts.append(Some("Extensiones"), Some("win.open-extensions"));
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
     m
