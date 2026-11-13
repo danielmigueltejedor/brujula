@@ -31,7 +31,7 @@ pub fn css(a: &Appearance) -> String {
          ndl-overlay-split-view > .ndl-sidebar-pane,\n\
          ndl-overlay-split-view > .ndl-content-pane {{ border-radius: {r}px; margin: {g}px; }}\n\
          ndl-overlay-split-view > .ndl-sidebar-pane {{ background-color: alpha(var(--ndl-color-surface-panel), {opacity:.2}); }}\n\
-         .brujula-topbar {{ margin: {g}px {g}px 0 {g}px; }}\n",
+         .brujula-topbar {{ margin: {g}px {g}px {g}px {g}px; border-radius: {r}px; background-color: alpha(var(--ndl-color-surface-panel), {opacity:.2}); }}\n",
         r = a.radius,
         g = a.gap,
     ));
@@ -45,7 +45,7 @@ pub fn css(a: &Appearance) -> String {
             "window.brujula-frame ndl-overlay-split-view > .ndl-sidebar-pane {{ background-color: transparent; box-shadow: none; border-radius: 0; }}\n\
              window.brujula-frame ndl-overlay-split-view.collapsed > .ndl-sidebar-pane {{ background-color: alpha({frame}, 0.98); border-radius: {r}px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }}\n\
              window.brujula-frame .brujula-side {{ background-color: transparent; }}\n\
-             window.brujula-frame .brujula-topbar {{ background-color: transparent; }}\n",
+             window.brujula-frame .brujula-topbar {{ background-color: transparent; border-radius: 0; margin-bottom: 0; }}\n",
             r = a.radius,
         ));
         // The sidebar and the tab bar sit straight on the frame colour, so their text must read
@@ -61,9 +61,11 @@ pub fn css(a: &Appearance) -> String {
         }
     }
     if a.tabs == TabPosition::Horizontal {
-        // The tab bar sits above the page, which stays an island under it.
+        // The pane around the tab bar and the page paints nothing: the tab bar is its own island
+        // (or part of the frame) and the page is another one under it.
         css.push_str(&format!(
-            "ndl-overlay-split-view.collapsed.brujula-horizontal > .ndl-content-pane {{ margin: 0 {g}px {g}px {g}px; border-radius: {r}px; }}\n",
+            "ndl-overlay-split-view.collapsed.brujula-horizontal > .ndl-content-pane {{ margin: 0; border-radius: 0; background-color: transparent; box-shadow: none; }}\n\
+             .brujula-horizontal .brujula-page {{ margin: 0 {g}px {g}px {g}px; border-radius: {r}px; overflow: hidden; background-color: var(--ndl-color-surface-panel); }}\n",
             g = a.gap,
             r = a.radius,
         ));
@@ -86,6 +88,22 @@ mod tests {
         let css = css(&a);
         assert!(css.contains("border-radius: 20px; margin: 4px"));
         assert!(css.contains("0.80"));
+    }
+
+    #[test]
+    fn the_tab_bar_is_an_island_with_islands_and_part_of_the_frame_with_the_frame() {
+        let islands = css(&Appearance {
+            tabs: TabPosition::Horizontal,
+            ..Appearance::default()
+        });
+        assert!(islands.contains(".brujula-topbar { margin: 8px 8px 8px 8px; border-radius: 16px; background-color: alpha(var(--ndl-color-surface-panel), 1.00)"));
+        assert!(!islands.contains("brujula-frame .brujula-topbar"));
+        let frame = css(&Appearance {
+            tabs: TabPosition::Horizontal,
+            layout: Layout::Frame,
+            ..Appearance::default()
+        });
+        assert!(frame.contains("window.brujula-frame .brujula-topbar { background-color: transparent; border-radius: 0; margin-bottom: 0; }"));
     }
 
     #[test]
@@ -129,8 +147,12 @@ mod tests {
             gap: 6,
             ..Appearance::default()
         });
-        assert!(top
-            .contains("collapsed.brujula-horizontal > .ndl-content-pane { margin: 0 6px 6px 6px"));
+        assert!(top.contains(
+            ".brujula-horizontal .brujula-page { margin: 0 6px 6px 6px; border-radius: 16px"
+        ));
+        assert!(top.contains(
+            "> .ndl-content-pane { margin: 0; border-radius: 0; background-color: transparent"
+        ));
     }
 
     #[test]

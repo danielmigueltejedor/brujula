@@ -437,6 +437,9 @@ impl Browser {
         split_paned.set_shrink_end_child(false);
         stack.add_named(&split_paned, Some("split"));
         let page = gtk::Overlay::new();
+        page.add_css_class("brujula-page");
+        // Rounded corners (from the CSS radius) clip the web view too.
+        page.set_overflow(gtk::Overflow::Hidden);
         page.set_child(Some(&stack));
         progress.set_valign(gtk::Align::Start);
         page.add_overlay(&progress);
@@ -1087,7 +1090,15 @@ impl Browser {
                     b.hide_side.take();
                     // The Spotlight and the tab menu take the pointer: keep the sidebar open
                     // while one is up, or the page flickers.
-                    if !b.settings.borrow().sidebar_visible && !b.spotlight.is_open() {
+                    if b.settings.borrow().sidebar_visible {
+                        return;
+                    }
+                    if b.spotlight.is_open() || has_open_popover(b.side.upcast_ref()) {
+                        // A popup of the sidebar (a space's name and icon, a folder, the notes)
+                        // is up: its surface takes the pointer from the sidebar, so leaving
+                        // does not mean the user is done. Look again once it is closed.
+                        b.schedule_hide_side_after(450);
+                    } else {
                         b.split.set_show_sidebar(false);
                     }
                 }
@@ -2482,4 +2493,23 @@ pub fn hide_elements(filters: &Rc<Filters>, view: &WebView) {
             .evaluate_javascript_future(&script, Some("brujula"), None)
             .await;
     });
+}
+
+/// Whether `widget` or anything inside it has a popover showing. Popovers are children of the
+/// widget they belong to, so walking the tree finds them.
+fn has_open_popover(widget: &gtk::Widget) -> bool {
+    if widget
+        .downcast_ref::<gtk::Popover>()
+        .is_some_and(|p| p.is_visible())
+    {
+        return true;
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if has_open_popover(&c) {
+            return true;
+        }
+        child = c.next_sibling();
+    }
+    false
 }
