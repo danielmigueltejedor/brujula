@@ -13,6 +13,7 @@ use brujula_core::edge::EdgeDetector;
 use brujula_core::folders::{Folders, NO_FOLDER};
 use brujula_core::history::History;
 use brujula_core::https;
+use brujula_core::news::NEWS_URI;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::prefs;
@@ -63,6 +64,7 @@ mod profiles_ui;
 mod sleep;
 mod split;
 mod system_theme;
+mod updates;
 mod webapps;
 mod welcome;
 
@@ -380,6 +382,8 @@ pub struct Browser {
     pending_reload: Cell<bool>,
     /// The address of the last page asked about its web manifest, and whether it has one.
     page_manifest: RefCell<(String, bool)>,
+    /// What the last look for a newer version found.
+    update: RefCell<updates::UpdateState>,
 }
 
 impl Browser {
@@ -392,6 +396,8 @@ impl Browser {
         // that has never been opened has not.
         if first_run && !private {
             settings.welcome_done = false;
+            // A new profile has nothing to be told that is new.
+            settings.seen_version = env!("CARGO_PKG_VERSION").to_owned();
         }
 
         let session = if private {
@@ -774,6 +780,7 @@ impl Browser {
             syncing: Cell::new(false),
             pending_reload: Cell::new(false),
             page_manifest: RefCell::new((String::new(), false)),
+            update: RefCell::new(updates::UpdateState::default()),
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
         if let Some(display) = gdk::Display::default() {
@@ -891,6 +898,7 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action("about", Box::new(|b| b.show_about()));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
         action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
@@ -1409,6 +1417,9 @@ impl Browser {
         } else if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
         }
+        // After an update the first thing to see is what is new; then the check for the next.
+        self.show_news_once();
+        self.startup_updates();
     }
 
     /// Loads the page of the tab in front if it was restored but never opened.
@@ -1453,7 +1464,11 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) -> TabId {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
-        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI || url == WELCOME_URI {
+        } else if url == newtab::NEWTAB_URI
+            || url == prefs::SETTINGS_URI
+            || url == WELCOME_URI
+            || url == NEWS_URI
+        {
             url.to_owned()
         } else {
             let template = self.settings.borrow().search_template().to_owned();
@@ -1703,6 +1718,7 @@ impl Browser {
                 || uri == newtab::NEWTAB_URI
                 || uri == prefs::SETTINGS_URI
                 || uri == WELCOME_URI
+                || uri == NEWS_URI
             {
                 return false;
             }
@@ -1750,6 +1766,8 @@ impl Browser {
             self.render_settings(&view);
         } else if url == WELCOME_URI {
             self.render_welcome(&view);
+        } else if url == NEWS_URI {
+            self.render_news(&view);
         } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
@@ -2024,6 +2042,8 @@ impl Browser {
             "Preferencias".to_owned()
         } else if tab.url == WELCOME_URI {
             "Bienvenida".to_owned()
+        } else if tab.url == NEWS_URI {
+            "Novedades".to_owned()
         } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
@@ -2064,8 +2084,16 @@ impl Browser {
             (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
         } else if tab.url == prefs::SETTINGS_URI {
             ("Preferencias".to_owned(), "ndl-lock-symbolic")
-        } else if tab.url == WELCOME_URI {
-            ("Bienvenida".to_owned(), "ndl-lock-symbolic")
+        } else if tab.url == WELCOME_URI || tab.url == NEWS_URI {
+            (
+                if tab.url == NEWS_URI {
+                    "Novedades"
+                } else {
+                    "Bienvenida"
+                }
+                .to_owned(),
+                "ndl-lock-symbolic",
+            )
         } else if tab.url.starts_with("https://") {
             (host_of(&tab.url), "ndl-lock-symbolic")
         } else {
@@ -2160,6 +2188,7 @@ impl Browser {
             Some(prefs::SETTINGS_URI) => self.render_settings(view),
             Some(newtab::NEWTAB_URI) => self.render_newtab(view, false),
             Some(WELCOME_URI) => self.render_welcome(view),
+            Some(NEWS_URI) => self.render_news(view),
             _ => view.reload(),
         }
     }
@@ -2261,6 +2290,10 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("history.") {
             self.change_history(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("update.") {
+            self.change_update(what);
             return;
         }
         if let Some(what) = key.strip_prefix("webapp.") {
@@ -2417,6 +2450,7 @@ impl Browser {
                 || url == newtab::NEWTAB_URI
                 || url == prefs::SETTINGS_URI
                 || url == WELCOME_URI
+                || url == NEWS_URI
         };
         // Tabs open in this space (newest first), then the ones closed lately.
         let mut recent: Vec<newtab::Link> = model
@@ -2503,7 +2537,10 @@ impl Browser {
             .tabs()
             .iter()
             .filter(|t| {
-                t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI && t.url != WELCOME_URI
+                t.url != newtab::NEWTAB_URI
+                    && t.url != prefs::SETTINGS_URI
+                    && t.url != WELCOME_URI
+                    && t.url != NEWS_URI
             })
             .cloned()
             .collect();
@@ -2840,6 +2877,9 @@ fn main_menu() -> gio::Menu {
     );
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
+    let about = gio::Menu::new();
+    about.append(Some("Acerca de Brújula"), Some("win.about"));
+    m.append_section(None, &about);
     m
 }
 

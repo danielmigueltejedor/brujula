@@ -18,6 +18,7 @@ pub mod folders;
 pub mod history;
 pub mod https;
 pub mod icons;
+pub mod news;
 pub mod newtab;
 pub mod notes;
 pub mod omnibox;

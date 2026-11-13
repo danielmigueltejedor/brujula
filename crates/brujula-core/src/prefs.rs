@@ -218,6 +218,9 @@ impl Settings {
             "history_enabled" => {
                 self.history_enabled = flag(value)?;
             }
+            "update_check" => {
+                self.update_check = flag(value)?;
+            }
             "passwords_enabled" => {
                 self.passwords_enabled = flag(value)?;
             }
@@ -485,6 +488,10 @@ pub struct Extras {
     pub profiles: Vec<(String, String, String, bool)>,
     /// The id of the profile this window runs as.
     pub profile: String,
+    /// What the update check found, in words (empty before the first check).
+    pub update_status: String,
+    /// The newer version that is waiting, if any.
+    pub update_version: String,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -1354,13 +1361,35 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
         .concat(),
     );
 
+    let update_button = if sync.update_version.is_empty() {
+        r#"<button type="button" class="seg plain" data-k="update.check" data-v="now">Buscar ahora</button>"#.to_owned()
+    } else {
+        format!(
+            r#"<button type="button" class="seg" data-k="update.install" data-v="now">Actualizar a {}</button>"#,
+            escape(&sync.update_version)
+        )
+    };
+    let update_hint = if sync.update_status.is_empty() {
+        "Brújula mira en GitHub si hay una versión nueva. Solo pide el número de versión: no envía nada tuyo."
+    } else {
+        &sync.update_status
+    };
     let about = section(
         "about",
-        &row(
-            &format!("Brújula {}", env!("CARGO_PKG_VERSION")),
-            "El navegador de Nodalix. WebKit, bloqueador integrado, pestañas verticales y el lenguaje de diseño NDL.",
-            "",
-        ),
+        &[
+            row(
+                &format!("Brújula {}", env!("CARGO_PKG_VERSION")),
+                "El navegador de Nodalix. WebKit, bloqueador integrado, pestañas verticales y el lenguaje de diseño NDL.",
+                "",
+            ),
+            row("Actualizaciones", update_hint, &update_button),
+            row(
+                "Buscar al abrir",
+                "Mira una vez cada doce horas si hay una versión nueva y te lo dice. El AppImage se actualiza solo si quieres; una copia instalada con el sistema se actualiza con el sistema.",
+                &switch("update_check", s.update_check),
+            ),
+        ]
+        .concat(),
     );
 
     let nav: String = PAGES
@@ -1418,7 +1447,8 @@ Archivo de pestañas|archivar archivo pestañas antiguas cerradas recuperar|arch
 Sincronización|sincronizar nube icloud onedrive google drive dropbox dispositivos|sync
 Bloqueador de anuncios|adblock anuncios rastreadores listas|privacy
 Sitios sin bloqueador|excepciones permitidos|sites
-Seguridad|descargas permisos certificados|security"#;
+Seguridad|descargas permisos certificados|security
+Actualizaciones|actualizar actualización versión nueva novedades update|about"#;
 
 /// Page used by the Spotlight to offer settings: `(title, keywords, section id)`.
 pub static SECTIONS: LazyLock<Vec<(&'static str, &'static str, &'static str)>> =
@@ -1523,7 +1553,7 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .pav{position:relative;display:block;border-radius:50%;cursor:pointer}.pav input{position:absolute;opacity:0;inset:0}
 .pav svg{display:block;width:2.3rem;height:2.3rem;border-radius:50%;outline:3px solid transparent;outline-offset:2px;transition:outline-color .15s}
 .pav input:checked+svg{outline-color:var(--accent)}.pav input:focus-visible+svg{outline-color:var(--fg)}
-.addrow{display:flex;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
+.addrow{display:flex;flex-wrap:wrap;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
 .note{margin:0;padding:1rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}

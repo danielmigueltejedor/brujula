@@ -311,7 +311,6 @@ impl Browser {
             }
         }
         self.dl.sync_empty();
-        self.dl.button.popup();
 
         let this = Rc::downgrade(self);
         let (st, dest, rf) = (state.clone(), destination.clone(), refresh.clone());
@@ -321,9 +320,17 @@ impl Browser {
                 return true;
             };
             let (st, dest, rf) = (st.clone(), dest.clone(), rf.clone());
+            let shown = this.clone();
             crate::save_download::decide(&b.window, d, suggested, move |decision| {
                 match decision {
-                    Decision::Saving(path) => *dest.borrow_mut() = Some(path),
+                    Decision::Saving(path) => {
+                        *dest.borrow_mut() = Some(path);
+                        // The list opens when the download starts, not while a question about it
+                        // is still open (its first click would only close the list).
+                        if let Some(b) = shown.upgrade() {
+                            b.dl.button.popup();
+                        }
+                    }
                     Decision::Refused(name) => {
                         *st.borrow_mut() = State::Blocked;
                         *dest.borrow_mut() = Some(PathBuf::from(name));

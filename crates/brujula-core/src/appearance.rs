@@ -52,6 +52,34 @@ pub fn css(a: &Appearance) -> String {
         r = a.radius,
         g = a.gap,
     ));
+    // Dialogs and their rounded corners follow the look chosen: a veil of the frame's colours
+    // over the panel, so a gradient reaches them too.
+    css.push_str(&format!(
+        "ndl-dialog {{ border-radius: {}px; }}\n",
+        a.radius
+    ));
+    let veil = if a.frame_gradient.len() >= 2 {
+        let stops: Vec<String> = a
+            .frame_gradient
+            .iter()
+            .map(|c| format!("alpha({c}, 0.16)"))
+            .collect();
+        format!(
+            "linear-gradient({}deg, {})",
+            a.frame_angle,
+            stops.join(", ")
+        )
+    } else if !a.frame_color.is_empty() {
+        format!(
+            "linear-gradient(alpha({c}, 0.14), alpha({c}, 0.14))",
+            c = a.frame_color
+        )
+    } else {
+        String::new()
+    };
+    if !veil.is_empty() {
+        css.push_str(&format!("ndl-dialog {{ background-image: {veil}; }}\n"));
+    }
     // Sidebar not pinned: the page fills the window, whatever the layout.
     css.push_str(
         "ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius: 0; }\n",
@@ -102,6 +130,30 @@ pub fn css(a: &Appearance) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialogs_wear_the_gradient_and_the_corners_of_the_look() {
+        let plain = css(&Appearance::default());
+        assert!(plain.contains("ndl-dialog { border-radius: 16px; }"));
+        assert!(!plain.contains("ndl-dialog { background-image"));
+        let gradient = css(&Appearance {
+            frame_gradient: vec!["#112233".into(), "#445566".into()],
+            frame_angle: 90,
+            radius: 24,
+            ..Appearance::default()
+        });
+        assert!(gradient.contains("ndl-dialog { border-radius: 24px; }"));
+        assert!(gradient.contains(
+            "ndl-dialog { background-image: linear-gradient(90deg, alpha(#112233, 0.16), alpha(#445566, 0.16)); }"
+        ));
+        let solid = css(&Appearance {
+            frame_color: "#abcdef".into(),
+            ..Appearance::default()
+        });
+        assert!(
+            solid.contains("ndl-dialog { background-image: linear-gradient(alpha(#abcdef, 0.14)")
+        );
+    }
 
     #[test]
     fn numbers_end_up_in_the_sheet() {

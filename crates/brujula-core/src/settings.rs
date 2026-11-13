@@ -251,6 +251,31 @@ pub struct Settings {
     /// The welcome page has been gone through. True for settings saved before it existed; a
     /// first run starts it false.
     pub welcome_done: bool,
+    /// Look for a newer version of Brújula on its own, from time to time.
+    pub update_check: bool,
+    /// When Brújula last looked, in milliseconds since 1970.
+    pub update_checked_at: u64,
+    /// The newest version the person was already told about, so it is said once.
+    pub update_notified: String,
+    /// The version whose news were shown last; empty before this was kept.
+    pub seen_version: String,
+}
+
+/// How long to wait between two looks for a newer version made on their own.
+pub const UPDATE_CHECK_EVERY_MS: u64 = 12 * 60 * 60 * 1000;
+
+/// Whether it is time to look again.
+pub fn update_check_due(last_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(last_ms) >= UPDATE_CHECK_EVERY_MS
+}
+
+/// `0.4.0`: digits and dots, nothing else, and not too long.
+fn is_version(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 20
+        && text
+            .split('.')
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The times the user can choose to archive after, in hours (0 is never).
@@ -278,6 +303,10 @@ impl Default for Settings {
             history_enabled: true,
             passwords_enabled: true,
             welcome_done: true,
+            update_check: true,
+            update_checked_at: 0,
+            update_notified: String::new(),
+            seen_version: String::new(),
         }
     }
 }
@@ -291,6 +320,11 @@ impl Settings {
         }
         if !crate::cloud::valid_id(&s.sync.account) {
             s.sync.account.clear();
+        }
+        for version in [&mut s.update_notified, &mut s.seen_version] {
+            if !is_version(version) {
+                version.clear();
+            }
         }
         if !ARCHIVE_CHOICES.contains(&s.archive_after_hours) {
             s.archive_after_hours = 24;
@@ -343,6 +377,22 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_check_for_updates_waits_between_looks() {
+        assert!(update_check_due(0, UPDATE_CHECK_EVERY_MS));
+        assert!(!update_check_due(1000, 1000 + UPDATE_CHECK_EVERY_MS - 1));
+        // A clock that went back does not make it due.
+        assert!(!update_check_due(5000, 1000));
+    }
+
+    #[test]
+    fn versions_kept_in_the_settings_are_plain() {
+        let s = Settings::from_json(r#"{"update_notified":"0.4.0","seen_version":"<b>x</b>"}"#);
+        assert_eq!(s.update_notified, "0.4.0");
+        assert_eq!(s.seen_version, "");
+        assert!(!is_version("1..2") && !is_version("") && !is_version(&"1.".repeat(20)));
+    }
 
     #[test]
     fn defaults_match_the_product() {
