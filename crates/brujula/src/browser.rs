@@ -57,6 +57,7 @@ mod float;
 mod folders;
 mod history;
 mod history_panel;
+mod import;
 mod notes;
 mod page_action;
 mod passwords;
@@ -1748,9 +1749,14 @@ impl Browser {
             let from_web = v
                 .uri()
                 .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"));
+            // An extension's page that its manifest lists as web accessible may be shown inside
+            // a web page (a panel in an iframe); nothing else of an extension is reachable.
             if from_web && uri.to_ascii_lowercase().starts_with("brujula-ext:") {
-                decision.ignore();
-                return true;
+                let open = this.upgrade().is_some_and(|b| b.ext_web_accessible(&uri));
+                if !open {
+                    decision.ignore();
+                    return true;
+                }
             }
             if from_web && uri.to_ascii_lowercase().starts_with("file:") {
                 decision.ignore();
@@ -2354,6 +2360,10 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("webapp.") {
             self.change_webapp(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("import.") {
+            self.change_import(what, value);
             return;
         }
         if let Some(what) = key.strip_prefix("pw.") {

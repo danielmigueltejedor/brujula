@@ -7,7 +7,7 @@ use super::*;
 const SAVE_DELAY_MS: u64 = 3000;
 
 impl Browser {
-    fn save_history(&self) {
+    pub(super) fn save_history(&self) {
         if self.private {
             return;
         }

@@ -129,9 +129,9 @@ Un navegador rápido, seguro y a tu medida. Vamos a dejarlo a tu gusto en un mom
 Siguiente\n\
 Atrás\n\
 Omitir\n\
-Trae tus marcadores\n\
-Importa los de otro navegador para no empezar de cero. Solo se leen los marcadores, nada más.\n\
-No se ha encontrado ningún navegador. Puedes elegir un archivo de marcadores.\n\
+Trae tus datos\n\
+Importa de otro navegador tus marcadores, historial, cookies y contraseñas para no empezar de cero. Las contraseñas se guardan cifradas con una contraseña maestra.\n\
+No se ha encontrado ningún navegador. Puedes elegir un archivo de marcadores o de contraseñas (CSV).\n\
 Elegir un archivo…\n\
 Importar de\n\
 Tu navegador de siempre\n\
@@ -158,9 +158,9 @@ A fast, safe browser that is yours to shape. Let's set it up in a moment.\n\
 Next\n\
 Back\n\
 Skip\n\
-Bring your bookmarks\n\
-Import them from another browser so you do not start from scratch. Only bookmarks are read, nothing else.\n\
-No browser was found. You can pick a bookmarks file.\n\
+Bring your data\n\
+Import your bookmarks, history, cookies and passwords from another browser so you do not start from scratch. Passwords are kept encrypted with a master password.\n\
+No browser was found. You can pick a bookmarks file or a passwords file (CSV).\n\
 Choose a file…\n\
 Import from\n\
 Your everyday browser\n\
@@ -187,9 +187,9 @@ Un navigateur rapide, sûr et à votre mesure. Réglons-le en un instant.\n\
 Suivant\n\
 Retour\n\
 Passer\n\
-Récupérez vos favoris\n\
-Importez ceux d'un autre navigateur pour ne pas repartir de zéro. Seuls les favoris sont lus.\n\
-Aucun navigateur trouvé. Vous pouvez choisir un fichier de favoris.\n\
+Récupérez vos données\n\
+Importez d'un autre navigateur vos favoris, votre historique, vos cookies et vos mots de passe pour ne pas repartir de zéro. Les mots de passe sont chiffrés par un mot de passe principal.\n\
+Aucun navigateur trouvé. Vous pouvez choisir un fichier de favoris ou de mots de passe (CSV).\n\
 Choisir un fichier…\n\
 Importer depuis\n\
 Votre navigateur de tous les jours\n\
@@ -216,9 +216,9 @@ Ein schneller, sicherer Browser nach deinem Geschmack. Richten wir ihn kurz ein.
 Weiter\n\
 Zurück\n\
 Überspringen\n\
-Lesezeichen mitbringen\n\
-Importiere sie aus einem anderen Browser. Es werden nur Lesezeichen gelesen.\n\
-Kein Browser gefunden. Du kannst eine Lesezeichen-Datei wählen.\n\
+Daten mitbringen\n\
+Importiere Lesezeichen, Verlauf, Cookies und Passwörter aus einem anderen Browser. Passwörter werden mit einem Master-Passwort verschlüsselt gespeichert.\n\
+Kein Browser gefunden. Du kannst eine Lesezeichen- oder Passwort-Datei (CSV) wählen.\n\
 Datei wählen …\n\
 Importieren aus\n\
 Dein Alltags-Browser\n\
@@ -245,9 +245,9 @@ Um navegador rápido, seguro e à sua medida. Vamos configurá-lo num instante.\
 Seguinte\n\
 Voltar\n\
 Saltar\n\
-Traga os seus favoritos\n\
-Importe-os de outro navegador. Só os favoritos são lidos.\n\
-Nenhum navegador encontrado. Pode escolher um ficheiro de favoritos.\n\
+Traga os seus dados\n\
+Importe de outro navegador os favoritos, o histórico, os cookies e as palavras-passe. As palavras-passe ficam cifradas com uma palavra-passe mestra.\n\
+Nenhum navegador encontrado. Pode escolher um ficheiro de favoritos ou de palavras-passe (CSV).\n\
 Escolher um ficheiro…\n\
 Importar de\n\
 O seu navegador de sempre\n\
@@ -299,29 +299,99 @@ pub fn greeting(lang: &str) -> &'static str {
     words(lang).t(Text::Welcome)
 }
 
+/// What was brought from another browser, in numbers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub bookmarks: usize,
+    pub history: usize,
+    pub cookies: usize,
+    pub logins: usize,
+    /// Cookies and passwords that are encrypted with a key that was not available.
+    pub unreadable: usize,
+}
+
 /// What the browser tells the page after it did something.
 pub enum Say {
-    /// This many bookmarks were added.
-    Imported(usize),
+    /// This much was brought.
+    Imported(Counts),
     /// The file is not one that is read, or it is damaged.
     ImportFailed,
     DefaultDone,
     DefaultFailed,
 }
 
+/// The words for each kind of data, in the order they are listed: bookmarks, history, cookies,
+/// passwords, and the ones that could not be read.
+fn kinds(code: &str) -> [&'static str; 5] {
+    match code {
+        "es" => [
+            "marcadores",
+            "páginas del historial",
+            "cookies",
+            "contraseñas",
+            "cifradas que no se pudieron leer",
+        ],
+        "fr" => [
+            "favoris",
+            "pages de l'historique",
+            "cookies",
+            "mots de passe",
+            "chiffrés illisibles",
+        ],
+        "de" => [
+            "Lesezeichen",
+            "Verlaufseinträge",
+            "Cookies",
+            "Passwörter",
+            "verschlüsselte, nicht lesbar",
+        ],
+        "pt" => [
+            "favoritos",
+            "páginas do histórico",
+            "cookies",
+            "palavras-passe",
+            "cifrados que não foi possível ler",
+        ],
+        _ => [
+            "bookmarks",
+            "history pages",
+            "cookies",
+            "passwords",
+            "encrypted ones that could not be read",
+        ],
+    }
+}
+
 pub fn say(lang: &str, what: &Say) -> String {
     let code = words(lang).code;
     match (what, code) {
-        (Say::Imported(0), "es") => "No había marcadores nuevos".into(),
-        (Say::Imported(0), "fr") => "Aucun nouveau favori".into(),
-        (Say::Imported(0), "de") => "Keine neuen Lesezeichen".into(),
-        (Say::Imported(0), "pt") => "Nenhum favorito novo".into(),
-        (Say::Imported(0), _) => "There were no new bookmarks".into(),
-        (Say::Imported(n), "es") => format!("{n} marcadores importados"),
-        (Say::Imported(n), "fr") => format!("{n} favoris importés"),
-        (Say::Imported(n), "de") => format!("{n} Lesezeichen importiert"),
-        (Say::Imported(n), "pt") => format!("{n} favoritos importados"),
-        (Say::Imported(n), _) => format!("{n} bookmarks imported"),
+        (Say::Imported(c), _) => {
+            let words = kinds(code);
+            let parts: Vec<String> = [c.bookmarks, c.history, c.cookies, c.logins, c.unreadable]
+                .iter()
+                .zip(words)
+                .filter(|(n, _)| **n > 0)
+                .map(|(n, w)| format!("{n} {w}"))
+                .collect();
+            if parts.is_empty() {
+                match code {
+                    "es" => "No había nada nuevo".into(),
+                    "fr" => "Rien de nouveau".into(),
+                    "de" => "Nichts Neues".into(),
+                    "pt" => "Não havia nada de novo".into(),
+                    _ => "There was nothing new".into(),
+                }
+            } else {
+                let head = match code {
+                    "es" => "Importado",
+                    "fr" => "Importé",
+                    "de" => "Importiert",
+                    "pt" => "Importado",
+                    _ => "Imported",
+                };
+                format!("{head}: {}", parts.join(", "))
+            }
+        }
         (Say::ImportFailed, "es") => "No se pudo leer ese archivo".into(),
         (Say::ImportFailed, "fr") => "Ce fichier n'a pas pu être lu".into(),
         (Say::ImportFailed, "de") => "Die Datei konnte nicht gelesen werden".into(),
@@ -663,15 +733,28 @@ mod tests {
     fn every_message_exists_in_every_language() {
         for lang in languages() {
             for what in [
-                Say::Imported(0),
-                Say::Imported(7),
+                Say::Imported(Counts::default()),
+                Say::Imported(Counts {
+                    bookmarks: 7,
+                    ..Counts::default()
+                }),
                 Say::ImportFailed,
                 Say::DefaultDone,
                 Say::DefaultFailed,
             ] {
                 assert!(!say(lang, &what).is_empty(), "{lang}");
             }
-            assert!(say(lang, &Say::Imported(7)).contains('7'), "{lang}");
+            let all = Counts {
+                bookmarks: 1,
+                history: 22,
+                cookies: 333,
+                logins: 4444,
+                unreadable: 55555,
+            };
+            let text = say(lang, &Say::Imported(all));
+            for n in ["1 ", "22 ", "333 ", "4444 ", "55555 "] {
+                assert!(text.contains(n), "{lang}: {text}");
+            }
             assert!(!file_title(lang).is_empty());
         }
     }

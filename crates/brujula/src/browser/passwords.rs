@@ -240,6 +240,44 @@ impl Browser {
         );
     }
 
+    /// Puts logins brought from another browser into the vault, which is opened (or made) first.
+    /// `done` hears how many were new: a login for a site and user that is already saved is left
+    /// as it is. If the master password is not given, nothing is saved and the count is 0.
+    pub(super) fn pw_import(
+        self: &Rc<Self>,
+        logins: Vec<brujula_core::browser_data::Login>,
+        done: Box<dyn FnOnce(usize)>,
+    ) {
+        if self.private || self.pw.busy.replace(true) {
+            done(0);
+            return;
+        }
+        let this = self.clone();
+        self.pw_with_vault(Box::new(move |ok| {
+            this.pw.busy.set(false);
+            let mut added = 0;
+            if ok {
+                let now = now_ms();
+                if let Some(vault) = this.pw.vault.borrow_mut().as_mut() {
+                    for l in logins {
+                        let origin = origin_of(&l.url);
+                        let known = origin.as_ref().is_some_and(|o| {
+                            vault
+                                .logins()
+                                .iter()
+                                .any(|k| &k.origin == o && k.username == l.username)
+                        });
+                        if !known && vault.put(&l.url, &l.username, &l.password, now).is_some() {
+                            added += 1;
+                        }
+                    }
+                }
+                this.save_vault();
+            }
+            done(added);
+        }));
+    }
+
     /// Runs `then` once the vault is open: opening it, or making it, as needed.
     fn pw_with_vault(self: &Rc<Self>, then: Done) {
         if self.pw.vault.borrow().is_some() {
