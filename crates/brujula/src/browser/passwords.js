@@ -56,7 +56,7 @@
   const closeMenu = () => {
     if (menu) { menu.remove(); menu = null; }
   };
-  const chooser = (pair, logins) => {
+  const chooser = (anchor, logins, pick) => {
     closeMenu();
     const host = document.createElement('div');
     const root = host.attachShadow({ mode: 'closed' });
@@ -72,11 +72,11 @@
         if (!e.isTrusted) return;
         e.preventDefault();
         closeMenu();
-        void fill(pair, l.id);
+        pick(l.id);
       });
       box.appendChild(b);
     }
-    const r = pair.pw.getBoundingClientRect();
+    const r = anchor.getBoundingClientRect();
     box.style.left = Math.max(4, r.left) + 'px';
     box.style.top = Math.min(innerHeight - 8, r.bottom + 4) + 'px';
     root.appendChild(box);
@@ -95,14 +95,48 @@
     const mine = typed && r.logins.find((l) => l.u === typed);
     if (mine) void fill(pair, mine.id);
     else if (r.logins.length === 1) void fill(pair, r.logins[0].id);
-    else chooser(pair, r.logins);
+    else chooser(pair.pw, r.logins, (id) => void fill(pair, id));
+  };
+  // One-time codes (2FA): a field that asks for the six digits gets the code of the login saved
+  // for this very site, when the person touches it.
+  const codeLike = (el) => {
+    if (!(el instanceof HTMLInputElement) || !usable(el)) return false;
+    if (!/^(text|tel|number|)$/i.test(el.getAttribute('type') || '')) return false;
+    if (/one-time-code/i.test(el.autocomplete || '')) return true;
+    const hint = [el.name, el.id, el.placeholder, el.getAttribute('aria-label') || ''].join(' ');
+    return /otp|totp|2fa|mfa|one.?time|verification|verific|authenticat|security.?code|c[oó]digo/i.test(hint);
+  };
+  // A code typed in boxes of one digit each: all the boxes next to this one.
+  const boxesOf = (el) => {
+    if (el.maxLength !== 1) return [el];
+    const boxes = [...scope(el).querySelectorAll('input')].filter(
+      (i) => usable(i) && i.maxLength === 1 && /^(text|tel|number|)$/i.test(i.getAttribute('type') || '')
+    );
+    return boxes.length >= 4 && boxes.length <= 8 && boxes.includes(el) ? boxes : [el];
+  };
+  const fillCode = async (el, id) => {
+    const r = await ask({ t: 'otpfill', href: location.href, id });
+    if (!r || typeof r.c !== 'string' || !/^[0-9]{4,10}$/.test(r.c)) return;
+    const boxes = boxesOf(el);
+    if (boxes.length === r.c.length) boxes.forEach((b, i) => setValue(b, r.c[i]));
+    else setValue(el, r.c);
+  };
+  const codeDone = new WeakSet();
+  const offerCode = async (el) => {
+    if (codeDone.has(el)) return;
+    codeDone.add(el);
+    const r = await ask({ t: 'otp', href: location.href });
+    if (!r || !r.logins || !r.logins.length) { codeDone.delete(el); return; }
+    if (r.logins.length === 1) void fillCode(el, r.logins[0].id);
+    else chooser(el, r.logins, (id) => void fillCode(el, id));
   };
   const touched = (e) => {
     if (!e.isTrusted) return;
     const t = e.target;
     if (menu && !(t instanceof HTMLInputElement)) closeMenu();
     if (e.type === 'keydown' && (e.key === 'Tab' || e.key === 'Escape')) { closeMenu(); return; }
-    if (t instanceof HTMLInputElement) void offer(t);
+    if (codeLike(t)) void offerCode(t);
+    else if (t instanceof HTMLInputElement) void offer(t);
   };
   document.addEventListener('pointerdown', touched, true);
   document.addEventListener('keydown', touched, true);

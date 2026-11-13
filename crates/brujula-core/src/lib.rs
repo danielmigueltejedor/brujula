@@ -36,6 +36,7 @@ pub mod spaces;
 pub mod suggest;
 pub mod sync;
 pub mod tabs;
+pub mod totp;
 pub mod vault;
 pub mod webapps;
 pub mod welcome;
