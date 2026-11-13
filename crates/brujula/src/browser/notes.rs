@@ -76,6 +76,9 @@ impl Browser {
     }
 
     pub(super) fn save_notes(&self) {
+        if self.private {
+            return;
+        }
         let _ = paths::write_atomic(&paths::notes_file(), &self.notes.borrow().to_json());
     }
 

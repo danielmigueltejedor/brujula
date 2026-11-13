@@ -1,6 +1,7 @@
 //! What the Spotlight offers for what the user has typed.
 
 use crate::bookmarks::Bookmark;
+use crate::history::Visit;
 use crate::omnibox;
 use crate::tabs::{Tab, TabId};
 
@@ -23,6 +24,7 @@ pub enum Kind {
     Typed,
     Tab,
     Bookmark,
+    History,
     Setting,
 }
 
@@ -36,6 +38,7 @@ pub struct Suggestion {
 
 const MAX_TABS: usize = 6;
 const MAX_BOOKMARKS: usize = 5;
+const MAX_HISTORY: usize = 4;
 const MAX_IDLE_BOOKMARKS: usize = 6;
 const MAX_SETTINGS: usize = 4;
 
@@ -84,6 +87,18 @@ pub fn suggestions(
     query: &str,
     tabs: &[Tab],
     bookmarks: &[Bookmark],
+    search_template: &str,
+) -> Vec<Suggestion> {
+    suggestions_with_history(query, tabs, bookmarks, &[], search_template)
+}
+
+/// Like [`suggestions`], with the pages visited before as one more source: they come after the
+/// bookmarks, and never repeat a page that is a tab, a bookmark or what was typed.
+pub fn suggestions_with_history(
+    query: &str,
+    tabs: &[Tab],
+    bookmarks: &[Bookmark],
+    history: &[&Visit],
     search_template: &str,
 ) -> Vec<Suggestion> {
     let q = query.trim();
@@ -159,6 +174,30 @@ pub fn suggestions(
             .filter(|b| !open_urls.contains(&b.url))
             .take(MAX_BOOKMARKS)
             .map(bookmark),
+    );
+    let shown: Vec<String> = out
+        .iter()
+        .filter_map(|o| match &o.action {
+            Action::Go(u) => Some(u.trim_end_matches('/').to_owned()),
+            _ => None,
+        })
+        .chain(open_urls.iter().map(|u| u.trim_end_matches('/').to_owned()))
+        .collect();
+    out.extend(
+        history
+            .iter()
+            .filter(|h| !shown.contains(&h.url.trim_end_matches('/').to_owned()))
+            .take(MAX_HISTORY)
+            .map(|h| Suggestion {
+                kind: Kind::History,
+                action: Action::Go(h.url.clone()),
+                title: if h.title.is_empty() {
+                    h.url.clone()
+                } else {
+                    h.title.clone()
+                },
+                detail: h.url.clone(),
+            }),
     );
     out.append(&mut settings_matches(q));
     out
@@ -278,6 +317,48 @@ mod tests {
         let rows = |k: Kind| s.iter().filter(|x| x.kind == k).count();
         assert_eq!(rows(Kind::Tab), 1);
         assert_eq!(rows(Kind::Bookmark), 1);
+    }
+
+    fn visit(url: &str, title: &str) -> Visit {
+        Visit {
+            url: url.into(),
+            title: title.into(),
+            visits: 1,
+            last: 1,
+        }
+    }
+
+    #[test]
+    fn visited_pages_follow_bookmarks_and_are_not_repeated() {
+        let marks = [bm("https://rust-lang.org/", "Rust")];
+        let tabs = [tab(1, "GTK", "https://gtk.org/")];
+        let (a, b, c) = (
+            visit("https://rust-lang.org", "Rust"),
+            visit("https://gtk.org/", "GTK"),
+            visit("https://rust.example/blog", "Rust blog"),
+        );
+        let s = suggestions_with_history("rust", &tabs, &marks, &[&a, &c], T);
+        let history: Vec<_> = s.iter().filter(|x| x.kind == Kind::History).collect();
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history[0].action,
+            Action::Go("https://rust.example/blog".into())
+        );
+        let s = suggestions_with_history("gtk", &tabs, &[], &[&b], T);
+        assert!(s.iter().all(|x| x.kind != Kind::History));
+    }
+
+    #[test]
+    fn visited_pages_are_limited() {
+        let pages: Vec<Visit> = (0..10)
+            .map(|i| visit(&format!("https://r{i}.example/"), "Rust"))
+            .collect();
+        let refs: Vec<&Visit> = pages.iter().collect();
+        let s = suggestions_with_history("rust", &[], &[], &refs, T);
+        assert_eq!(
+            s.iter().filter(|x| x.kind == Kind::History).count(),
+            MAX_HISTORY
+        );
     }
 
     #[test]

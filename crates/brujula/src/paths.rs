@@ -32,6 +32,10 @@ pub fn archive_file() -> PathBuf {
     data_dir().join("archive.json")
 }
 
+pub fn history_file() -> PathBuf {
+    data_dir().join("history.json")
+}
+
 pub fn notes_file() -> PathBuf {
     data_dir().join("notes.json")
 }

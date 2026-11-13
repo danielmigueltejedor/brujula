@@ -213,6 +213,9 @@ impl Settings {
             "https_first" => {
                 self.https_first = flag(value)?;
             }
+            "history_enabled" => {
+                self.history_enabled = flag(value)?;
+            }
             "sleep_after" => {
                 let minutes = number(value)?;
                 if !crate::settings::SLEEP_CHOICES.contains(&minutes) {
@@ -462,6 +465,10 @@ pub struct Extras {
     pub boosts: Vec<(String, bool, String)>,
     /// The Chromium extensions that are installed.
     pub extensions: Vec<ExtItem>,
+    /// The pages visited last: address and title, newest first.
+    pub history: Vec<(String, String)>,
+    /// How many pages the history holds in all.
+    pub history_total: usize,
 }
 
 /// An installed extension, as the page lists it.
@@ -516,6 +523,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Marcadores",
         "Las páginas que guardaste con la estrella.",
         "bookmark",
+    ),
+    (
+        "history",
+        "Historial",
+        "Historial",
+        "Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.",
+        "history",
     ),
     (
         "boosts",
@@ -631,6 +645,45 @@ fn boosts_section(view: &Extras) -> String {
         })
         .collect();
     section("boosts", &format!("{add}{cards}"))
+}
+
+/// How many pages of history the page lists; the rest are still kept.
+const HISTORY_SHOWN: usize = 100;
+
+/// The history: the switch, ways to clear it, and the pages visited last.
+fn history_section(s: &Settings, view: &Extras) -> String {
+    let controls = [
+        row(
+            "Guardar el historial",
+            "Si lo apagas, las páginas nuevas no se guardan. Las que ya hay siguen hasta que las borres.",
+            &switch("history_enabled", s.history_enabled),
+        ),
+        row(
+            "Borrar",
+            &format!("Ahora hay {} páginas guardadas.", view.history_total),
+            r#"<button type="button" class="seg plain danger" data-k="history.clear" data-v="hour" data-redraw="1">La última hora</button><button type="button" class="seg plain danger" data-k="history.clear" data-v="day" data-redraw="1">Últimas 24 horas</button><button type="button" class="seg plain danger" data-k="history.clear" data-v="all" data-redraw="1">Todo</button>"#,
+        ),
+    ]
+    .concat();
+    let items: String = view
+        .history
+        .iter()
+        .take(HISTORY_SHOWN)
+        .map(|(url, title)| {
+            let u = escape(url);
+            let name = if title.is_empty() { url } else { title };
+            format!(
+                r#"<div class="row"><div class="what"><b>{name}</b><p>{u}</p></div><div class="ctl"><button type="button" class="seg plain danger" data-k="history.remove" data-v="{u}" data-remove="1">Quitar</button></div></div>"#,
+                name = escape(name),
+            )
+        })
+        .collect();
+    let empty = if view.history.is_empty() {
+        r#"<p class="empty">Todavía no hay páginas guardadas.</p>"#
+    } else {
+        ""
+    };
+    section("history", &format!("{controls}{items}{empty}"))
 }
 
 /// The extensions: ways to add one, and a card for each that is installed.
@@ -1096,6 +1149,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let sync_section = sync_section(s, sync);
     let archive_section = archive_section(s, sync);
     let boosts_section = boosts_section(sync);
+    let history_section = history_section(s, sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1147,7 +1201,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1195,6 +1249,16 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Marcadores",
         "favoritos marcadores guardados estrella",
         "bookmarks",
+    ),
+    (
+        "Historial",
+        "historial visitadas recientes borrar navegación pasado",
+        "history",
+    ),
+    (
+        "Ventana privada",
+        "privado privada incógnito incognito sin rastro navegación",
+        "history",
     ),
     (
         "Boosts",

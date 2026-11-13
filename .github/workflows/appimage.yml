@@ -1,0 +1,66 @@
+name: AppImage
+# Builds the Linux AppImage of a release and attaches it, with its SHA-256, to that release.
+# It is built on Arch because Brújula needs GTK 4.20+ and WebKitGTK 6.0, which no Ubuntu runner
+# has; the image runs on distributions whose glibc is as new as Arch's (Arch, CachyOS, Nodalix).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to attach the AppImage to (for example v0.1.0)"
+        required: true
+permissions:
+  contents: read
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    container:
+      image: archlinux:latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Install the build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git rust gtk4 webkitgtk-6.0 libsoup3 \
+            glib-networking librsvg patchelf file desktop-file-utils github-cli
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build
+        run: cargo build --release --locked -p brujula
+      - name: Fetch the packaging tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          curl -fsSLO https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh -o linuxdeploy-plugin-gtk.sh
+          curl -fsSLO https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x ./*
+      - name: Package
+        env:
+          VERSION: ${{ env.TAG }}
+        run: |
+          export TOOLS="$RUNNER_TEMP/tools" PATH="$RUNNER_TEMP/tools:$PATH" VERSION="${TAG#v}"
+          packaging/appimage/build.sh dist
+      - name: Check that it starts
+        run: |
+          pacman -S --noconfirm --needed xorg-server-xvfb
+          image=$(ls dist/Brujula-*-x86_64.AppImage)
+          chmod +x "$image"
+          export APPIMAGE_EXTRACT_AND_RUN=1 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 NO_AT_BRIDGE=1
+          xvfb-run -a timeout 20 "$image" about:blank > start.log 2>&1 || status=$?
+          cat start.log
+          # timeout ends a window that stays open with 124; anything else is a failure to start.
+          [ "${status:-0}" = 124 ] || { echo "the AppImage did not stay open (exit ${status:-0})"; exit 1; }
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum Brujula-*-x86_64.AppImage > SHA256SUMS
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release upload "$TAG" Brujula-*-x86_64.AppImage SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

@@ -10,6 +10,9 @@ impl Browser {
     }
 
     pub(super) fn save_bookmarks(&self) {
+        if self.private {
+            return;
+        }
         let _ = paths::write_atomic(&paths::bookmarks_file(), &self.bookmarks.borrow().to_json());
     }
 

@@ -169,6 +169,9 @@ impl Browser {
     }
 
     pub(super) fn save_extensions(&self) {
+        if self.private {
+            return;
+        }
         let json = self.ext.borrow().registry.to_json();
         if let Err(e) = paths::write_atomic(&paths::extensions_file(), &json) {
             eprintln!("brujula: could not save the extensions: {e}");

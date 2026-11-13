@@ -244,6 +244,8 @@ pub struct Settings {
     pub sleep_after_minutes: u32,
     /// Try `https://` first for public sites that were asked for over plain HTTP.
     pub https_first: bool,
+    /// Remember the pages visited (never in a private window).
+    pub history_enabled: bool,
 }
 
 /// The times the user can choose to archive after, in hours (0 is never).
@@ -268,6 +270,7 @@ impl Default for Settings {
             archive_after_hours: 24,
             sleep_after_minutes: 30,
             https_first: true,
+            history_enabled: true,
         }
     }
 }

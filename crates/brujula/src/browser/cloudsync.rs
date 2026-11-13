@@ -110,7 +110,10 @@ impl Browser {
     /// What the preferences page shows about the accounts and the last round.
     pub(super) fn extras(&self) -> prefs::Extras {
         let home = home();
+        let (history, history_total) = self.history_view();
         prefs::Extras {
+            history,
+            history_total,
             folders: offered_folders(),
             accounts: accounts()
                 .iter()

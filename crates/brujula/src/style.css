@@ -76,3 +76,7 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-folder-count { font-size: var(--ndl-font-size-small); }
 .brujula-in-folder .brujula-tab { padding-left: calc(var(--ndl-space-md) + 14px); }
 .brujula-newfolder { min-width: 28px; min-height: 28px; margin-right: var(--ndl-space-xs); }
+
+/* The mark of a private window: it keeps nothing. */
+.brujula-privatebadge{padding:2px 10px;margin-left:4px;margin-right:4px;border-radius:99px;background:alpha(#fff,0.22);color:#fff;font-weight:600;font-size:0.85em;}
+.brujula-private .brujula-side{background:alpha(#7a5af8,0.18);}
