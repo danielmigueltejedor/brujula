@@ -104,3 +104,7 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-who-face { border-radius: 50%; transition: transform 140ms ease; }
 .brujula-who:hover .brujula-who-face { transform: scale(1.06); }
 .brujula-who-name { font-size: 1.2em; font-weight: 500; }
+
+/* A page shown full screen fills the window: no frame, no rounded corners. */
+.brujula-fullscreen .brujula-page { border-radius: 0; }
+.brujula-fullscreen ndl-overlay-split-view > .ndl-content-pane { margin: 0; border-radius: 0; }

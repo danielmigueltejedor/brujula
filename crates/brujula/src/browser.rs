@@ -1228,6 +1228,9 @@ impl Browser {
         let this = Rc::downgrade(self);
         motion.connect_motion(move |_, x, _| {
             let Some(b) = this.upgrade() else { return };
+            if b.window.has_css_class("brujula-fullscreen") {
+                return;
+            }
             let (floating, wakes, width) = {
                 let s = b.settings.borrow();
                 (
@@ -1603,6 +1606,27 @@ impl Browser {
                     b.sync_row(id);
                 }
             }
+        });
+        // A video (or anything else) that asks for the full screen gets the whole window: the
+        // sidebar, the bars and the frame go away until it is over. The default handler of the
+        // web view then makes the window itself full screen.
+        let this = Rc::downgrade(self);
+        view.connect_enter_fullscreen(move |v| {
+            if let Some(b) = this.upgrade() {
+                if b.current_view().as_ref() == Some(v) {
+                    b.set_web_fullscreen(true);
+                }
+            }
+            false
+        });
+        let this = Rc::downgrade(self);
+        view.connect_leave_fullscreen(move |v| {
+            if let Some(b) = this.upgrade() {
+                if b.current_view().as_ref() == Some(v) {
+                    b.set_web_fullscreen(false);
+                }
+            }
+            false
         });
         let this = Rc::downgrade(self);
         view.connect_estimated_load_progress_notify(move |v| {
@@ -2427,6 +2451,26 @@ impl Browser {
             self.window.add_css_class("brujula-frame");
         } else {
             self.window.remove_css_class("brujula-frame");
+        }
+    }
+
+    /// Hides everything around the page while a page is shown full screen, and puts it back
+    /// when it leaves.
+    fn set_web_fullscreen(&self, on: bool) {
+        if on {
+            self.window.add_css_class("brujula-fullscreen");
+            self.split.set_collapsed(true);
+            self.split.set_show_sidebar(false);
+            self.left_hot.set_visible(false);
+            self.top_hot.set_visible(false);
+            self.bar_revealer.set_reveal_child(false);
+            self.bar_revealer.set_visible(false);
+            self.topbar.set_visible(false);
+            self.ess.rail.set_visible(false);
+        } else {
+            self.window.remove_css_class("brujula-fullscreen");
+            self.bar_revealer.set_visible(true);
+            self.apply_layout();
         }
     }
 
