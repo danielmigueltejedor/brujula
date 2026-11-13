@@ -108,3 +108,10 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* A page shown full screen fills the window: no frame, no rounded corners. */
 .brujula-fullscreen .brujula-page { border-radius: 0; }
 .brujula-fullscreen ndl-overlay-split-view > .ndl-content-pane { margin: 0; border-radius: 0; }
+
+/* Dragging a tile of the essentials: a line on the side where it will land. */
+.brujula-ess.brujula-dragging { opacity: .5; }
+.brujula-ess.brujula-ess-before { box-shadow: inset 3px 0 0 var(--ndl-color-accent-default); }
+.brujula-ess.brujula-ess-after { box-shadow: inset -3px 0 0 var(--ndl-color-accent-default); }
+.brujula-rail .brujula-ess.brujula-ess-before { box-shadow: inset 0 3px 0 var(--ndl-color-accent-default); }
+.brujula-rail .brujula-ess.brujula-ess-after { box-shadow: inset 0 -3px 0 var(--ndl-color-accent-default); }

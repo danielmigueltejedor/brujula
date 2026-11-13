@@ -67,8 +67,17 @@ impl Browser {
         row.add_controller(source);
 
         let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
+        target.set_preload(true);
         let over = row.clone();
-        target.connect_motion(move |_, _, y| {
+        target.connect_motion(move |t, _, y| {
+            // Only a tab (its number) can be dropped here, not a tile of the essentials.
+            let a_tab = t
+                .value()
+                .and_then(|v| v.get::<String>().ok())
+                .is_some_and(|text| text.parse::<u64>().is_ok());
+            if !a_tab {
+                return gdk::DragAction::empty();
+            }
             let after = after_half(y, over.height());
             over.add_css_class(if after {
                 "brujula-drop-after"

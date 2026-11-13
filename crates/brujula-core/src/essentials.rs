@@ -226,6 +226,23 @@ impl Essentials {
         let item = self.list.remove(i);
         self.list.insert(to, item);
     }
+
+    /// Puts `id` right before (or, with `after`, right after) `target`: what dragging a tile
+    /// onto another does. Nothing changes if either is not in the list or they are the same.
+    pub fn move_next_to(&mut self, id: u32, target: u32, after: bool) {
+        if id == target || !self.list.iter().any(|e| e.id == target) {
+            return;
+        }
+        let Some(i) = self.list.iter().position(|e| e.id == id) else {
+            return;
+        };
+        let item = self.list.remove(i);
+        let Some(at) = self.list.iter().position(|e| e.id == target) else {
+            self.list.insert(i, item);
+            return;
+        };
+        self.list.insert(if after { at + 1 } else { at }, item);
+    }
 }
 
 #[cfg(test)]
@@ -283,6 +300,26 @@ mod tests {
         assert_eq!(ids, vec![c, b, a]);
         e.shift(b, -5);
         assert_eq!(e.items()[0].id, b);
+    }
+
+    #[test]
+    fn a_tile_dropped_on_another_lands_before_or_after_it() {
+        let mut e = Essentials::default();
+        let a = e.add("a", "a.example").unwrap();
+        let b = e.add("b", "b.example").unwrap();
+        let c = e.add("c", "c.example").unwrap();
+        let d = e.add("d", "d.example").unwrap();
+        let order = |e: &Essentials| e.items().iter().map(|x| x.id).collect::<Vec<_>>();
+        e.move_next_to(a, c, true);
+        assert_eq!(order(&e), vec![b, c, a, d]);
+        e.move_next_to(d, b, false);
+        assert_eq!(order(&e), vec![d, b, c, a]);
+        e.move_next_to(b, b, true);
+        e.move_next_to(b, 999, true);
+        e.move_next_to(999, b, true);
+        assert_eq!(order(&e), vec![d, b, c, a]);
+        e.move_next_to(d, a, true);
+        assert_eq!(order(&e), vec![b, c, a, d]);
     }
 
     #[test]
