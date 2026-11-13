@@ -295,7 +295,8 @@ impl Browser {
     fn welcome_finish(self: &Rc<Self>, view: &WebView, f: Finish) {
         let mut profiles = crate::profiles::load();
         if profiles.is_empty() {
-            match profiles.add(&f.name, &f.avatar, &f.password) {
+            let password = (!f.password.is_empty()).then_some(f.password.as_str());
+            match profiles.add(&f.name, &f.avatar, password) {
                 Some(_) => {
                     if crate::profiles::save(&profiles).is_err() {
                         self.essential_alert(
