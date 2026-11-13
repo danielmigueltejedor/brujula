@@ -42,6 +42,8 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 
 - **Rápido y ligero**: WebKit, pestañas que se duermen solas, la sesión se carga bajo demanda.
 - **Seguro**: HTTPS primero, certificados malos nunca se saltan, descargas ejecutables bloqueadas, permisos denegados por defecto, ITP activado.
+- **Esenciales**: los sitios de todos los días (YouTube, Discord, correo…) como iconos en la barra lateral, en todos los espacios.
+- **Bienvenida y perfiles**: la primera vez, un asistente (en el idioma del sistema) importa marcadores de Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, Zen… o de un archivo, ofrece hacerlo navegador predeterminado y elegir esenciales, y crea tu usuario. Cada persona del equipo puede tener su perfil (marcadores, pestañas, contraseñas y ajustes aparte) y se elige al abrir, como en una plataforma de vídeo. La contraseña de un perfil solo protege el selector: no cifra sus archivos.
 - **Bloqueador de anuncios** con listas EasyList, EasyPrivacy y uBlock (reglas de red de WebKit, reglas cosméticas y scriptlets), activable por sitio.
 - **Personalizable**: tema, acento, marco con degradados, redondeo, separación, disposición (islas, marco, vertical, horizontal), espacios con icono, Boosts (CSS por sitio), buscador a elegir.
 - **Extensiones de Chromium**: scripts de contenido, fondo, ventana emergente, opciones, almacenamiento, mensajes, reglas de bloqueo… Se instalan desde una carpeta, un `.crx` o la Chrome Web Store, con un aviso de permisos. No todas las extensiones funcionarán: ver [docs/brujula-rust.md](docs/brujula-rust.md).
@@ -82,6 +84,10 @@ cargo install --path crates/brujula --root ~/.local --locked
   <tr>
     <td><img src="./docs/screenshots/passwords.webp" alt="Contraseñas"></td>
     <td><img src="./docs/screenshots/webapps.webp" alt="Aplicaciones web"></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/screenshots/welcome.webp" alt="Asistente de bienvenida"></td>
+    <td><img src="./docs/screenshots/profiles.webp" alt="Perfiles en Preferencias"></td>
   </tr>
 </table>
 

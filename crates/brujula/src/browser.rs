@@ -9,7 +9,6 @@ use brujula_core::appearance;
 use brujula_core::archive::Archive;
 use brujula_core::bookmarks::now_ms;
 use brujula_core::bookmarks::Bookmarks;
-use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
 use brujula_core::folders::{Folders, NO_FOLDER};
 use brujula_core::history::History;
@@ -26,6 +25,7 @@ use brujula_core::settings::{
 use brujula_core::spaces::Spaces;
 use brujula_core::suggest::{self, Action, Kind};
 use brujula_core::tabs::{Change, TabId, TabModel};
+use brujula_core::welcome::WELCOME_URI;
 use gtk::gdk;
 use gtk::gio;
 use gtk::glib;
@@ -37,6 +37,7 @@ use webkit6::{
     UserContentManager, WebView,
 };
 
+use crate::dialogs;
 use crate::favicons;
 use crate::filters::Filters;
 use crate::paths;
@@ -45,6 +46,8 @@ use crate::spotlight::{Item, Spotlight};
 mod archive;
 mod boosts;
 mod cloudsync;
+mod downloads_panel;
+mod essentials;
 mod ext;
 mod ext_api;
 mod ext_install;
@@ -55,12 +58,39 @@ mod history;
 mod notes;
 mod passwords;
 mod peek;
+mod profiles_ui;
 mod sleep;
 mod split;
 mod system_theme;
 mod webapps;
+mod welcome;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
+
+fn append_popover_entry(
+    browser: &Rc<Browser>,
+    popover: &gtk::Popover,
+    column: &gtk::Box,
+    label: &str,
+    handler: Handler,
+) {
+    let button = gtk::Button::builder()
+        .label(label)
+        .css_classes(["flat"])
+        .build();
+    if let Some(label) = button.child().and_downcast::<gtk::Label>() {
+        label.set_xalign(0.0);
+    }
+    let browser = Rc::downgrade(browser);
+    let popover = popover.clone();
+    button.connect_clicked(move |_| {
+        popover.popdown();
+        if let Some(browser) = browser.upgrade() {
+            handler(&browser);
+        }
+    });
+    column.append(&button);
+}
 
 const CSS: &str = include_str!("style.css");
 
@@ -258,6 +288,11 @@ pub struct Browser {
     folder_rows: RefCell<HashMap<u32, folders::FolderRow>>,
     /// The button that makes a folder.
     folder_button: gtk::Button,
+    /// The sites kept as icons at the top of the sidebar.
+    essentials: RefCell<brujula_core::essentials::Essentials>,
+    ess: essentials::EssentialsUi,
+    /// The downloads button and its panel.
+    dl: downloads_panel::DownloadsUi,
     /// Opens the notepad of the space in front.
     notes_button: gtk::Button,
     notes: RefCell<brujula_core::notes::Notes>,
@@ -343,9 +378,15 @@ pub struct Browser {
 
 impl Browser {
     fn new(app: &gtk::Application, private: bool) -> Rc<Self> {
-        let settings = std::fs::read_to_string(paths::settings_file())
+        let first_run = !paths::settings_file().exists();
+        let mut settings = std::fs::read_to_string(paths::settings_file())
             .map(|t| Settings::from_json(&t))
             .unwrap_or_default();
+        // Settings saved before the welcome page existed count as having seen it; a profile
+        // that has never been opened has not.
+        if first_run && !private {
+            settings.welcome_done = false;
+        }
 
         let session = if private {
             // Cookies, cache and storage live in memory and go with the window.
@@ -368,11 +409,19 @@ impl Browser {
         let filters = Filters::new(ucm.clone());
 
         let window = ndl::ApplicationWindow::new(app);
-        window.set_title(Some(if private {
-            "Brújula · Privado"
+        let title = if private {
+            "Brújula · Privado".to_owned()
+        } else if paths::profile() != brujula_core::profiles::DEFAULT_ID {
+            // Windows of different people must be told apart.
+            let profiles = crate::profiles::load();
+            match profiles.get(paths::profile()) {
+                Some(p) => format!("Brújula · {}", p.name),
+                None => "Brújula".to_owned(),
+            }
         } else {
-            "Brújula"
-        }));
+            "Brújula".to_owned()
+        };
+        window.set_title(Some(&title));
         if private {
             window.add_css_class("brujula-private");
         }
@@ -393,6 +442,9 @@ impl Browser {
             .css_classes(["flat", "brujula-newfolder"])
             .tooltip_text("Notas de este espacio")
             .build();
+        // The menu is the first button of the top row and the notes sit next to it, which leaves
+        // the row under it for the buttons of the page.
+        side_header.pack_start(&side_chrome.menu);
         side_header.pack_start(&notes_button);
         if private {
             let badge = gtk::Label::new(Some("Privado"));
@@ -419,7 +471,6 @@ impl Browser {
         nav.append(&side_chrome.star);
         nav.append(&side_chrome.ext);
         nav.append(&side_chrome.shield);
-        nav.append(&side_chrome.menu);
 
         side_chrome.url_button.set_margin_start(8);
         side_chrome.url_button.set_margin_end(8);
@@ -458,6 +509,8 @@ impl Browser {
         side.append(&side_header);
         side.append(&nav);
         side.append(&side_chrome.url_button);
+        let ess = essentials::EssentialsUi::new();
+        side.append(&ess.grid);
         side.append(&scroller);
         let folder_button = gtk::Button::builder()
             .icon_name("ndl-folder-plus-symbolic")
@@ -465,7 +518,10 @@ impl Browser {
             .tooltip_text("Nueva carpeta")
             .build();
         new_tab.set_hexpand(true);
+        let dl = downloads_panel::DownloadsUi::new();
         let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bottom.set_margin_start(8);
+        bottom.append(&dl.slot_side);
         bottom.append(&new_tab);
         bottom.append(&folder_button);
         bottom.set_margin_end(8);
@@ -550,6 +606,7 @@ impl Browser {
         top_nav.append(&top_chrome.star);
         top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
+        top_nav.append(&dl.slot_top);
         top_nav.append(&top_chrome.menu);
         let top_header = ndl::HeaderBar::new();
         top_header.set_show_start_title_buttons(false);
@@ -570,10 +627,16 @@ impl Browser {
         topbar.append(&top_header);
         topbar.append(&tabs_row);
         topbar.set_visible(false);
+        // With the tabs on top the essentials sit in a slim column left of the page.
+        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        body.append(&ess.rail);
+        body.append(&page);
+        page.set_hexpand(true);
+        page.set_vexpand(true);
         let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
         column.append(&topbar);
-        column.append(&page);
-        page.set_vexpand(true);
+        column.append(&body);
+        body.set_vexpand(true);
 
         let toolbar = ndl::ToolbarView::new();
         toolbar.set_content(Some(&column));
@@ -638,6 +701,9 @@ impl Browser {
             folders: RefCell::new(Folders::default()),
             folder_rows: RefCell::new(HashMap::new()),
             folder_button,
+            essentials: RefCell::new(essentials::load()),
+            ess,
+            dl,
             notes_button,
             notes: RefCell::new(notes::load()),
             notes_save_queued: Cell::new(false),
@@ -712,6 +778,8 @@ impl Browser {
         this.watch_system_theme();
         this.apply_layout();
         this.wire();
+        this.wire_downloads();
+        this.refresh_essentials();
         this
     }
 
@@ -809,6 +877,7 @@ impl Browser {
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
+        action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
             "open-extensions",
             Box::new(|b| b.open_settings(Some("extensions"))),
@@ -1024,9 +1093,12 @@ impl Browser {
                     .strip_prefix("folder-")
                     .and_then(|n| n.parse::<u32>().ok());
                 return match (folder, b.model.try_borrow(), b.folders.try_borrow()) {
-                    (Some(f), Ok(model), Ok(folders)) => folders
-                        .get(f)
-                        .is_none_or(|f| f.space == model.current_space()),
+                    (Some(f), Ok(model), Ok(folders)) => {
+                        folders
+                            .get(f)
+                            .is_none_or(|f| f.space == model.current_space())
+                            && folders.shown(f)
+                    }
                     _ => true,
                 };
             };
@@ -1041,7 +1113,8 @@ impl Browser {
                 // Folded away, unless it is the tab in front.
                 match folders.folder_of(t.folder, t.space, &t.url, &t.title) {
                     Some(f) => {
-                        model.selected() == Some(t.id) || folders.get(f).is_none_or(|f| f.open)
+                        model.selected() == Some(t.id)
+                            || (folders.get(f).is_none_or(|f| f.open) && folders.shown(f))
                     }
                     None => true,
                 }
@@ -1315,7 +1388,10 @@ impl Browser {
         for u in urls {
             self.open_tab(u, None, true);
         }
-        if self.model.borrow().is_empty() {
+        if self.needs_welcome() {
+            // The first thing a person sees; the new-tab page waits behind it.
+            self.open_tab(WELCOME_URI, None, true);
+        } else if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
         }
     }
@@ -1362,7 +1438,7 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) -> TabId {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
-        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI {
+        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI || url == WELCOME_URI {
             url.to_owned()
         } else {
             let template = self.settings.borrow().search_template().to_owned();
@@ -1464,6 +1540,7 @@ impl Browser {
                 // The icons are kept on disk by host: a private window leaves none.
                 if let (Some(tex), Some(uri), false) = (v.favicon(), v.uri(), b.private) {
                     favicons::remember(&uri, &tex);
+                    b.schedule_essentials();
                 }
                 if let Some(id) = b.id_of(v) {
                     b.sync_row(id);
@@ -1609,6 +1686,7 @@ impl Browser {
             if !uri.starts_with("brujula://")
                 || uri == newtab::NEWTAB_URI
                 || uri == prefs::SETTINGS_URI
+                || uri == WELCOME_URI
             {
                 return false;
             }
@@ -1620,6 +1698,12 @@ impl Browser {
             if page == prefs::SETTINGS_URI {
                 if let Some((key, value)) = prefs::parse_change(&uri) {
                     b.change_setting(&key, &value);
+                }
+                return true;
+            }
+            if page == WELCOME_URI {
+                if let Some(ask) = brujula_core::welcome::parse_action(&uri) {
+                    b.welcome_ask(v, ask);
                 }
                 return true;
             }
@@ -1641,43 +1725,6 @@ impl Browser {
             }
             true
         });
-        // Downloads go to the user's Downloads folder, without a prompt. The page picks the name,
-        // so it is cleaned, and files that can run (scripts, launchers, installers) are refused:
-        // a page must not be able to drop one where a double click would start it.
-        let this = Rc::downgrade(self);
-        self.session.connect_download_started(move |_, download| {
-            let this = this.clone();
-            download.connect_decide_destination(move |d, suggested| {
-                let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
-                    .unwrap_or_else(glib::home_dir);
-                let name = downloads::safe_file_name(suggested);
-                if downloads::is_dangerous(&name) {
-                    d.cancel();
-                    if let Some(b) = this.upgrade() {
-                        gtk::AlertDialog::builder()
-                            .message("Descarga bloqueada")
-                            .detail(format!(
-                                "«{name}» es un archivo que se puede ejecutar. Brújula no lo \
-                                 guarda para que ningún sitio web pueda dejar un programa o script \
-                                 en tu equipo."
-                            ))
-                            .buttons(["Entendido"])
-                            .build()
-                            .show(Some(&b.window));
-                    }
-                    return true;
-                }
-                let mut path = dir.join(&name);
-                let mut n = 1;
-                while path.exists() {
-                    path = dir.join(format!("{n}-{name}"));
-                    n += 1;
-                }
-                d.set_destination(&path.to_string_lossy());
-                true
-            });
-        });
-
         self.stack.add_named(&view, Some(&format!("tab-{}", id.0)));
         self.views.borrow_mut().insert(id, view.clone());
         self.follow_focus(id, &view);
@@ -1685,6 +1732,8 @@ impl Browser {
             self.render_newtab(&view, false);
         } else if url == prefs::SETTINGS_URI {
             self.render_settings(&view);
+        } else if url == WELCOME_URI {
+            self.render_welcome(&view);
         } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
@@ -1760,6 +1809,7 @@ impl Browser {
         if self.horizontal() {
             self.rebuild_strip();
         }
+        self.schedule_essentials();
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
@@ -1870,7 +1920,10 @@ impl Browser {
                 .filter(|t| t.pinned && folder_of(t).is_none())
                 .filter_map(tab_row),
         );
-        for folder in folders.all() {
+        for fid in folders.ordered() {
+            let Some(folder) = folders.get(fid) else {
+                continue;
+            };
             let members: Vec<_> = model
                 .tabs()
                 .iter()
@@ -1895,14 +1948,27 @@ impl Browser {
                 self.list.insert(row, i as i32);
             }
         }
-        // Tabs inside a folder are indented.
+        // Tabs inside a folder are indented, and so are folders inside folders: one step for
+        // each folder that holds them.
+        const STEP: i32 = 14;
         for t in model.tabs() {
             if let Some(r) = rows.get(&t.id) {
-                if folder_of(t).is_some() {
+                let inside = folder_of(t);
+                if inside.is_some() {
                     r.row.add_css_class("brujula-in-folder");
                 } else {
                     r.row.remove_css_class("brujula-in-folder");
                 }
+                if let Some(content) = r.row.child() {
+                    let depth = inside.map_or(0, |f| folders.depth(f));
+                    content.set_margin_start(STEP * i32::try_from(depth).unwrap_or(0));
+                }
+            }
+        }
+        for folder in folders.all() {
+            if let Some(content) = folder_rows.get(&folder.id).and_then(|fr| fr.row.child()) {
+                content
+                    .set_margin_start(STEP * i32::try_from(folders.depth(folder.id)).unwrap_or(0));
             }
         }
         // Moving rows drops the selection in GTK; put it back.
@@ -1940,6 +2006,8 @@ impl Browser {
             tab.title.clone()
         } else if tab.url == prefs::SETTINGS_URI {
             "Preferencias".to_owned()
+        } else if tab.url == WELCOME_URI {
+            "Bienvenida".to_owned()
         } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
@@ -1980,6 +2048,8 @@ impl Browser {
             (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
         } else if tab.url == prefs::SETTINGS_URI {
             ("Preferencias".to_owned(), "ndl-lock-symbolic")
+        } else if tab.url == WELCOME_URI {
+            ("Bienvenida".to_owned(), "ndl-lock-symbolic")
         } else if tab.url.starts_with("https://") {
             (host_of(&tab.url), "ndl-lock-symbolic")
         } else {
@@ -2072,6 +2142,7 @@ impl Browser {
         match view.uri().as_deref() {
             Some(prefs::SETTINGS_URI) => self.render_settings(view),
             Some(newtab::NEWTAB_URI) => self.render_newtab(view, false),
+            Some(WELCOME_URI) => self.render_welcome(view),
             _ => view.reload(),
         }
     }
@@ -2147,6 +2218,14 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("archive.") {
             self.change_archive(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("profile.") {
+            self.change_profile(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("essential.") {
+            self.change_essential(what, value);
             return;
         }
         if key == "bookmark.remove" {
@@ -2256,6 +2335,10 @@ impl Browser {
         }
         drop(s);
         self.set_action_enabled("toggle-sidebar", !horizontal);
+        self.dl.place(horizontal);
+        let has_essentials = !self.essentials.borrow().is_empty();
+        self.ess.grid.set_visible(has_essentials && !horizontal);
+        self.ess.rail.set_visible(has_essentials && horizontal);
     }
 
     /// The blocker was switched, or its lists or sites changed: rules are compiled again. Open
@@ -2316,6 +2399,7 @@ impl Browser {
                 || url == "about:blank"
                 || url == newtab::NEWTAB_URI
                 || url == prefs::SETTINGS_URI
+                || url == WELCOME_URI
         };
         // Tabs open in this space (newest first), then the ones closed lately.
         let mut recent: Vec<newtab::Link> = model
@@ -2401,7 +2485,9 @@ impl Browser {
         let tabs: Vec<_> = model
             .tabs()
             .iter()
-            .filter(|t| t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI)
+            .filter(|t| {
+                t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI && t.url != WELCOME_URI
+            })
             .cloned()
             .collect();
         let marks = self.bookmarks.borrow();
@@ -2503,24 +2589,8 @@ impl Browser {
         pop.set_has_arrow(false);
         pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let this = Rc::downgrade(self);
         let add = |label: &str, f: Handler| {
-            let btn = gtk::Button::builder()
-                .label(label)
-                .css_classes(["flat"])
-                .build();
-            if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
-                l.set_xalign(0.0);
-            }
-            let this = this.clone();
-            let pop = pop.clone();
-            btn.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(b) = this.upgrade() {
-                    f(&b);
-                }
-            });
-            col.append(&btn);
+            append_popover_entry(self, &pop, &col, label, f);
         };
         add(
             if pinned {
@@ -2544,6 +2614,12 @@ impl Browser {
             "Boost de este sitio…",
             Box::new(move |b| b.boost_site_of(id)),
         );
+        if !self.private {
+            add(
+                "Añadir a esenciales",
+                Box::new(move |b| b.add_tab_to_essentials(id)),
+            );
+        }
         // Split view: this tab next to the one in front, or back to one page.
         let in_front = self.model.borrow().selected();
         if self.in_split(id) {
@@ -2570,7 +2646,7 @@ impl Browser {
             .borrow()
             .in_space(space)
             .filter(|f| Some(f.id) != current_folder)
-            .map(|f| (f.id, f.name.clone()))
+            .map(|f| (f.id, folder_path(&self.folders.borrow(), f.id)))
             .collect();
         for (folder, name) in targets {
             add(
@@ -2668,6 +2744,22 @@ impl Browser {
 /// The settings every page of the browser gets: no windows of its own, no local files, no
 /// permissions. Camera, microphone, location, notifications and the like are refused until there
 /// is a prompt to ask the user.
+/// `Trabajo › Proyectos` for a folder inside another.
+fn folder_path(folders: &Folders, id: u32) -> String {
+    let mut names = Vec::new();
+    let mut at = Some(id);
+    while let Some(i) = at {
+        let Some(f) = folders.get(i) else { break };
+        names.push(f.name.clone());
+        at = f.parent;
+        if names.len() > 4 {
+            break;
+        }
+    }
+    names.reverse();
+    names.join(" › ")
+}
+
 fn harden(view: &WebView) {
     harden_settings(view);
     view.connect_permission_request(|_, request| {
@@ -2724,6 +2816,7 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     opts.append(Some("Extensiones"), Some("win.open-extensions"));
+    opts.append(Some("Añadir a esenciales"), Some("win.add-essential"));
     opts.append(
         Some("Instalar como aplicación web…"),
         Some("win.install-webapp"),

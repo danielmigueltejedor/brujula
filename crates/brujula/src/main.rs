@@ -1,9 +1,12 @@
 mod browser;
+mod dialogs;
 mod favicons;
 mod filters;
 mod icons;
 mod paths;
+mod profiles;
 mod spotlight;
+mod tile;
 mod webapp;
 
 use gtk::prelude::*;
@@ -30,8 +33,40 @@ fn main() -> gtk::glib::ExitCode {
     gtk::glib::set_prgname(Some("brujula"));
     gtk::glib::set_application_name("Brújula");
 
+    // `brujula --profile <id>` runs as that profile. Without it, and when there is more than one
+    // person (or the only profile has a password), the chooser asks who is browsing first.
+    match args.iter().position(|a| a == "--profile") {
+        Some(at) => {
+            if let Some(id) = args.get(at + 1) {
+                paths::set_profile(id);
+            }
+        }
+        None => {
+            let profiles = profiles::load();
+            let private = args.iter().any(|a| a == "--private" || a == "-p");
+            if !private && profiles::needs_chooser(&profiles) {
+                let Some(id) = profiles::choose(profiles) else {
+                    return gtk::glib::ExitCode::SUCCESS;
+                };
+                // The browser itself starts again as that profile: its application id, its
+                // folders and its windows are all decided before it starts.
+                use std::os::unix::process::CommandExt;
+                if let Ok(exe) = std::env::current_exe() {
+                    let error = std::process::Command::new(exe)
+                        .arg("--profile")
+                        .arg(&id)
+                        .args(&args[1..])
+                        .exec();
+                    eprintln!("brujula: could not start the profile: {error}");
+                    return gtk::glib::ExitCode::FAILURE;
+                }
+                paths::set_profile(&id);
+            }
+        }
+    }
+
     let app = gtk::Application::builder()
-        .application_id(paths::APP_ID)
+        .application_id(paths::app_id())
         .flags(gtk::gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
@@ -54,6 +89,15 @@ fn main() -> gtk::glib::ExitCode {
         gtk::glib::OptionArg::None,
         "Abre una ventana privada",
         None,
+    );
+    // Accepted here so the option parser does not refuse it; `main` read it before.
+    app.add_main_option(
+        "profile",
+        gtk::glib::Char::from(0),
+        gtk::glib::OptionFlags::NONE,
+        gtk::glib::OptionArg::String,
+        "Abre Brújula con ese perfil",
+        Some("ID"),
     );
     app.connect_handle_local_options(|app, options| {
         if !options.contains("private") {

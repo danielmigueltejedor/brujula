@@ -6,6 +6,8 @@
 //! [`Settings::apply`], so the page, a hand-typed address or a crafted link can only ever set
 //! something inside the allowed range.
 
+use std::sync::LazyLock;
+
 use crate::adblock::DEFAULT_LISTS;
 use crate::bookmarks::Bookmarks;
 use crate::icons;
@@ -476,6 +478,13 @@ pub struct Extras {
     pub vault: VaultView,
     /// The web apps: id, name and address.
     pub webapps: Vec<(String, String, String)>,
+    /// The essentials: id, name and address.
+    pub essentials: Vec<(u32, String, String)>,
+    /// The profiles: id, name, avatar and whether a password locks it. Empty until a second one
+    /// is made or the welcome page made the first.
+    pub profiles: Vec<(String, String, String, bool)>,
+    /// The id of the profile this window runs as.
+    pub profile: String,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -506,120 +515,45 @@ pub struct ExtItem {
 }
 
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
-const PAGES: &[(&str, &str, &str, &str, &str)] = &[
-    (
-        "general",
-        "General",
-        "General",
-        "El buscador que usa Brújula en todas partes.",
-        "settings",
-    ),
-    (
-        "appearance",
-        "Apariencia",
-        "Apariencia",
-        "Tema, colores y formas. Los cambios se ven al momento.",
-        "palette",
-    ),
-    (
-        "layout",
-        "Diseño",
-        "Diseño",
-        "Cómo se reparten la barra lateral, las pestañas y la web.",
-        "layout",
-    ),
-    (
-        "spaces",
-        "Espacios",
-        "Espacios",
-        "Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.",
-        "workspace",
-    ),
-    (
-        "bookmarks",
-        "Marcadores",
-        "Marcadores",
-        "Las páginas que guardaste con la estrella.",
-        "bookmark",
-    ),
-    (
-        "history",
-        "Historial",
-        "Historial",
-        "Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.",
-        "history",
-    ),
-    (
-        "passwords",
-        "Contraseñas",
-        "Contraseñas",
-        "Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.",
-        "lock",
-    ),
-    (
-        "webapps",
-        "Aplicaciones web",
-        "Aplicaciones web",
-        "Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».",
-        "globe",
-    ),
-    (
-        "boosts",
-        "Boosts",
-        "Boosts",
-        "Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.",
-        "sparkle",
-    ),
-    (
-        "extensions",
-        "Extensiones",
-        "Extensiones",
-        "Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.",
-        "blocks",
-    ),
-    (
-        "archive",
-        "Archivo",
-        "Archivo",
-        "Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.",
-        "clock",
-    ),
-    (
-        "sync",
-        "Sincronización",
-        "Sincronización",
-        "Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.",
-        "cloud",
-    ),
-    (
-        "privacy",
-        "Privacidad",
-        "Privacidad",
-        "Bloqueador de anuncios y rastreadores.",
-        "shield-check",
-    ),
-    (
-        "sites",
-        "Sitios",
-        "Sitios sin bloqueador",
-        "Páginas donde el bloqueador está apagado.",
-        "globe",
-    ),
-    (
-        "security",
-        "Seguridad",
-        "Seguridad",
-        "Lo que Brújula hace por ti sin preguntar.",
-        "lock",
-    ),
-    (
-        "about",
-        "Acerca de",
-        "Acerca de",
-        "",
-        "info",
-    ),
-];
+/// The sections of the page, one per line: id, name in the list, title, hint and icon, separated
+/// by `|`.
+const PAGES_TABLE: &str = r#"general|General|General|El buscador que usa Brújula en todas partes.|settings
+appearance|Apariencia|Apariencia|Tema, colores y formas. Los cambios se ven al momento.|palette
+layout|Diseño|Diseño|Cómo se reparten la barra lateral, las pestañas y la web.|layout
+spaces|Espacios|Espacios|Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.|workspace
+profiles|Perfiles|Perfiles|Una persona por perfil, con sus propios marcadores, pestañas, contraseñas y ajustes. Se elige al abrir el navegador.|user
+essentials|Esenciales|Esenciales|Los sitios que abres a todas horas, como iconos en la barra lateral y en todos los espacios. Un clic los abre o vuelve a su pestaña.|pin
+bookmarks|Marcadores|Marcadores|Las páginas que guardaste con la estrella.|bookmark
+history|Historial|Historial|Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.|history
+passwords|Contraseñas|Contraseñas|Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.|lock
+webapps|Aplicaciones web|Aplicaciones web|Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».|globe
+boosts|Boosts|Boosts|Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.|sparkle
+extensions|Extensiones|Extensiones|Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.|blocks
+archive|Archivo|Archivo|Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.|clock
+sync|Sincronización|Sincronización|Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.|cloud
+privacy|Privacidad|Privacidad|Bloqueador de anuncios y rastreadores.|shield-check
+sites|Sitios|Sitios sin bloqueador|Páginas donde el bloqueador está apagado.|globe
+security|Seguridad|Seguridad|Lo que Brújula hace por ti sin preguntar.|lock
+about|Acerca de|Acerca de||info"#;
+
+/// A section of the page: id, name in the list, title, hint and icon.
+type Page = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
+
+static PAGES: LazyLock<Vec<Page>> = LazyLock::new(|| {
+    PAGES_TABLE
+        .lines()
+        .filter_map(|line| {
+            let mut p = line.splitn(5, '|');
+            Some((p.next()?, p.next()?, p.next()?, p.next()?, p.next()?))
+        })
+        .collect()
+});
 
 fn section(id: &str, body: &str) -> String {
     let (_, _, title, hint, icon) = PAGES
@@ -777,6 +711,130 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "passwords",
         &format!("{switch_row}{state}{logins}{empty}{never}"),
     )
+}
+
+/// The essentials: the ones there are, a form for another, and the usual sites to pick from.
+fn essentials_section(view: &Extras) -> String {
+    use crate::essentials::{MAX_ESSENTIALS, SUGGESTED};
+    let have: Vec<String> = view.essentials.iter().map(|(_, _, u)| u.clone()).collect();
+    let items: String = view
+        .essentials
+        .iter()
+        .map(|(id, name, url)| {
+            format!(
+                r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="essential.up" data-v="{id}" data-redraw="1">Subir</button><button type="button" class="seg plain" data-k="essential.down" data-v="{id}" data-redraw="1">Bajar</button><button type="button" class="seg plain danger" data-k="essential.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                escape(name),
+                escape(url),
+            )
+        })
+        .collect();
+    let empty = if view.essentials.is_empty() {
+        r#"<p class="empty">Todavía no hay esenciales.</p>"#
+    } else {
+        ""
+    };
+    let full = view.essentials.len() >= MAX_ESSENTIALS;
+    let add = if full {
+        stacked(
+            "Añadir un esencial",
+            &format!("Ya hay {MAX_ESSENTIALS}, el máximo. Quita alguno para añadir otro."),
+            "",
+        )
+    } else {
+        let picks: String = SUGGESTED
+            .iter()
+            .filter(|s| !have.iter().any(|u| u.trim_end_matches('/') == s.url.trim_end_matches('/')))
+            .map(|s| {
+                format!(
+                    r#"<button type="button" class="seg plain" data-k="essential.suggest" data-v="{}" data-redraw="1">{}</button>"#,
+                    escape(s.url),
+                    escape(s.name),
+                )
+            })
+            .collect();
+        stacked(
+            "Añadir un esencial",
+            "Elige uno de los habituales o escribe la dirección de cualquier sitio. También desde el menú de una pestaña, con «Añadir a esenciales».",
+            &format!(
+                r#"<div class="addrow">{picks}</div><div class="addrow"><input type="text" id="essential-name" class="field" placeholder="Nombre (opcional)" maxlength="24" aria-label="Nombre"><input type="text" id="essential-url" class="field wide" placeholder="https://…" maxlength="2048" aria-label="Dirección"><button type="button" class="seg plain" data-addessential="1">Añadir</button></div>"#
+            ),
+        )
+    };
+    section("essentials", &format!("{items}{empty}{add}"))
+}
+
+/// The profiles: the ones there are and a form for another.
+fn profiles_section(view: &Extras) -> String {
+    use crate::profiles::{DEFAULT_ID, MAX_PROFILES};
+    let items: String = view
+        .profiles
+        .iter()
+        .map(|(id, name, avatar, locked)| {
+            let current = *id == view.profile;
+            let is_default = id == DEFAULT_ID;
+            let id = escape(id);
+            let state = match (current, *locked) {
+                (true, true) => "Este perfil · con contraseña",
+                (true, false) => "Este perfil",
+                (false, true) => "Con contraseña",
+                (false, false) => "Sin contraseña",
+            };
+            let open = if current {
+                String::new()
+            } else {
+                format!(r#"<button type="button" class="seg plain" data-k="profile.open" data-v="{id}">Abrir</button>"#)
+            };
+            let remove = if current || is_default {
+                String::new()
+            } else {
+                format!(r#"<button type="button" class="seg plain danger" data-k="profile.remove" data-v="{id}">Quitar</button>"#)
+            };
+            format!(
+                r#"<div class="row"><span class="pface">{svg}</span><div class="what"><b>{name}</b><p>{state}</p></div><div class="ctl">{open}<button type="button" class="seg plain" data-k="profile.password" data-v="{id}">Contraseña</button>{remove}</div></div>"#,
+                svg = crate::avatars::get(avatar).svg(40),
+                name = escape(name),
+            )
+        })
+        .collect();
+    let empty = if view.profiles.is_empty() {
+        r#"<p class="empty">Solo tienes el perfil principal. Añade otro para que cada persona tenga sus marcadores, pestañas y contraseñas.</p>"#
+    } else {
+        ""
+    };
+    let note = stacked(
+        "Qué protege la contraseña",
+        "Solo impide abrir tu perfil desde el selector. No cifra los archivos del perfil: quien tenga acceso a esta cuenta del equipo podría leerlos. Para eso usa la bóveda de contraseñas y el cifrado del disco.",
+        "",
+    );
+    let add = if view.profiles.len() >= MAX_PROFILES {
+        stacked(
+            "Añadir un perfil",
+            &format!("Ya hay {MAX_PROFILES}, el máximo."),
+            "",
+        )
+    } else {
+        let faces: String = crate::avatars::AVATARS
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                format!(
+                    r#"<label class="pav" title="{}"><input type="radio" name="pavatar" value="{}"{}>{}</label>"#,
+                    escape(a.name),
+                    a.id,
+                    if i == 0 { " checked" } else { "" },
+                    a.svg(36),
+                )
+            })
+            .collect();
+        stacked(
+            "Añadir un perfil",
+            "Un nombre y una imagen. La contraseña, si la quieres, se pone después con el botón «Contraseña».",
+            &format!(
+                r#"<div class="pavs">{faces}</div><div class="addrow"><input type="text" id="profile-name" class="field wide" placeholder="Nombre" maxlength="24" aria-label="Nombre"><button type="button" class="seg plain" data-addprofile="1">Añadir</button></div>"#
+            ),
+        )
+    };
+    section("profiles", &format!("{items}{empty}{add}{note}"))
 }
 
 /// The web apps: a form to make one, and the ones that exist.
@@ -1272,6 +1330,8 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let history_section = history_section(s, sync);
     let passwords_section = passwords_section(s, sync);
     let webapps_section = webapps_section(sync);
+    let essentials_section = essentials_section(sync);
+    let profiles_section = profiles_section(sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1323,7 +1383,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1335,91 +1395,42 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     )
 }
 
+const SECTIONS_TABLE: &str = r#"Buscador|motor google duckduckgo bing buscar|general
+Tema|claro oscuro modo sistema|appearance
+Color de acento|color tinte acento|appearance
+Color del marco|marco fondo color|appearance
+Transparencia|opacidad transparente cristal|appearance
+Redondeo de esquinas|bordes radio esquinas|appearance
+Disposición|islas marco zen diseño layout|layout
+Pestañas horizontales|pestañas arriba horizontal vertical|layout
+Ancho de la barra lateral|sidebar tamaño ancho|layout
+Espacios|espacio espacios grupos perfiles workspaces iconos|spaces
+Marcadores|favoritos marcadores guardados estrella|bookmarks
+Historial|historial visitadas recientes borrar navegación pasado|history
+Ventana privada|privado privada incógnito incognito sin rastro navegación|history
+Perfiles|perfil perfiles usuario usuarios personas contraseña selector cuenta avatar|profiles
+Esenciales|esenciales fijos iconos barra lateral atajos sitios rápidos|essentials
+Aplicaciones web|webapp webapps aplicaciones web instalar pwa ventana lanzador atajo|webapps
+Contraseñas|contraseñas claves login usuario guardar rellenar maestra bóveda cifrado|passwords
+Boosts|boost estilo css modo oscuro sitio aspecto personalizar|boosts
+Extensiones|extensiones chrome chromium complementos plugins addons instalar crx|extensions
+Archivo de pestañas|archivar archivo pestañas antiguas cerradas recuperar|archive
+Sincronización|sincronizar nube icloud onedrive google drive dropbox dispositivos|sync
+Bloqueador de anuncios|adblock anuncios rastreadores listas|privacy
+Sitios sin bloqueador|excepciones permitidos|sites
+Seguridad|descargas permisos certificados|security"#;
+
 /// Page used by the Spotlight to offer settings: `(title, keywords, section id)`.
-pub const SECTIONS: &[(&str, &str, &str)] = &[
-    ("Buscador", "motor google duckduckgo bing buscar", "general"),
-    ("Tema", "claro oscuro modo sistema", "appearance"),
-    ("Color de acento", "color tinte acento", "appearance"),
-    ("Color del marco", "marco fondo color", "appearance"),
-    (
-        "Transparencia",
-        "opacidad transparente cristal",
-        "appearance",
-    ),
-    (
-        "Redondeo de esquinas",
-        "bordes radio esquinas",
-        "appearance",
-    ),
-    ("Disposición", "islas marco zen diseño layout", "layout"),
-    (
-        "Pestañas horizontales",
-        "pestañas arriba horizontal vertical",
-        "layout",
-    ),
-    (
-        "Ancho de la barra lateral",
-        "sidebar tamaño ancho",
-        "layout",
-    ),
-    (
-        "Espacios",
-        "espacio espacios grupos perfiles workspaces iconos",
-        "spaces",
-    ),
-    (
-        "Marcadores",
-        "favoritos marcadores guardados estrella",
-        "bookmarks",
-    ),
-    (
-        "Historial",
-        "historial visitadas recientes borrar navegación pasado",
-        "history",
-    ),
-    (
-        "Ventana privada",
-        "privado privada incógnito incognito sin rastro navegación",
-        "history",
-    ),
-    (
-        "Aplicaciones web",
-        "webapp webapps aplicaciones web instalar pwa ventana lanzador atajo",
-        "webapps",
-    ),
-    (
-        "Contraseñas",
-        "contraseñas claves login usuario guardar rellenar maestra bóveda cifrado",
-        "passwords",
-    ),
-    (
-        "Boosts",
-        "boost estilo css modo oscuro sitio aspecto personalizar",
-        "boosts",
-    ),
-    (
-        "Extensiones",
-        "extensiones chrome chromium complementos plugins addons instalar crx",
-        "extensions",
-    ),
-    (
-        "Archivo de pestañas",
-        "archivar archivo pestañas antiguas cerradas recuperar",
-        "archive",
-    ),
-    (
-        "Sincronización",
-        "sincronizar nube icloud onedrive google drive dropbox dispositivos",
-        "sync",
-    ),
-    (
-        "Bloqueador de anuncios",
-        "adblock anuncios rastreadores listas",
-        "privacy",
-    ),
-    ("Sitios sin bloqueador", "excepciones permitidos", "sites"),
-    ("Seguridad", "descargas permisos certificados", "security"),
-];
+pub static SECTIONS: LazyLock<Vec<(&'static str, &'static str, &'static str)>> =
+    LazyLock::new(|| {
+        SECTIONS_TABLE
+            .lines()
+            .filter_map(|line| {
+                let mut p = line.splitn(3, '|');
+                Some((p.next()?, p.next()?, p.next()?))
+            })
+            .collect()
+    });
 
 /// The heading of a section, as the page shows it.
 pub fn section_title(id: &str) -> &'static str {
@@ -1506,6 +1517,11 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .engine b{font-weight:560;font-size:.92rem}
 .css{width:100%;font:12.5px ui-monospace,monospace;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:.7rem;padding:.7rem;resize:vertical}
 .boost .row.stack{padding-top:0;border-top:0}
+.pface{display:grid;place-items:center;flex:none;margin-right:.9rem}.pface+.what{flex:1}.pface svg{width:2.5rem;height:2.5rem;border-radius:50%}
+.pavs{display:flex;flex-wrap:wrap;gap:.4rem;width:100%}
+.pav{position:relative;display:block;border-radius:50%;cursor:pointer}.pav input{position:absolute;opacity:0;inset:0}
+.pav svg{display:block;width:2.3rem;height:2.3rem;border-radius:50%;outline:3px solid transparent;outline-offset:2px;transition:outline-color .15s}
+.pav input:checked+svg{outline-color:var(--accent)}.pav input:focus-visible+svg{outline-color:var(--fg)}
 .addrow{display:flex;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
@@ -1546,6 +1562,10 @@ document.addEventListener('click',e=>{
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
+  const es=e.target.closest('[data-addessential]');
+  if(es){const u=document.getElementById('essential-url'),n=document.getElementById('essential-name');if(u&&u.value.trim()){send('essential.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
+  const pf=e.target.closest('[data-addprofile]');
+  if(pf){const n=document.getElementById('profile-name'),a=document.querySelector('input[name=pavatar]:checked');if(n&&n.value.trim()){send('profile.add',n.value.trim()+'\n'+(a?a.value:''));n.value=''}return}
   const wa=e.target.closest('[data-addwebapp]');
   if(wa){const u=document.getElementById('webapp-url'),n=document.getElementById('webapp-name');if(u&&u.value.trim()){send('webapp.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const ext=e.target.closest('[data-addext]');
@@ -1993,7 +2013,7 @@ mod tests {
             &Spaces::default(),
             &Extras::default(),
         );
-        for (id, ..) in PAGES {
+        for (id, ..) in PAGES.iter() {
             assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
             assert!(html.contains(&format!(r#"<section id="{id}""#)), "{id}");
         }
@@ -2022,7 +2042,7 @@ mod tests {
             &Spaces::default(),
             &Extras::default(),
         );
-        for (_, _, id) in SECTIONS {
+        for (_, _, id) in SECTIONS.iter() {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
         }
     }
@@ -2066,5 +2086,49 @@ mod tests {
         let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
         assert!(html.contains(r#"data-k="webapp.open" data-v="mi-correo""#));
         assert!(html.contains("Mi &lt;correo&gt;"));
+    }
+
+    #[test]
+    fn the_essentials_page_lists_them_and_offers_the_usual_sites() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addessential="1""#));
+        assert!(empty.contains(r#"data-k="essential.suggest" data-v="https://www.youtube.com/""#));
+        extras.essentials = vec![(3, "Tu <vídeo>".into(), "https://www.youtube.com/".into())];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains(r#"data-k="essential.remove" data-v="3""#));
+        assert!(html.contains("Tu &lt;vídeo&gt;"));
+        assert!(
+            !html.contains(r#"data-k="essential.suggest" data-v="https://www.youtube.com/""#),
+            "a site that is an essential is not offered again"
+        );
+    }
+
+    #[test]
+    fn the_profiles_page_lists_them_and_never_offers_to_remove_the_one_in_use() {
+        let s = Settings::default();
+        let mut extras = Extras {
+            profile: "p1".into(),
+            ..Extras::default()
+        };
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addprofile="1""#));
+        assert!(empty.contains("No cifra los archivos"));
+        extras.profiles = vec![
+            ("default".into(), "Ana <x>".into(), "moon".into(), true),
+            ("p1".into(), "Luis".into(), "sun".into(), false),
+            ("p2".into(), "Eva".into(), "leaf".into(), false),
+        ];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains("Ana &lt;x&gt;"));
+        // The main profile and the one in use cannot be removed; the other can.
+        assert!(!html.contains(r#"data-k="profile.remove" data-v="default""#));
+        assert!(!html.contains(r#"data-k="profile.remove" data-v="p1""#));
+        assert!(html.contains(r#"data-k="profile.remove" data-v="p2""#));
+        // The one in use is not opened from itself.
+        assert!(!html.contains(r#"data-k="profile.open" data-v="p1""#));
+        assert!(html.contains(r#"data-k="profile.open" data-v="default""#));
+        assert!(html.contains("Con contraseña"));
     }
 }

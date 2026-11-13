@@ -22,6 +22,7 @@ use webkit6::{
     UserContentManager, UserMediaPermissionRequest, WebView,
 };
 
+use crate::dialogs;
 use crate::filters::Filters;
 use crate::icons;
 use crate::paths;
@@ -65,13 +66,13 @@ pub fn write_launcher(app: &WebApp) -> std::io::Result<()> {
     paths::write_atomic(&launcher_path(&app.id), &text)
 }
 
-/// Keeps the icon of a site for its launcher.
+/// Keeps the icon of a site for its launcher, on a rounded square (see `tile`).
 pub fn save_icon(app: &WebApp, texture: &gdk::Texture) {
     let path = icon_path(&app.id);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if texture.save_to_png(&path).is_ok() {
+    if crate::tile::write_tile(texture, &path).is_ok() {
         let _ = write_launcher(app);
     }
 }
@@ -157,12 +158,11 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
         .build();
     crate::browser::harden_settings(&view);
 
-    let win = gtk::ApplicationWindow::builder()
-        .application(gapp)
-        .title(&app.name)
-        .default_width(1100)
-        .default_height(760)
-        .build();
+    // The look the user chose for the browser: theme and accent.
+    apply_look(&settings);
+    let win = ndl::ApplicationWindow::new(gapp);
+    win.set_title(Some(&app.name));
+    win.set_default_size(1100, 760);
     let back = nav_button("ndl-arrow-left-symbolic", "Atrás (Alt+←)", "win.back");
     let forward = nav_button(
         "ndl-arrow-right-symbolic",
@@ -170,12 +170,14 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
         "win.forward",
     );
     let reload = nav_button("ndl-refresh-symbolic", "Recargar (Ctrl+R)", "win.reload");
-    let header = gtk::HeaderBar::new();
+    let header = ndl::HeaderBar::new();
     header.pack_start(&back);
     header.pack_start(&forward);
     header.pack_start(&reload);
-    win.set_titlebar(Some(&header));
-    win.set_child(Some(&view));
+    let toolbar = ndl::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&view));
+    win.set_content(Some(&toolbar));
 
     for (name, f) in [
         (
@@ -287,20 +289,24 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
                 _ => "el micrófono",
             };
             let request = request.clone();
-            gtk::AlertDialog::builder()
-                .message(format!("¿Permitir usar {what}?"))
-                .detail("Solo mientras esta aplicación esté abierta.")
-                .buttons(["No permitir", "Permitir"])
-                .cancel_button(0)
-                .default_button(0)
-                .build()
-                .choose(Some(&win), gio::Cancellable::NONE, move |res| {
-                    if res.ok() == Some(1) {
+            dialogs::ask(
+                &win,
+                &format!("¿Permitir usar {what}?"),
+                "Solo mientras esta aplicación esté abierta.",
+                &[
+                    dialogs::Choice::plain("deny", "No permitir"),
+                    dialogs::Choice::suggested("allow", "Permitir"),
+                ],
+                "deny",
+                "deny",
+                move |choice| {
+                    if choice == "allow" {
                         request.allow();
                     } else {
                         request.deny();
                     }
-                });
+                },
+            );
             true
         });
     }
@@ -315,20 +321,14 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
                 let name = downloads::safe_file_name(suggested);
                 if downloads::is_dangerous(&name) {
                     d.cancel();
-                    gtk::AlertDialog::builder()
-                        .message("Descarga bloqueada")
-                        .detail(format!("«{name}» es un archivo que se puede ejecutar."))
-                        .buttons(["Entendido"])
-                        .build()
-                        .show(Some(&win));
+                    dialogs::notice(
+                        &win,
+                        "Descarga bloqueada",
+                        &format!("«{name}» es un archivo que se puede ejecutar."),
+                    );
                     return true;
                 }
-                let mut path = dir.join(&name);
-                let mut n = 1;
-                while path.exists() {
-                    path = dir.join(format!("{n}-{name}"));
-                    n += 1;
-                }
+                let path = downloads::available_path(&dir, &name);
                 d.set_destination(&path.to_string_lossy());
                 true
             });
@@ -346,6 +346,21 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
         view.load_uri(&url);
     });
     filters
+}
+
+/// Theme and accent of the browser's preferences; «Sistema» follows the desktop.
+fn apply_look(settings: &Settings) {
+    use brujula_core::settings::{text_on, Theme, ACCENT_DEFAULT};
+    let a = &settings.appearance;
+    let style = ndl::StyleManager::default();
+    match a.theme {
+        Theme::Light => style.set_color_scheme(ndl::ColorScheme::ForceLight),
+        Theme::Dark => style.set_color_scheme(ndl::ColorScheme::ForceDark),
+        Theme::System => {}
+    }
+    if a.accent != ACCENT_DEFAULT {
+        style.set_accent(Some((&a.accent, text_on(&a.accent))));
+    }
 }
 
 fn nav_button(icon: &str, tip: &str, action: &str) -> gtk::Button {

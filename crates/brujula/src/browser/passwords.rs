@@ -201,20 +201,25 @@ impl Browser {
         };
         let this = self.clone();
         let href = href.to_owned();
-        gtk::AlertDialog::builder()
-            .message(message)
-            .detail(detail)
-            .buttons(["Nunca para este sitio", "Ahora no", "Guardar"])
-            .cancel_button(1)
-            .default_button(2)
-            .build()
-            .choose(Some(&self.window), gio::Cancellable::NONE, move |res| {
-                let choice = res.ok();
-                if choice != Some(0) && choice != Some(2) {
+        dialogs::ask(
+            &self.window,
+            &message,
+            detail,
+            &[
+                dialogs::Choice::plain("never", "Nunca para este sitio"),
+                dialogs::Choice::plain("later", "Ahora no"),
+                dialogs::Choice::suggested("save", "Guardar"),
+            ],
+            "save",
+            "later",
+            move |choice| {
+                if choice != "never" && choice != "save" {
                     this.pw.busy.set(false);
                     return;
                 }
-                let never = choice == Some(0);
+                let never = choice == "never";
+                let href = href.clone();
+                let (user, pass) = (user.clone(), pass.clone());
                 let that = this.clone();
                 this.pw_with_vault(Box::new(move |ok| {
                     that.pw.busy.set(false);
@@ -231,7 +236,8 @@ impl Browser {
                     that.save_vault();
                     that.redraw_settings();
                 }));
-            });
+            },
+        );
     }
 
     /// Runs `then` once the vault is open: opening it, or making it, as needed.
@@ -359,12 +365,9 @@ impl Browser {
         check: Check,
         done: Done,
     ) {
-        let win = gtk::Window::builder()
-            .transient_for(&self.window)
-            .modal(true)
-            .resizable(false)
-            .default_width(420)
+        let win = ndl::Dialog::builder()
             .title(title)
+            .content_width(420)
             .build();
         let col = gtk::Box::new(gtk::Orientation::Vertical, 12);
         col.set_margin_top(20);
@@ -410,7 +413,7 @@ impl Browser {
             .css_classes(["suggested-action"])
             .build();
         let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        buttons.set_halign(gtk::Align::End);
+        buttons.set_homogeneous(true);
         buttons.append(&cancel);
         buttons.append(&ok);
         col.append(&buttons);
@@ -422,7 +425,7 @@ impl Browser {
             let win = win.clone();
             Rc::new(move |ok: bool| {
                 let d = done.borrow_mut().take();
-                win.close();
+                win.force_close();
                 if let Some(d) = d {
                     d(ok);
                 }
@@ -430,11 +433,10 @@ impl Browser {
         };
         {
             let done = done.clone();
-            win.connect_close_request(move |_| {
+            win.connect_closed(move |_| {
                 if let Some(d) = done.borrow_mut().take() {
                     d(false);
                 }
-                glib::Propagation::Proceed
             });
         }
         let submit = {
@@ -481,20 +483,7 @@ impl Browser {
             let submit = submit.clone();
             second.connect_activate(move |_| submit());
         }
-        let keys = gtk::EventControllerKey::new();
-        {
-            let finish = finish.clone();
-            keys.connect_key_pressed(move |_, key, _, _| {
-                if key == gdk::Key::Escape {
-                    finish(false);
-                    glib::Propagation::Stop
-                } else {
-                    glib::Propagation::Proceed
-                }
-            });
-        }
-        win.add_controller(keys);
-        win.present();
+        win.present(Some(&self.window));
         first.grab_focus();
     }
 
@@ -550,21 +539,25 @@ impl Browser {
             return;
         }
         let this = self.clone();
-        gtk::AlertDialog::builder()
-            .message("¿Borrar todas las contraseñas guardadas?")
-            .detail("No se pueden recuperar.")
-            .buttons(["Cancelar", "Borrar todas"])
-            .cancel_button(0)
-            .default_button(0)
-            .build()
-            .choose(Some(&self.window), gio::Cancellable::NONE, move |res| {
+        dialogs::ask(
+            &self.window,
+            "¿Borrar todas las contraseñas guardadas?",
+            "No se pueden recuperar.",
+            &[
+                dialogs::Choice::plain("cancel", "Cancelar"),
+                dialogs::Choice::destructive("wipe", "Borrar todas"),
+            ],
+            "cancel",
+            "cancel",
+            move |choice| {
                 this.pw.busy.set(false);
-                if res.ok() == Some(1) {
+                if choice == "wipe" {
                     let _ = std::fs::remove_file(paths::vault_file());
                     this.pw_lock();
                     this.redraw_settings();
                 }
-            });
+            },
+        );
     }
 
     /// Puts a saved password on the clipboard, and takes it off a moment later.

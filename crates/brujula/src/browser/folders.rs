@@ -42,6 +42,10 @@ impl FolderRow {
     }
 }
 
+fn b_folders(b: &Browser) -> std::cell::Ref<'_, Folders> {
+    b.folders.borrow()
+}
+
 fn kind_index(kind: &str) -> u32 {
     match kind {
         "site" => 1,
@@ -160,6 +164,40 @@ impl Browser {
         }
     }
 
+    /// A folder inside another, named by the user right away.
+    pub(super) fn new_subfolder(self: &Rc<Self>, parent: u32) {
+        let Some(space) = self.folders.borrow().get(parent).map(|f| f.space) else {
+            return;
+        };
+        let id = self
+            .folders
+            .borrow_mut()
+            .add_in(space, "Carpeta", Rule::Manual, parent);
+        match id {
+            Some(id) => {
+                self.rebuild_folder_rows();
+                self.edit_folder_later(id);
+            }
+            None => dialogs::notice(
+                &self.window,
+                "No se puede crear",
+                "Las carpetas se pueden anidar hasta tres niveles, y hay un máximo de carpetas.",
+            ),
+        }
+    }
+
+    /// Moves a folder into another, or out to the top of its space.
+    pub(super) fn nest_folder(self: &Rc<Self>, id: u32, parent: Option<u32>) {
+        if self.folders.borrow_mut().set_parent(id, parent) {
+            if let Some(p) = parent {
+                self.folders.borrow_mut().open_folder(p);
+            }
+            self.reorder_rows();
+            self.list.invalidate_filter();
+            self.schedule_save();
+        }
+    }
+
     /// Opens the editor of a folder once the list has settled.
     fn edit_folder_later(self: &Rc<Self>, id: u32) {
         let this = self.clone();
@@ -196,27 +234,39 @@ impl Browser {
         pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let entry = |label: &str, f: Handler| {
-            let btn = gtk::Button::builder()
-                .label(label)
-                .css_classes(["flat"])
-                .build();
-            if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
-                l.set_xalign(0.0);
-            }
-            let this = Rc::downgrade(self);
-            let pop = pop.clone();
-            btn.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(b) = this.upgrade() {
-                    f(&b);
-                }
-            });
-            col.append(&btn);
+            append_popover_entry(self, &pop, &col, label, f);
         };
         entry(
             "Editar carpeta…",
             Box::new(move |b| b.edit_folder_later(id)),
         );
+        entry("Nueva subcarpeta", Box::new(move |b| b.new_subfolder(id)));
+        // Nesting: into any other folder of the space where it fits, or back out to the top.
+        let (targets, nested) = {
+            let f = b_folders(self);
+            let space = f.get(id).map_or(0, |x| x.space);
+            let targets: Vec<(u32, String)> = f
+                .in_space(space)
+                .filter(|t| {
+                    f.get(id).and_then(|me| me.parent) != Some(t.id) && f.can_nest(id, t.id)
+                })
+                .map(|t| (t.id, folder_path(&f, t.id)))
+                .take(8)
+                .collect();
+            (targets, f.get(id).is_some_and(|x| x.parent.is_some()))
+        };
+        for (target, path) in targets {
+            entry(
+                &format!("Meter en la carpeta {path}"),
+                Box::new(move |b| b.nest_folder(id, Some(target))),
+            );
+        }
+        if nested {
+            entry(
+                "Sacar de la carpeta",
+                Box::new(move |b| b.nest_folder(id, None)),
+            );
+        }
         entry(
             "Cerrar las pestañas de la carpeta",
             Box::new(move |b| {

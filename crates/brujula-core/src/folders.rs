@@ -11,6 +11,8 @@ use crate::spaces::Spaces;
 const MAX_FOLDERS: usize = 40;
 const MAX_NAME: usize = 24;
 const MAX_RULE: usize = 60;
+/// How many folders can sit inside one another: a folder, one in it, one in that.
+pub const MAX_LEVELS: usize = 3;
 
 /// Stored in a tab's `folder` to say "in no folder, whatever the smart folders would say".
 pub const NO_FOLDER: u32 = 0;
@@ -108,6 +110,9 @@ pub struct Folder {
     pub open: bool,
     #[serde(default)]
     pub rule: Rule,
+    /// The folder this one is inside, if any (always of the same space).
+    #[serde(default)]
+    pub parent: Option<u32>,
 }
 
 fn yes() -> bool {
@@ -118,16 +123,6 @@ fn yes() -> bool {
 #[serde(default)]
 pub struct Folders {
     list: Vec<Folder>,
-}
-
-fn clean_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(MAX_NAME)
-        .collect()
 }
 
 impl Folders {
@@ -143,7 +138,7 @@ impl Folders {
         self.list.truncate(MAX_FOLDERS);
         let home = spaces.all()[0].id;
         for f in &mut self.list {
-            f.name = clean_name(&f.name);
+            f.name = crate::clean_name(&f.name, MAX_NAME);
             if f.name.is_empty() {
                 f.name = "Carpeta".to_owned();
             }
@@ -152,7 +147,142 @@ impl Folders {
             }
             f.rule = Rule::from_form(f.rule.parts().0, f.rule.parts().1);
         }
+        // A parent that is gone, in another space, its own descendant, or too deep is dropped.
+        let parents: Vec<(u32, Option<u32>)> = self.list.iter().map(|f| (f.id, f.parent)).collect();
+        for (id, parent) in parents {
+            if let Some(p) = parent {
+                if !self.can_nest(id, p) {
+                    if let Some(f) = self.list.iter_mut().find(|f| f.id == id) {
+                        f.parent = None;
+                    }
+                }
+            }
+        }
         self
+    }
+
+    /// How many folders hold this one: 0 for a folder at the top of its space.
+    pub fn depth(&self, id: u32) -> usize {
+        let mut depth = 0;
+        let mut at = self.get(id).and_then(|f| f.parent);
+        while let Some(p) = at {
+            depth += 1;
+            if depth > MAX_LEVELS {
+                break;
+            }
+            at = self.get(p).and_then(|f| f.parent);
+        }
+        depth
+    }
+
+    /// How many levels of folders sit under this one, counting itself as 1.
+    fn height(&self, id: u32) -> usize {
+        1 + self
+            .list
+            .iter()
+            .filter(|f| f.parent == Some(id) && f.id != id)
+            .map(|f| self.height_below(f.id, 1))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn height_below(&self, id: u32, seen: usize) -> usize {
+        if seen > MAX_LEVELS {
+            return seen;
+        }
+        1 + self
+            .list
+            .iter()
+            .filter(|f| f.parent == Some(id) && f.id != id)
+            .map(|f| self.height_below(f.id, seen + 1))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Whether `id` may be put inside `parent`: both exist in the same space, it is not put
+    /// inside itself or one of its own folders, and the nesting stays within `MAX_LEVELS`.
+    pub fn can_nest(&self, id: u32, parent: u32) -> bool {
+        let (Some(f), Some(p)) = (self.get(id), self.get(parent)) else {
+            return false;
+        };
+        if id == parent || f.space != p.space {
+            return false;
+        }
+        // `parent` must not be below `id`.
+        let mut at = Some(parent);
+        let mut steps = 0;
+        while let Some(a) = at {
+            if a == id {
+                return false;
+            }
+            steps += 1;
+            if steps > MAX_FOLDERS {
+                return false;
+            }
+            at = self.get(a).and_then(|x| x.parent);
+        }
+        self.depth(parent) + 1 + self.height(id) <= MAX_LEVELS
+    }
+
+    /// Puts a folder inside another (`Some`) or at the top of its space (`None`). False if that
+    /// is not allowed.
+    pub fn set_parent(&mut self, id: u32, parent: Option<u32>) -> bool {
+        if let Some(p) = parent {
+            if !self.can_nest(id, p) {
+                return false;
+            }
+        }
+        match self.list.iter_mut().find(|f| f.id == id) {
+            Some(f) => {
+                f.parent = parent;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether every folder that holds this one is unfolded, so its row can be seen.
+    pub fn shown(&self, id: u32) -> bool {
+        let mut at = self.get(id).and_then(|f| f.parent);
+        let mut steps = 0;
+        while let Some(p) = at {
+            let Some(f) = self.get(p) else { return true };
+            if !f.open {
+                return false;
+            }
+            steps += 1;
+            if steps > MAX_LEVELS {
+                break;
+            }
+            at = f.parent;
+        }
+        true
+    }
+
+    /// The ids in the order the sidebar shows them: every folder right after the one that holds
+    /// it, so a folder's tabs and then its subfolders follow its row.
+    pub fn ordered(&self) -> Vec<u32> {
+        let mut out = Vec::with_capacity(self.list.len());
+        for top in self.list.iter().filter(|f| f.parent.is_none()) {
+            self.push_tree(top.id, &mut out, 0);
+        }
+        // Anything not reached (cannot happen after `sanitized`) still gets a row.
+        for f in &self.list {
+            if !out.contains(&f.id) {
+                out.push(f.id);
+            }
+        }
+        out
+    }
+
+    fn push_tree(&self, id: u32, out: &mut Vec<u32>, level: usize) {
+        if out.contains(&id) || level > MAX_LEVELS {
+            return;
+        }
+        out.push(id);
+        for child in self.list.iter().filter(|f| f.parent == Some(id)) {
+            self.push_tree(child.id, out, level + 1);
+        }
     }
 
     pub fn all(&self) -> &[Folder] {
@@ -173,7 +303,7 @@ impl Folders {
             return None;
         }
         let id = self.list.iter().map(|f| f.id).max().unwrap_or(0) + 1;
-        let mut name = clean_name(name);
+        let mut name = crate::clean_name(name, MAX_NAME);
         if name.is_empty() {
             name = "Carpeta".to_owned();
         }
@@ -183,13 +313,26 @@ impl Folders {
             name,
             open: true,
             rule,
+            parent: None,
         });
         Some(id)
     }
 
+    /// A new folder inside `parent`, if there is room and that nesting is allowed.
+    pub fn add_in(&mut self, space: u32, name: &str, rule: Rule, parent: u32) -> Option<u32> {
+        let id = self.add(space, name, rule)?;
+        if self.set_parent(id, Some(parent)) {
+            self.open_folder(parent);
+            Some(id)
+        } else {
+            self.remove(id);
+            None
+        }
+    }
+
     /// Changes name and rule; a blank name is kept as it was.
     pub fn edit(&mut self, id: u32, name: &str, rule: Rule) {
-        let name = clean_name(name);
+        let name = crate::clean_name(name, MAX_NAME);
         if let Some(f) = self.list.iter_mut().find(|f| f.id == id) {
             if !name.is_empty() {
                 f.name = name;
@@ -212,9 +355,16 @@ impl Folders {
         }
     }
 
+    /// Removes a folder; the folders inside it move up to where it was.
     pub fn remove(&mut self, id: u32) -> bool {
         let before = self.list.len();
+        let up = self.get(id).and_then(|f| f.parent);
         self.list.retain(|f| f.id != id);
+        for f in &mut self.list {
+            if f.parent == Some(id) {
+                f.parent = up;
+            }
+        }
         self.list.len() != before
     }
 
@@ -342,6 +492,7 @@ mod tests {
                     name: "zero".into(),
                     open: true,
                     rule: Rule::Manual,
+                    parent: None,
                 },
                 Folder {
                     id: 5,
@@ -349,6 +500,7 @@ mod tests {
                     name: "\n".into(),
                     open: false,
                     rule: Rule::Site("  ".into()),
+                    parent: Some(5),
                 },
                 Folder {
                     id: 5,
@@ -356,6 +508,7 @@ mod tests {
                     name: "dup".into(),
                     open: true,
                     rule: Rule::Manual,
+                    parent: None,
                 },
             ],
         }
@@ -367,5 +520,81 @@ mod tests {
         let json = serde_json::to_string(&broken).unwrap();
         assert_eq!(Folders::default(), serde_json::from_str("{}").unwrap());
         assert_eq!(broken, serde_json::from_str::<Folders>(&json).unwrap());
+    }
+
+    fn tree() -> (Folders, u32, u32, u32) {
+        let mut f = Folders::default();
+        let a = f.add(1, "A", Rule::Manual).unwrap();
+        let b = f.add_in(1, "B", Rule::Manual, a).unwrap();
+        let c = f.add_in(1, "C", Rule::Manual, b).unwrap();
+        (f, a, b, c)
+    }
+
+    #[test]
+    fn folders_nest_three_levels_and_no_deeper() {
+        let (mut f, a, b, c) = tree();
+        assert_eq!((f.depth(a), f.depth(b), f.depth(c)), (0, 1, 2));
+        assert_eq!(f.add_in(1, "D", Rule::Manual, c), None);
+        assert_eq!(f.all().len(), 3, "the refused folder is not left behind");
+        // A whole branch cannot be put where it would end up too deep.
+        let other = f.add(1, "Otra", Rule::Manual).unwrap();
+        let inner = f.add_in(1, "Dentro", Rule::Manual, other).unwrap();
+        assert!(!f.set_parent(a, Some(inner)));
+        assert!(f.set_parent(c, Some(other)));
+        assert_eq!(f.depth(c), 1);
+    }
+
+    #[test]
+    fn a_folder_cannot_go_inside_itself_or_its_own_folders() {
+        let (mut f, a, b, c) = tree();
+        assert!(!f.set_parent(a, Some(a)));
+        assert!(!f.set_parent(a, Some(b)));
+        assert!(!f.set_parent(a, Some(c)));
+        assert!(f.set_parent(c, None));
+        assert!(f.set_parent(b, None));
+        assert_eq!((f.depth(b), f.depth(c)), (0, 0));
+        let other_space = f.add(2, "X", Rule::Manual).unwrap();
+        assert!(!f.set_parent(a, Some(other_space)));
+    }
+
+    #[test]
+    fn nested_folders_come_out_in_tree_order_and_hide_when_a_parent_is_folded() {
+        let (mut f, a, b, c) = tree();
+        let z = f.add(1, "Z", Rule::Manual).unwrap();
+        let b2 = f.add_in(1, "B2", Rule::Manual, a).unwrap();
+        assert_eq!(f.ordered(), vec![a, b, c, b2, z]);
+        assert!(f.shown(c));
+        f.toggle(b);
+        assert!(!f.shown(c));
+        assert!(f.shown(b));
+        f.toggle(a);
+        assert!(!f.shown(b));
+        assert!(f.shown(z));
+    }
+
+    #[test]
+    fn removing_a_folder_lifts_the_ones_inside_it() {
+        let (mut f, a, b, c) = tree();
+        assert!(f.remove(b));
+        assert_eq!(f.get(c).unwrap().parent, Some(a));
+        assert!(f.remove(a));
+        assert_eq!(f.get(c).unwrap().parent, None);
+    }
+
+    #[test]
+    fn a_saved_loop_or_dangling_parent_is_cut() {
+        let spaces = Spaces::default();
+        let json = r#"{"list":[
+            {"id":1,"space":1,"name":"A","parent":2},
+            {"id":2,"space":1,"name":"B","parent":1},
+            {"id":3,"space":1,"name":"C","parent":99}]}"#;
+        let f = serde_json::from_str::<Folders>(json)
+            .unwrap()
+            .sanitized(&spaces);
+        for folder in f.all() {
+            assert!(f.depth(folder.id) < MAX_LEVELS);
+        }
+        assert_eq!(f.get(3).unwrap().parent, None);
+        assert_eq!(f.ordered().len(), 3);
     }
 }

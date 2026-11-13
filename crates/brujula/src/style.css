@@ -80,3 +80,20 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* The mark of a private window: it keeps nothing. */
 .brujula-privatebadge{padding:2px 10px;margin-left:4px;margin-right:4px;border-radius:99px;background:alpha(#fff,0.22);color:#fff;font-weight:600;font-size:0.85em;}
 .brujula-private .brujula-side{background:alpha(#7a5af8,0.18);}
+
+/* Essentials: the sites kept at the top of the sidebar (a grid), or in a column beside the page. */
+.brujula-ess { min-width: 40px; min-height: 40px; padding: 0; border-radius: 12px; background: alpha(currentColor, 0.08); }
+.brujula-ess:hover { background: alpha(currentColor, 0.16); }
+.brujula-ess-active, .brujula-ess-active:hover { background: var(--ndl-color-accent-subtle); }
+.brujula-ess-letter, .brujula-ess-letter:hover { color: #ffffff; }
+.brujula-ess-initial { font-weight: 700; font-size: 1.1em; }
+.brujula-ess-dot { min-width: 4px; min-height: 4px; margin-bottom: 2px; border-radius: 99px; background: currentColor; opacity: 0.55; }
+.brujula-rail { padding: var(--ndl-space-sm) 6px; }
+.brujula-rail .brujula-ess { min-width: 36px; min-height: 36px; }
+
+/* The chooser of profiles: «¿Quién navega?» */
+.brujula-who-title { font-size: 2em; font-weight: 500; }
+.brujula-who { padding: 14px 16px; border-radius: 18px; }
+.brujula-who-face { border-radius: 50%; transition: transform 140ms ease; }
+.brujula-who:hover .brujula-who-face { transform: scale(1.06); }
+.brujula-who-name { font-size: 1.2em; font-weight: 500; }

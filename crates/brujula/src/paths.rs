@@ -4,16 +4,66 @@ use std::path::PathBuf;
 
 pub const APP_ID: &str = "dev.danielmiguelt.Brujula";
 
-pub fn data_dir() -> PathBuf {
+/// The profile this process runs as: `None` for the first one (`default`), which keeps the
+/// folders every earlier version used.
+static PROFILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Chooses the profile of this process. Only the first call counts.
+pub fn set_profile(id: &str) {
+    if id != brujula_core::profiles::DEFAULT_ID && brujula_core::profiles::valid_id(id) {
+        let _ = PROFILE.set(id.to_owned());
+    }
+}
+
+/// The profile id, `default` unless one was chosen.
+pub fn profile() -> &'static str {
+    PROFILE
+        .get()
+        .map_or(brujula_core::profiles::DEFAULT_ID, String::as_str)
+}
+
+/// Folders shared by every profile: the list of profiles and the web apps.
+pub fn root_data_dir() -> PathBuf {
     gtk::glib::user_data_dir().join("brujula")
 }
 
-pub fn cache_dir() -> PathBuf {
+pub fn root_cache_dir() -> PathBuf {
     gtk::glib::user_cache_dir().join("brujula")
 }
 
-pub fn config_dir() -> PathBuf {
+pub fn root_config_dir() -> PathBuf {
     gtk::glib::user_config_dir().join("brujula")
+}
+
+fn of_profile(root: PathBuf) -> PathBuf {
+    match PROFILE.get() {
+        Some(id) => root.join("profiles").join(id),
+        None => root,
+    }
+}
+
+pub fn data_dir() -> PathBuf {
+    of_profile(root_data_dir())
+}
+
+pub fn cache_dir() -> PathBuf {
+    of_profile(root_cache_dir())
+}
+
+pub fn config_dir() -> PathBuf {
+    of_profile(root_config_dir())
+}
+
+pub fn profiles_file() -> PathBuf {
+    root_config_dir().join("profiles.json")
+}
+
+/// The application id of a profile's browser: each profile is its own instance.
+pub fn app_id() -> String {
+    match PROFILE.get() {
+        Some(id) => format!("{APP_ID}.P{}", id.replace('-', "_")),
+        None => APP_ID.to_owned(),
+    }
 }
 
 pub fn lists_dir() -> PathBuf {
@@ -40,17 +90,21 @@ pub fn vault_file() -> PathBuf {
     data_dir().join("passwords.vault")
 }
 
+pub fn essentials_file() -> PathBuf {
+    data_dir().join("essentials.json")
+}
+
 pub fn webapps_file() -> PathBuf {
-    data_dir().join("webapps.json")
+    root_data_dir().join("webapps.json")
 }
 
 /// The profile of a web app: its own cookies and storage.
 pub fn webapp_data_dir(id: &str) -> PathBuf {
-    data_dir().join("webapps").join(id)
+    root_data_dir().join("webapps").join(id)
 }
 
 pub fn webapp_cache_dir(id: &str) -> PathBuf {
-    cache_dir().join("webapps").join(id)
+    root_cache_dir().join("webapps").join(id)
 }
 
 pub fn notes_file() -> PathBuf {
