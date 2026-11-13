@@ -17,7 +17,7 @@ permissions:
   contents: read
 jobs:
   core:
-    name: brujula-core
+    name: brujula-core and brujula-passkeys
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -27,9 +27,13 @@ jobs:
           components: rustfmt, clippy
       - name: Format
         run: cargo fmt --all -- --check
+      # The passkeys crate talks to the phone over D-Bus (Bluetooth) and reads hidraw, which
+      # takes the headers of both.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
       # The UI crate needs GTK 4.20+ and WebKitGTK 6.0, which this runner does not have, so only
-      # the UI-free crate is built and tested here.
+      # the UI-free crates are built and tested here.
       - name: Clippy
-        run: cargo clippy -p brujula-core --all-targets -- -D warnings
+        run: cargo clippy -p brujula-core -p brujula-passkeys --all-targets -- -D warnings
       - name: Test
-        run: cargo test -p brujula-core
+        run: cargo test -p brujula-core -p brujula-passkeys

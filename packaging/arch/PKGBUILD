@@ -6,9 +6,10 @@ pkgdesc='Brújula, el navegador de Nodalix: WebKit, pestañas verticales, bloque
 arch=(x86_64)
 url='https://github.com/danielmigueltejedor/brujula'
 license=(GPL-3.0-or-later)
-depends=(gtk4 webkitgtk-6.0 libsoup3 hicolor-icon-theme)
+depends=(gtk4 webkitgtk-6.0 libsoup3 hicolor-icon-theme dbus systemd-libs)
 makedepends=(cargo git)
-optdepends=('libsecret: guardar las claves del asistente de IA en el llavero')
+optdepends=('libsecret: guardar las claves del asistente de IA en el llavero'
+            'bluez: llaves de acceso con el teléfono (código QR y Bluetooth)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
