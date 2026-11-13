@@ -1465,7 +1465,8 @@ h2{font-size:1.4rem;font-weight:660;letter-spacing:-.02em;margin:0;line-height:1
 .row{display:flex;gap:1.5rem;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
 .row.stack{flex-direction:column;align-items:stretch;gap:.9rem}
-.what{min-width:0}.what b{font-weight:580}.what p{margin:.15rem 0 0;color:var(--muted);font-size:.86rem;max-width:32rem}
+.what{min-width:0;flex:1 1 auto}.what b,.what p{overflow-wrap:anywhere}.what b{font-weight:580}.what p{margin:.15rem 0 0;color:var(--muted);font-size:.86rem;max-width:32rem}
+.row>.ctl{flex:none}
 .ctl{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .stack .ctl{justify-content:flex-start;gap:.6rem .6rem}
 .segs{display:flex;gap:.2rem;background:var(--chip);padding:.2rem;border-radius:.85rem}

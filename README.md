@@ -46,10 +46,10 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 - **Bienvenida y perfiles**: la primera vez, un asistente (en el idioma del sistema) importa marcadores de Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, Zen… o de un archivo, ofrece hacerlo navegador predeterminado y elegir esenciales, y crea tu usuario. Cada persona del equipo puede tener su perfil (marcadores, pestañas, contraseñas y ajustes aparte) y se elige al abrir, como en una plataforma de vídeo. La contraseña de un perfil solo protege el selector: no cifra sus archivos.
 - **Bloqueador de anuncios** con listas EasyList, EasyPrivacy y uBlock (reglas de red de WebKit, reglas cosméticas y scriptlets), activable por sitio.
 - **Personalizable**: tema, acento, marco con degradados, redondeo, separación, disposición (islas, marco, vertical, horizontal), espacios con icono, Boosts (CSS por sitio), buscador a elegir.
-- **Extensiones de Chromium**: scripts de contenido, fondo, ventana emergente, opciones, almacenamiento, mensajes, reglas de bloqueo… Se instalan desde una carpeta, un `.crx` o la Chrome Web Store, con un aviso de permisos. No todas las extensiones funcionarán: ver [docs/brujula-rust.md](docs/brujula-rust.md).
+- **Extensiones de Chromium**: scripts de contenido, fondo, ventana emergente, opciones, almacenamiento, mensajes, reglas de bloqueo… Se instalan desde una carpeta, un `.crx` o la Chrome Web Store (botón «Añadir esta extensión» en su ficha), con un aviso de permisos. No todas las extensiones funcionarán: ver [docs/brujula-rust.md](docs/brujula-rust.md).
 - **Sincronización** de marcadores, espacios y pestañas por una carpeta (Dropbox, Nextcloud, iCloud Drive…) o una cuenta de Nodalix.
 - **Contraseñas** guardadas cifradas (Argon2id + XChaCha20-Poly1305) con una contraseña maestra, que solo se rellenan en el sitio exacto y al tocar el campo.
-- **Aplicaciones web**: cualquier sitio en su propia ventana, con icono en el lanzador y perfil aparte (menú → «Instalar como aplicación web…»).
+- **Aplicaciones web**: cualquier sitio en su propia ventana, con icono en el lanzador y perfil aparte (menú → «Instalar como aplicación web…», o el botón que aparece en la barra cuando el sitio lo permite).
 - **Historial** local, con búsqueda en el Spotlight y borrado por horas o completo, y **ventana privada** (Ctrl+Mayús+N o `brujula --private`) que no guarda historial, cookies ni pestañas.
 - Arc-isms: archivo automático, vista dividida, Peek (Mayús+clic), notas por espacio, ventana flotante.
 

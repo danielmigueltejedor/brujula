@@ -125,10 +125,43 @@ pub fn store_id(text: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The id of the extension a Chrome Web Store page (`https://…/detail/<name>/<id>`) is about.
+/// Other pages of the store (the home, a search, a category) give `None`.
+pub fn store_page_id(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    let old_store = host == "chrome.google.com" && parsed.path().starts_with("/webstore/detail/");
+    let new_store = host == "chromewebstore.google.com" && parsed.path().starts_with("/detail/");
+    if parsed.scheme() != "https" || !(old_store || new_store) {
+        return None;
+    }
+    store_id(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use messages::Messages;
+
+    #[test]
+    fn store_page_id_only_for_detail_pages_of_the_store() {
+        let id = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
+        let page = format!("https://chromewebstore.google.com/detail/ublock-origin/{id}?hl=es");
+        assert_eq!(store_page_id(&page).as_deref(), Some(id));
+        let old = format!("https://chrome.google.com/webstore/detail/ublock-origin/{id}");
+        assert_eq!(store_page_id(&old).as_deref(), Some(id));
+        assert_eq!(store_page_id("https://chromewebstore.google.com/"), None);
+        assert_eq!(
+            store_page_id(&format!("http://chromewebstore.google.com/detail/x/{id}")),
+            None
+        );
+        assert_eq!(
+            store_page_id(&format!("https://example.com/detail/x/{id}")),
+            None
+        );
+        // Not a page: an id typed alone.
+        assert_eq!(store_page_id(id), None);
+    }
 
     #[test]
     fn the_permission_summary_reads_like_a_warning() {

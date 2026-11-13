@@ -85,6 +85,8 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-ess { min-width: 40px; min-height: 40px; padding: 0; border-radius: 12px; background: alpha(currentColor, 0.08); }
 .brujula-ess:hover { background: alpha(currentColor, 0.16); }
 .brujula-ess-active, .brujula-ess-active:hover { background: var(--ndl-color-accent-subtle); }
+.brujula-pageaction { color: var(--ndl-color-accent-default); }
+.brujula-pageaction:hover { background: var(--ndl-color-accent-subtle); }
 .brujula-ess-letter, .brujula-ess-letter:hover { color: #ffffff; }
 .brujula-ess-initial { font-weight: 700; font-size: 1.1em; }
 .brujula-ess-dot { min-width: 4px; min-height: 4px; margin-bottom: 2px; border-radius: 99px; background: currentColor; opacity: 0.55; }

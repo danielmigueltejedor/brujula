@@ -70,8 +70,13 @@ pub fn data_uri(url: &str) -> Option<String> {
 /// A 16x16 widget showing `texture`, scaled to fit whatever its natural size is: a large icon
 /// must not push the row it sits in out of shape.
 pub fn picture(texture: &gdk::Texture) -> gtk::Widget {
+    picture_sized(texture, 16)
+}
+
+/// Like [`picture`], `size` pixels on a side.
+pub fn picture_sized(texture: &gdk::Texture, size: i32) -> gtk::Widget {
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    spacer.set_size_request(16, 16);
+    spacer.set_size_request(size, size);
     let pic = gtk::Picture::for_paintable(texture);
     pic.set_content_fit(gtk::ContentFit::Contain);
     pic.set_can_shrink(true);
