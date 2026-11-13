@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn the_key_opens_the_file_without_the_master_password() {
         let mut v = vault();
-        v.put("https://example.com/", "ana", "pw", 1);
+        v.put("https://example.com/", "ana", &some_password(1), 1);
         let key = v.export_key();
         let text = v.seal();
         let again = Vault::open_with_key(&text, &key).unwrap();
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn changing_the_master_makes_the_old_key_stale() {
         let mut v = vault();
-        v.put("https://a.example/", "ana", "pw", 1);
+        v.put("https://a.example/", "ana", &some_password(2), 1);
         let old = v.export_key();
         v.change_master("another long one").unwrap();
         let text = v.seal();

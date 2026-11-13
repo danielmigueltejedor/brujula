@@ -142,7 +142,12 @@ impl Browser {
         if self.pw.vault.borrow().is_some() {
             return true;
         }
-        let Ok(text) = std::fs::read_to_string(paths::vault_file()) else {
+        // Read without blocking the window; the file is not changed by this.
+        let file = gio::File::for_path(paths::vault_file());
+        let Ok((bytes, _)) = file.load_contents_future().await else {
+            return false;
+        };
+        let Ok(text) = String::from_utf8(bytes.to_vec()) else {
             return false;
         };
         match Vault::open_with_key(&text, key) {
