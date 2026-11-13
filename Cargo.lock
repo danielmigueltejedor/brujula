@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "brujula-passkeys"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "futures-channel",
  "futures-util",

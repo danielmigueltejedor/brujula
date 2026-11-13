@@ -4,6 +4,7 @@ Solo Linux (GTK 4.20 o más, WebKitGTK 6.0). Con **AppImage**.
 
 ## Novedades
 
+- **Llaves de acceso con el teléfono**: cuando una web pide una llave de acceso (passkey), Brújula muestra un código QR; lo escaneas con el teléfono, que se encuentra con el equipo por Bluetooth, y la llave se usa desde el teléfono sin que su clave salga de él. Hace falta Bluetooth en el equipo. Se puede apagar en Preferencias → Contraseñas.
 - **Nueva pestaña con el Spotlight**: la página de nueva pestaña con su cuadro de búsqueda ya no existe. Ctrl+T (y el botón de nueva pestaña) abre el Spotlight sobre una pestaña en blanco, con tus marcadores como iconos, igual que los esenciales. Escribe para buscar o ir a una página; Escape cancela y la pestaña en blanco desaparece.
 - **Códigos 2FA en las contraseñas**: cada login puede guardar el secreto de sus códigos de verificación en dos pasos (la clave que enseña la web junto al QR, o la dirección `otpauth://`). Se guarda cifrado con el resto, Preferencias → Contraseñas muestra el código con su cuenta atrás, y Brújula lo rellena cuando tocas el campo que lo pide, solo en el sitio exacto donde lo guardaste.
 - **Esenciales reordenables**: arrástralos para cambiarlos de sitio; una línea marca dónde caerán.
