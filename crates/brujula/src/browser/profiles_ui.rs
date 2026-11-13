@@ -60,9 +60,9 @@ impl Browser {
                 let (name, avatar) = value.split_once('\n').unwrap_or((value, ""));
                 // The profile in use until now becomes the main one.
                 if profiles.is_empty() {
-                    profiles.add(&main_name(), "compass", "");
+                    profiles.add(&main_name(), "compass", None);
                 }
-                if profiles.add(name, avatar, "").is_none() {
+                if profiles.add(name, avatar, None).is_none() {
                     self.essential_alert(
                         "No se pudo añadir el perfil",
                         "Ya hay el máximo de perfiles.",
@@ -108,7 +108,8 @@ impl Browser {
                         "Guardar",
                         move |password| {
                             let mut profiles = crate::profiles::load();
-                            if profiles.set_password(&target, Some(&password)) {
+                            let password = (!password.is_empty()).then_some(password.as_str());
+                            if profiles.set_password(&target, password) {
                                 if this2.save_profiles(&profiles) {
                                     this2.redraw_settings();
                                 }
