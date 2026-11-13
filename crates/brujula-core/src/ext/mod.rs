@@ -159,6 +159,18 @@ mod tests {
             store_page_id(&format!("https://example.com/detail/x/{id}")),
             None
         );
+        // The slug may hold accents (percent-encoded or not), and the address may carry a
+        // language, a query and an anchor, or end in a slash.
+        let accents = format!(
+            "https://chromewebstore.google.com/detail/write-it-escritura-autom%C3%A1tica-para-docs/{id}?hl=es&authuser=0#reviews"
+        );
+        assert_eq!(store_page_id(&accents).as_deref(), Some(id));
+        let raw = format!("https://chromewebstore.google.com/detail/escritura-automática/{id}/");
+        assert_eq!(store_page_id(&raw).as_deref(), Some(id));
+        let no_slug = format!("https://chromewebstore.google.com/detail/{id}");
+        assert_eq!(store_page_id(&no_slug).as_deref(), Some(id));
+        let reviews = format!("https://chromewebstore.google.com/detail/x/{id}/reviews");
+        assert_eq!(store_page_id(&reviews).as_deref(), Some(id));
         // Not a page: an id typed alone.
         assert_eq!(store_page_id(id), None);
     }

@@ -561,6 +561,9 @@ impl Browser {
         bar.set_show_start_title_buttons(false);
         bar.set_show_end_title_buttons(true);
         bar.pack_start(&slim_chrome.toggle);
+        // The bar covers the top of the sidebar while it is shown, and with it the page button
+        // that sits there: it has to be in the bar too.
+        bar.pack_start(&slim_chrome.page_action);
         let bar_revealer = gtk::Revealer::builder()
             .transition_type(gtk::RevealerTransitionType::SlideDown)
             .transition_duration(160)
