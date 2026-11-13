@@ -164,7 +164,7 @@ fn save(
                 .ok()
                 .flatten();
             let Some(found) = found else {
-                conclude(&quarantine, &path, strip, &*report);
+                conclude(quarantine, path, strip, report);
                 return;
             };
             let why = found.reason();
@@ -180,11 +180,10 @@ fn save(
                 "delete",
                 move |id| {
                     if id == "delete" {
-                        let _ = std::fs::remove_file(&quarantine);
-                        report(Decision::Removed(why.clone()));
+                        remove(quarantine.clone(), why.clone(), report.clone());
                     } else {
                         // Kept on purpose: still without permission to run.
-                        conclude(&quarantine, &path, true, &*report);
+                        conclude(quarantine.clone(), path.clone(), true, report.clone());
                     }
                 },
             );
@@ -192,12 +191,26 @@ fn save(
     });
 }
 
-/// Puts the file in place and says so.
-fn conclude(quarantine: &Path, path: &Path, strip: bool, report: &dyn Fn(Decision)) {
-    match finish(quarantine, path, strip) {
-        Ok(()) => report(Decision::Finished),
-        Err(why) => report(Decision::Removed(format!("no se pudo guardar ({why})"))),
-    }
+/// Puts the file in place and says so. The file work happens off the main thread.
+fn conclude(quarantine: PathBuf, path: PathBuf, strip: bool, report: Rc<dyn Fn(Decision)>) {
+    glib::spawn_future_local(async move {
+        let result = gio::spawn_blocking(move || finish(&quarantine, &path, strip))
+            .await
+            .map_err(|_| "se interrumpió".to_owned())
+            .and_then(|r| r);
+        match result {
+            Ok(()) => report(Decision::Finished),
+            Err(why) => report(Decision::Removed(format!("no se pudo guardar ({why})"))),
+        }
+    });
+}
+
+/// Deletes a file that was found suspect, and says why.
+fn remove(quarantine: PathBuf, why: String, report: Rc<dyn Fn(Decision)>) {
+    glib::spawn_future_local(async move {
+        let _ = gio::spawn_blocking(move || std::fs::remove_file(&quarantine)).await;
+        report(Decision::Removed(why));
+    });
 }
 
 /// Decides where `download` is saved. Ordinary files go to the Downloads folder at once; a file
