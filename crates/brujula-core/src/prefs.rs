@@ -33,6 +33,17 @@ pub struct Effect {
     pub sync: bool,
     /// Sync now, without waiting for the next round.
     pub sync_now: bool,
+    /// The user asked to pick (or drop) the folder to sync through.
+    pub folder: Option<FolderChoice>,
+}
+
+/// How the user chose the folder on the page. The page never says a path: it names one of the
+/// folders the browser offered, or asks for the system's folder dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderChoice {
+    Dialog,
+    Offered(usize),
+    Forget,
 }
 
 /// `key` and `value` of a `brujula://set?key=value` address.
@@ -151,6 +162,16 @@ impl Settings {
                 }
                 self.archive_after_hours = hours;
             }
+            "https_first" => {
+                self.https_first = flag(value)?;
+            }
+            "sleep_after" => {
+                let minutes = number(value)?;
+                if !crate::settings::SLEEP_CHOICES.contains(&minutes) {
+                    return Err(format!("not a choice: {minutes}"));
+                }
+                self.sleep_after_minutes = minutes;
+            }
             "sync" => {
                 self.sync.enabled = flag(value)?;
                 effect.sync = true;
@@ -160,7 +181,24 @@ impl Settings {
                     return Err("not an account".to_owned());
                 }
                 self.sync.account = value.to_owned();
+                if !value.is_empty() {
+                    self.sync.folder.clear();
+                }
                 effect.sync = true;
+            }
+            "sync_folder" => {
+                effect.folder = Some(match value {
+                    "dialog" => FolderChoice::Dialog,
+                    "forget" => {
+                        self.sync.folder.clear();
+                        effect.sync = true;
+                        FolderChoice::Forget
+                    }
+                    n if n.len() <= 2 => {
+                        FolderChoice::Offered(n.parse().map_err(|_| format!("not a folder: {n}"))?)
+                    }
+                    _ => return Err(format!("not a folder: {value}")),
+                });
             }
             "sync_bookmarks" => {
                 self.sync.bookmarks = flag(value)?;
@@ -288,6 +326,8 @@ fn swatches(key: &str, colours: &[&str], current: &str) -> String {
 pub struct Extras {
     /// The cloud accounts of the desktop: id, label, whether the folder is mounted now.
     pub accounts: Vec<(String, String, bool)>,
+    /// Folders of file-sync clients found in the home directory, offered as places to sync.
+    pub folders: Vec<String>,
     /// How the last round went, in words.
     pub status: String,
     /// Archived tabs: address and title.
@@ -457,6 +497,19 @@ fn archive_section(s: &Settings, view: &Extras) -> String {
         format!(r#"<button type="button" class="seg{on}" data-k="archive_after" data-v="{hours}">{label}</button>"#)
     })
     .collect();
+    let sleep: String = [
+        (0, "Nunca"),
+        (10, "10 minutos"),
+        (30, "30 minutos"),
+        (60, "1 hora"),
+        (180, "3 horas"),
+    ]
+    .iter()
+    .map(|(minutes, label)| {
+        let on = if *minutes == s.sleep_after_minutes { " on" } else { "" };
+        format!(r#"<button type="button" class="seg{on}" data-k="sleep_after" data-v="{minutes}">{label}</button>"#)
+    })
+    .collect();
     let list = if view.archived.is_empty() {
         r#"<p class="empty">Ninguna todavía.</p>"#.to_owned()
     } else {
@@ -477,6 +530,11 @@ fn archive_section(s: &Settings, view: &Extras) -> String {
         "archive",
         &[
             row(
+                "Dormir las pestañas sin usar",
+                "Su página sale de la memoria y se vuelve a cargar al abrirlas. Siguen en la barra; no se cierran. Las que suenan o cargan no duermen.",
+                &format!(r#"<div class="segs" role="group">{sleep}</div>"#),
+            ),
+            row(
                 "Archivar las pestañas sin usar",
                 "Las ancladas, las de una carpeta y la que tienes delante no se archivan.",
                 &format!(r#"<div class="segs" role="group">{choices}</div>"#),
@@ -487,11 +545,50 @@ fn archive_section(s: &Settings, view: &Extras) -> String {
     )
 }
 
+/// The folders the browser offers, the one in use and the buttons to pick another.
+fn folder_picker(c: &crate::settings::Sync, view: &Extras) -> String {
+    let offered: String = view
+        .folders
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let on = if *path == c.folder { " on" } else { "" };
+            format!(
+                r#"<button type="button" class="engine{on}" data-k="sync_folder" data-v="{i}">{icon}<span class="acct"><b>{name}</b><small>{path}</small></span></button>"#,
+                icon = icons::web_svg("cloud", 20),
+                name = escape(
+                    std::path::Path::new(path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(path)
+                ),
+                path = escape(path),
+            )
+        })
+        .collect();
+    let current = if c.folder.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<span class="status">En uso: <b>{}</b></span>"#,
+            escape(&c.folder)
+        )
+    };
+    let forget = if c.folder.is_empty() {
+        ""
+    } else {
+        r#"<button type="button" class="seg plain" data-k="sync_folder" data-v="forget">Dejar de usarla</button>"#
+    };
+    format!(
+        r#"<div class="engines" role="group">{offered}</div><div class="actions"><button type="button" class="seg plain" data-k="sync_folder" data-v="dialog">Elegir carpeta…</button>{forget}{current}</div>"#
+    )
+}
+
 /// The synchronisation section.
 fn sync_section(s: &Settings, view: &Extras) -> String {
     let c = &s.sync;
     let accounts = if view.accounts.is_empty() {
-        r#"<p class="empty">Ninguna cuenta. Añade Google Drive, OneDrive, Dropbox o iCloud Drive en Ajustes, en las cuentas en la nube.</p>"#.to_owned()
+        r#"<p class="empty">Ninguna cuenta de Nodalix. Puedes añadir Google Drive, OneDrive, Dropbox o iCloud Drive en Ajustes, o elegir una carpeta aquí abajo.</p>"#.to_owned()
     } else {
         let buttons: String = view
             .accounts
@@ -509,6 +606,7 @@ fn sync_section(s: &Settings, view: &Extras) -> String {
             .collect();
         format!(r#"<div class="engines" role="group">{buttons}</div>"#)
     };
+    let folders = folder_picker(c, view);
     let body = [
         row(
             "Sincronizar",
@@ -519,6 +617,11 @@ fn sync_section(s: &Settings, view: &Extras) -> String {
             "Cuenta",
             "Las cuentas son las de Nodalix: Brújula no pide contraseñas ni inicia sesión en ningún servicio.",
             &accounts,
+        ),
+        stacked(
+            "Carpeta",
+            "Sin cuentas de Nodalix, usa una carpeta que ya sincronice tu nube: Dropbox, Nextcloud, iCloud Drive, Syncthing o una unidad de red.",
+            &folders,
         ),
         row(
             "Marcadores",
@@ -790,14 +893,23 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let boosts_section = boosts_section(sync);
     let security = section(
         "security",
-        r#"<ul class="facts">
+        &[
+            row(
+                "HTTPS primero",
+                "Las direcciones http:// de sitios públicos se prueban antes como https://. Si el sitio no responde en HTTPS, se abre la dirección original; un certificado malo nunca se salta.",
+                &switch("https_first", s.https_first),
+            ),
+            r#"<ul class="facts">
 <li>Las descargas de programas y scripts se bloquean, y los nombres de archivo se limpian.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
 <li>Los errores de certificado nunca se saltan.</li>
 <li>Cámara, micrófono, ubicación y notificaciones se deniegan.</li>
 <li>Sin ventanas emergentes automáticas; una web no puede abrir archivos locales.</li>
 <li>Prevención de rastreo inteligente (ITP) y aislamiento por procesos de WebKit.</li>
-</ul>"#,
+</ul>"#
+                .to_owned(),
+        ]
+        .concat(),
     );
 
     let about = section(
@@ -978,6 +1090,7 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:50%;box-shadow:in
 input[type=range]{-webkit-appearance:none;appearance:none;width:13rem;height:.4rem;border-radius:999px;background:linear-gradient(to right,var(--accent) var(--p,50%),color-mix(in srgb,var(--fg) 14%,transparent) var(--p,50%));outline:none}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:1.15rem;height:1.15rem;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:.9rem}
+.actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
 .engines{display:grid;grid-template-columns:repeat(auto-fill,minmax(10rem,1fr));gap:.6rem;width:100%}
 .engine{display:flex;align-items:center;gap:.7rem;padding:.65rem .8rem;border:1px solid var(--line);border-radius:.9rem;background:transparent;font:inherit;color:var(--fg);cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
 .engine:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
@@ -1180,6 +1293,93 @@ mod tests {
             &Extras::default(),
         );
         assert!(empty.contains("Ninguna cuenta"));
+    }
+
+    #[test]
+    fn https_first_is_on_and_can_be_switched() {
+        let mut s = Settings::default();
+        assert!(s.https_first);
+        s.apply("https_first", "0").unwrap();
+        assert!(!s.https_first);
+        assert!(s.apply("https_first", "yes").is_err());
+        let html = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(html.contains(r#"data-k="https_first""#));
+    }
+
+    #[test]
+    fn the_sleep_time_is_one_of_the_offered_ones() {
+        let mut s = Settings::default();
+        assert_eq!(s.sleep_after_minutes, 30);
+        s.apply("sleep_after", "10").unwrap();
+        s.apply("sleep_after", "0").unwrap();
+        assert_eq!(s.sleep_after_minutes, 0);
+        assert!(s.apply("sleep_after", "7").is_err());
+        assert!(s.apply("sleep_after", "x").is_err());
+        let html = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(html.contains(r#"class="seg on" data-k="sleep_after" data-v="0""#));
+        assert_eq!(
+            Settings::from_json(r#"{"sleep_after_minutes": 5}"#).sleep_after_minutes,
+            30
+        );
+        assert!(Settings::from_json(r#"{"sync": {"folder": "../x"}}"#)
+            .sync
+            .folder
+            .is_empty());
+    }
+
+    #[test]
+    fn the_folder_is_picked_by_dialog_or_from_the_offered_list_never_by_path() {
+        let mut s = Settings::default();
+        s.sync.account = "a1".into();
+        s.sync.folder = "/home/u/Dropbox".into();
+        assert_eq!(
+            s.apply("sync_folder", "dialog").unwrap().folder,
+            Some(FolderChoice::Dialog)
+        );
+        assert_eq!(
+            s.apply("sync_folder", "2").unwrap().folder,
+            Some(FolderChoice::Offered(2))
+        );
+        // The page cannot name a path.
+        for bad in ["/etc", "../x", "x", "123", "-1", ""] {
+            assert!(s.apply("sync_folder", bad).is_err(), "{bad}");
+        }
+        assert_eq!(s.sync.folder, "/home/u/Dropbox");
+        let e = s.apply("sync_folder", "forget").unwrap();
+        assert_eq!(e.folder, Some(FolderChoice::Forget));
+        assert!(e.sync && s.sync.folder.is_empty());
+        // An account and a folder do not go together: the last one picked wins.
+        s.sync.folder = "/home/u/Dropbox".into();
+        s.apply("sync_account", "a1").unwrap();
+        assert!(s.sync.folder.is_empty());
+    }
+
+    #[test]
+    fn the_folder_section_lists_offered_folders_and_the_one_in_use() {
+        let mut s = Settings::default();
+        s.sync.folder = "/home/u/Nextcloud".into();
+        let view = Extras {
+            folders: vec!["/home/u/Dropbox".into(), "/home/u/Nextcloud".into()],
+            ..Extras::default()
+        };
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &view);
+        assert!(html.contains(r#"class="engine" data-k="sync_folder" data-v="0""#));
+        assert!(html.contains(r#"class="engine on" data-k="sync_folder" data-v="1""#));
+        assert!(html.contains(r#"data-k="sync_folder" data-v="dialog""#));
+        assert!(html.contains(r#"data-k="sync_folder" data-v="forget""#));
+        s.sync.folder.clear();
+        let none = render(&s, &Bookmarks::default(), &Spaces::default(), &view);
+        assert!(!none.contains(r#"data-v="forget""#));
     }
 
     #[test]

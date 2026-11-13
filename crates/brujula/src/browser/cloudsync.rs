@@ -36,11 +36,82 @@ fn mounted(dir: &std::path::Path) -> bool {
         .is_ok_and(|info| cloud::is_mounted(&info, &real))
 }
 
+/// The folders of file-sync clients in the home directory that exist, in a fixed order: the page
+/// names one by its place in this list.
+fn offered_folders() -> Vec<String> {
+    let home = home();
+    cloud::KNOWN_SYNC_FOLDERS
+        .iter()
+        .map(|name| home.join(name))
+        .filter(|p| p.is_dir())
+        .filter_map(|p| p.to_str().map(str::to_owned))
+        .filter(|p| cloud::valid_folder(p))
+        .collect()
+}
+
 impl Browser {
+    /// Acts on what the page asked for the folder: the system's dialog, one the browser offered,
+    /// or no folder.
+    pub(super) fn choose_sync_folder(self: &Rc<Self>, choice: prefs::FolderChoice) {
+        match choice {
+            prefs::FolderChoice::Forget => {}
+            prefs::FolderChoice::Offered(i) => {
+                if let Some(path) = offered_folders().into_iter().nth(i) {
+                    self.use_sync_folder(&path);
+                }
+            }
+            prefs::FolderChoice::Dialog => {
+                let dialog = gtk::FileDialog::builder()
+                    .title("Carpeta para sincronizar")
+                    .modal(true)
+                    .build();
+                dialog.set_initial_folder(Some(&gio::File::for_path(home())));
+                let this = self.clone();
+                dialog.select_folder(Some(&self.window), gio::Cancellable::NONE, move |result| {
+                    if let Some(path) = result.ok().and_then(|f| f.path()) {
+                        if let Some(path) = path.to_str() {
+                            this.use_sync_folder(path);
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    /// Syncs through `path` from now on, in place of any account.
+    fn use_sync_folder(self: &Rc<Self>, path: &str) {
+        if !cloud::valid_folder(path) || !std::path::Path::new(path).is_dir() {
+            return;
+        }
+        {
+            let mut settings = self.settings.borrow_mut();
+            settings.sync.folder = path.to_owned();
+            settings.sync.account.clear();
+            settings.sync.enabled = true;
+        }
+        self.save_settings();
+        self.sync_busy.set(false);
+        self.sync_round();
+        self.refresh_settings_pages();
+    }
+
+    /// Draws the preferences page again if it is open, so it shows what changed under it.
+    fn refresh_settings_pages(&self) {
+        let views: Vec<WebView> = self.views.borrow().values().cloned().collect();
+        for v in views {
+            if v.uri().as_deref() == Some(prefs::SETTINGS_URI) {
+                // The page starts at the top again: put it back on the section being edited.
+                *self.pending_section.borrow_mut() = Some("sync".to_owned());
+                self.render_settings(&v);
+            }
+        }
+    }
+
     /// What the preferences page shows about the accounts and the last round.
     pub(super) fn extras(&self) -> prefs::Extras {
         let home = home();
         prefs::Extras {
+            folders: offered_folders(),
             accounts: accounts()
                 .iter()
                 .map(|a| (a.id.clone(), a.label(), mounted(&a.mount_dir(&home))))
@@ -152,26 +223,38 @@ impl Browser {
             self.save_settings();
         }
         let cfg = self.settings.borrow().sync.clone();
-        if cfg.account.is_empty() {
-            self.set_sync_status("Elige una cuenta de la nube.");
+        if cfg.account.is_empty() && cfg.folder.is_empty() {
+            self.set_sync_status("Elige una cuenta de la nube o una carpeta.");
             return;
         }
         if !(cfg.bookmarks || cfg.spaces || cfg.tabs) {
             self.set_sync_status("Elige qué sincronizar.");
             return;
         }
-        let Some(account) = accounts().into_iter().find(|a| a.id == cfg.account) else {
-            self.set_sync_status("Esa cuenta ya no está en Ajustes.");
-            return;
+        let dir = if cfg.folder.is_empty() {
+            let Some(account) = accounts().into_iter().find(|a| a.id == cfg.account) else {
+                self.set_sync_status("Esa cuenta ya no está en Ajustes.");
+                return;
+            };
+            let dir = account.mount_dir(&home());
+            if !mounted(&dir) {
+                self.set_sync_status(&format!(
+                    "«{}» no está conectada. Conéctala en Ajustes.",
+                    account.label()
+                ));
+                return;
+            }
+            dir
+        } else {
+            // A folder the user picked: the client that keeps it in sync is theirs, so there is
+            // no mount to check, only that the folder is still there.
+            let dir = std::path::PathBuf::from(&cfg.folder);
+            if !cloud::valid_folder(&cfg.folder) || !dir.is_dir() {
+                self.set_sync_status("La carpeta elegida ya no existe.");
+                return;
+            }
+            dir
         };
-        let dir = account.mount_dir(&home());
-        if !mounted(&dir) {
-            self.set_sync_status(&format!(
-                "«{}» no está conectada. Conéctala en Ajustes.",
-                account.label()
-            ));
-            return;
-        }
         let snap = Snapshot::capture(
             &cfg.device_id,
             &cfg.device_name,

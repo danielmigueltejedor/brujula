@@ -12,6 +12,7 @@ use brujula_core::bookmarks::Bookmarks;
 use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
 use brujula_core::folders::{Folders, NO_FOLDER};
+use brujula_core::https;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::prefs;
@@ -48,6 +49,7 @@ mod float;
 mod folders;
 mod notes;
 mod peek;
+mod sleep;
 mod split;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
@@ -258,6 +260,10 @@ pub struct Browser {
     /// Restored tabs that have not been opened yet: their page loads when they are selected, so
     /// starting with many tabs does not start many page loads.
     lazy: RefCell<HashMap<TabId, String>>,
+    /// Addresses that were upgraded to HTTPS and have not loaded yet, with the one asked for.
+    https_tried: RefCell<HashMap<String, String>>,
+    /// Sites that did not answer on HTTPS; they open as asked until the browser is closed.
+    http_only: RefCell<std::collections::HashSet<String>>,
     /// True while the saved tabs are being put back; the tab that ends up in front loads then.
     restoring: Cell<bool>,
     hide_bar: RefCell<Option<glib::SourceId>>,
@@ -577,6 +583,8 @@ impl Browser {
             edge: RefCell::new(EdgeDetector::default()),
             pending_section: RefCell::new(None),
             lazy: RefCell::new(HashMap::new()),
+            https_tried: RefCell::new(HashMap::new()),
+            http_only: RefCell::new(std::collections::HashSet::new()),
             restoring: Cell::new(false),
             hide_bar: RefCell::new(None),
             hide_side: RefCell::new(None),
@@ -1119,6 +1127,7 @@ impl Browser {
             this.restore(&urls);
             this.start_sync();
             this.start_archiving();
+            this.start_sleeping();
             if this.settings.borrow().adblock_enabled {
                 let s = this.settings.borrow().clone();
                 this.filters.start(&s);
@@ -1337,12 +1346,45 @@ impl Browser {
                 if ev == LoadEvent::Committed || ev == LoadEvent::Finished {
                     b.update_nav();
                 }
+                if ev == LoadEvent::Committed {
+                    if let Some(uri) = v.uri() {
+                        b.https_tried.borrow_mut().remove(uri.as_str());
+                    }
+                }
                 if ev == LoadEvent::Finished {
                     hide_elements(&b.filters, v);
                     b.scroll_settings(v);
                     b.push_sync_status(v);
                 }
             }
+        });
+        // A site that does not speak HTTPS at all opens as it was asked for. A bad certificate is
+        // different: the site does speak HTTPS, so there is no falling back, and the error stays.
+        let this = Rc::downgrade(self);
+        view.connect_load_failed_with_tls_errors(move |_, uri, _, _| {
+            if let Some(b) = this.upgrade() {
+                b.https_tried.borrow_mut().remove(uri);
+            }
+            false
+        });
+        let this = Rc::downgrade(self);
+        view.connect_load_failed(move |v, _, uri, error| {
+            let Some(b) = this.upgrade() else {
+                return false;
+            };
+            let original = b.https_tried.borrow_mut().remove(uri);
+            let Some(original) = original else {
+                return false;
+            };
+            if error.matches(webkit6::NetworkError::Cancelled) {
+                return false;
+            }
+            if let Some(host) = https::host_of(&original) {
+                b.http_only.borrow_mut().insert(host);
+            }
+            let v = v.clone();
+            glib::idle_add_local_once(move || v.load_uri(&original));
+            true
         });
         // window.open / target=_blank: a new tab next to this one.
         let this = Rc::downgrade(self);
@@ -1379,6 +1421,30 @@ impl Browser {
                         b.peek(&uri);
                     }
                     return true;
+                }
+            }
+            // HTTPS first: plain HTTP to a public site is tried over HTTPS before it is sent.
+            if let (Some(b), Some(action)) = (this.upgrade(), nav.navigation_action()) {
+                let get = action
+                    .request()
+                    .and_then(|r| r.http_method())
+                    .is_none_or(|m| m.eq_ignore_ascii_case("GET"));
+                let known_bad =
+                    https::host_of(&uri).is_some_and(|h| b.http_only.borrow().contains(&h));
+                if get && b.settings.borrow().https_first && !known_bad {
+                    if let Some(secure) = https::upgrade(&uri) {
+                        decision.ignore();
+                        {
+                            let mut tried = b.https_tried.borrow_mut();
+                            if tried.len() > 64 {
+                                tried.clear();
+                            }
+                            tried.insert(secure.clone(), uri.clone());
+                        }
+                        let v = v.clone();
+                        glib::idle_add_local_once(move || v.load_uri(&secure));
+                        return true;
+                    }
                 }
             }
             // A web page never gets to point the browser at a local file.
@@ -1943,6 +2009,9 @@ impl Browser {
         }
         if effect.blocker {
             self.apply_blocker();
+        }
+        if let Some(choice) = effect.folder {
+            self.choose_sync_folder(choice);
         }
         if effect.sync || effect.sync_now {
             self.sync_round();

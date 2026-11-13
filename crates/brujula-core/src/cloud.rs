@@ -57,6 +57,34 @@ pub fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// A folder the user picked for synchronisation: an absolute path with no control characters and
+/// no `..`, so what is stored in the settings can only name one place.
+pub fn valid_folder(path: &str) -> bool {
+    let p = Path::new(path);
+    p.is_absolute()
+        && path.len() <= 4096
+        && !path.chars().any(char::is_control)
+        && p.components()
+            .all(|c| !matches!(c, std::path::Component::ParentDir))
+}
+
+/// Folders that the desktop clients of the usual services keep in sync, by name in the home
+/// directory. Only the ones that exist are offered.
+pub const KNOWN_SYNC_FOLDERS: &[&str] = &[
+    "Dropbox",
+    "Nextcloud",
+    "ownCloud",
+    "OneDrive",
+    "Google Drive",
+    "iCloud Drive",
+    "iCloudDrive",
+    "MEGA",
+    "pCloudDrive",
+    "Sync",
+    "Syncthing",
+    "Insync",
+];
+
 /// The accounts in `json`. Entries that are not understood are skipped, so a newer Ajustes
 /// that adds a service does not break this one.
 pub fn parse_accounts(json: &str) -> Vec<Account> {
@@ -188,6 +216,16 @@ mod tests {
         let dir = make("a/../b").mount_dir(Path::new("/home/u"));
         assert!(dir.starts_with("/home/u/Nube"));
         assert_eq!(dir.components().count(), 5);
+    }
+
+    #[test]
+    fn a_picked_folder_names_one_place() {
+        assert!(valid_folder("/home/u/Dropbox"));
+        assert!(valid_folder("/home/u/Mi nube"));
+        assert!(!valid_folder("Dropbox"));
+        assert!(!valid_folder(""));
+        assert!(!valid_folder("/home/u/../root"));
+        assert!(!valid_folder("/home/u/a\nb"));
     }
 
     #[test]

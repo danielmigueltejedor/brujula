@@ -140,6 +140,9 @@ pub struct Sync {
     pub enabled: bool,
     /// Id of the account in `~/.config/nodalix/cloud.json`; empty until one is chosen.
     pub account: String,
+    /// A folder the user chose instead of an account: one that Dropbox, Nextcloud, iCloud Drive,
+    /// Syncthing or the like already keeps in sync. Empty when an account is used.
+    pub folder: String,
     pub bookmarks: bool,
     pub spaces: bool,
     pub tabs: bool,
@@ -153,6 +156,7 @@ impl Default for Sync {
         Self {
             enabled: false,
             account: String::new(),
+            folder: String::new(),
             bookmarks: true,
             spaces: true,
             tabs: true,
@@ -171,10 +175,10 @@ impl Sync {
         }
     }
 
-    /// On, with an account, and with something to share.
+    /// On, with an account or a folder, and with something to share.
     pub fn active(&self) -> bool {
         self.enabled
-            && !self.account.is_empty()
+            && !(self.account.is_empty() && self.folder.is_empty())
             && crate::sync::valid_device_id(&self.device_id)
             && (self.bookmarks || self.spaces || self.tabs)
     }
@@ -201,10 +205,17 @@ pub struct Settings {
     pub homepage: String,
     /// Hours a tab can stay out of sight before it is archived; 0 never archives.
     pub archive_after_hours: u32,
+    /// Minutes a tab can stay out of sight before its page is dropped from memory; 0 never.
+    pub sleep_after_minutes: u32,
+    /// Try `https://` first for public sites that were asked for over plain HTTP.
+    pub https_first: bool,
 }
 
 /// The times the user can choose to archive after, in hours (0 is never).
 pub const ARCHIVE_CHOICES: [u32; 5] = [0, 12, 24, 168, 720];
+
+/// The times the user can choose to put tabs to sleep after, in minutes (0 is never).
+pub const SLEEP_CHOICES: [u32; 5] = [0, 10, 30, 60, 180];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -220,6 +231,8 @@ impl Default for Settings {
             search_engine_chosen: false,
             homepage: "about:blank".to_owned(),
             archive_after_hours: 24,
+            sleep_after_minutes: 30,
+            https_first: true,
         }
     }
 }
@@ -236,6 +249,12 @@ impl Settings {
         }
         if !ARCHIVE_CHOICES.contains(&s.archive_after_hours) {
             s.archive_after_hours = 24;
+        }
+        if !SLEEP_CHOICES.contains(&s.sleep_after_minutes) {
+            s.sleep_after_minutes = 30;
+        }
+        if !crate::cloud::valid_folder(&s.sync.folder) {
+            s.sync.folder.clear();
         }
         s.sync.device_name = s.sync.device_name.chars().take(40).collect();
         s
