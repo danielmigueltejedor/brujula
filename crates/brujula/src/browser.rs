@@ -449,7 +449,7 @@ impl Browser {
         let slim_chrome = build_chrome();
         let top_chrome = build_chrome();
 
-        // Sidebar, top to bottom: window controls, navigation, address, tabs, new tab.
+        // Sidebar, top to bottom: window controls, navigation, address, essentials, new tab, tabs, downloads.
         let side_header = ndl::HeaderBar::new();
         side_header.set_show_end_title_buttons(false);
         side_header.set_show_start_title_buttons(false);
@@ -529,6 +529,8 @@ impl Browser {
         side.append(&side_chrome.url_button);
         let ess = essentials::EssentialsUi::new();
         side.append(&ess.grid);
+        let new_tab_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        side.append(&new_tab_row);
         let hist = history_panel::HistoryUi::new(&scroller);
         side.append(&hist.stack);
         // Next to the notes, in the top row.
@@ -540,11 +542,15 @@ impl Browser {
             .build();
         new_tab.set_hexpand(true);
         let dl = downloads_panel::DownloadsUi::new();
+        // The button of a new tab sits right above the tabs, with the one of a new folder.
+        new_tab_row.set_margin_start(8);
+        new_tab_row.set_margin_end(8);
+        new_tab_row.append(&new_tab);
+        new_tab_row.append(&folder_button);
+        // The downloads button stays at the bottom, on its own.
         let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         bottom.set_margin_start(8);
         bottom.append(&dl.slot_side);
-        bottom.append(&new_tab);
-        bottom.append(&folder_button);
         bottom.set_margin_end(8);
         side.append(&bottom);
         let space_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -2427,7 +2433,7 @@ impl Browser {
     /// Sidebar width, pinned or floating, and whether the edge wakes it.
     fn apply_layout(&self) {
         let s = self.settings.borrow();
-        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(180);
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(200);
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));

@@ -78,12 +78,12 @@ impl Texture {
 pub const TEXTURE_AMOUNT_DEFAULT: u32 = 40;
 
 pub const ACCENT_DEFAULT: &str = "#0c9a58";
-pub const SIDEBAR_WIDTH_DEFAULT: u32 = 180;
+pub const SIDEBAR_WIDTH_DEFAULT: u32 = 200;
 pub const SIDEBAR_WIDTH_MIN: u32 = 160;
 pub const SIDEBAR_WIDTH_MAX: u32 = 420;
 /// The defaults of earlier versions, which were too wide. A file still holding one of them gets
 /// the new default instead.
-const SIDEBAR_WIDTH_OLD_DEFAULTS: [u32; 2] = [280, 232];
+const SIDEBAR_WIDTH_OLD_DEFAULTS: [u32; 3] = [280, 232, 180];
 
 /// How the browser looks. Every field has a valid range; [`Appearance::sanitized`] puts a value
 /// read from a file or a web form back inside it.
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn the_old_wide_defaults_are_replaced_by_the_new_one() {
-        for old in [280, 232] {
+        for old in [280, 232, 180] {
             let s =
                 Settings::from_json(&format!(r#"{{"appearance": {{"sidebar_width": {old}}}}}"#));
             assert_eq!(s.appearance.sidebar_width, SIDEBAR_WIDTH_DEFAULT);
@@ -480,7 +480,7 @@ mod tests {
         // Anything else the person chose stays, down to the narrowest.
         let s = Settings::from_json(r#"{"appearance": {"sidebar_width": 165}}"#);
         assert_eq!(s.appearance.sidebar_width, 165);
-        assert_eq!(SIDEBAR_WIDTH_DEFAULT, 180);
+        assert_eq!(SIDEBAR_WIDTH_DEFAULT, 200);
         let s = Settings::from_json(r#"{"appearance": {"sidebar_width": 300}}"#);
         assert_eq!(s.appearance.sidebar_width, 300);
     }
