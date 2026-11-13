@@ -1,5 +1,10 @@
 <div align="center">
-  <a href="https://getnodalia.com"><img src="./docs/images/nodalia-mark.svg" width="64" height="64" alt="Nodalia"></a>
+  <a href="https://getnodalia.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/danielmigueltejedor/nodalia-web/main/assets/brand/nodalia-wordmark-white.svg">
+      <img src="https://raw.githubusercontent.com/danielmigueltejedor/nodalia-web/main/assets/brand/nodalia-wordmark-black.svg" width="150" alt="Nodalia">
+    </picture>
+  </a>
   <br><br>
   <img src="./docs/images/brujula-icon.svg" width="192" height="192" alt="Brújula">
   <h1>Brújula</h1>
@@ -85,19 +90,12 @@ cargo install --path crates/brujula --root ~/.local --locked
 `docs/brujula-rust.md` explica la estructura, las decisiones, cómo compilar y probar y qué está
 verificado y qué no. `crates/brujula-core` no tiene interfaz y se prueba con `cargo test -p brujula-core`.
 
+## La suite Nodalia
+
+Brújula es una de las aplicaciones de [Nodalia](https://getnodalia.com), un proyecto de software
+independiente desarrollado en público por [Daniel Miguel Tejedor](https://danielmigueltejedor.com), y
+el navegador de [Nodalix OS](https://github.com/getnodalia/nodalix-os).
+
 ## Licencia
 
 GPL-3.0-or-later. El repositorio conserva el código de GNOME Web (Epiphany), de donde partió.
-
----
-
-<p align="center">
-  <a href="https://getnodalia.com">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="./docs/images/nodalia-wordmark-white.svg">
-      <img src="./docs/images/nodalia-wordmark-black.svg" width="120" alt="Nodalia">
-    </picture>
-  </a>
-  <br>
-  Brújula es parte de <a href="https://getnodalia.com">Nodalia</a> y el navegador de <a href="https://github.com/danielmigueltejedor/nodalix-os">Nodalix OS</a>.
-</p>
