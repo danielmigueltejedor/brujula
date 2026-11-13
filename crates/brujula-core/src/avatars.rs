@@ -15,86 +15,98 @@ macro_rules! glyph {
     };
 }
 
-pub const AVATARS: &[Avatar] = &[
-    Avatar {
-        id: "compass",
-        name: "Brújula",
-        color: "#0c9a58",
-        glyph: glyph!(
+macro_rules! avatars {
+    ($($key:ident => ($id:literal, $name:literal, $color:literal, $glyph:expr)),+ $(,)?) => {{
+        $(const $key: Avatar = Avatar {
+            id: $id,
+            name: $name,
+            color: $color,
+            glyph: $glyph,
+        };)+
+        &[$($key),+]
+    }};
+}
+
+pub const AVATARS: &[Avatar] = avatars!(
+    COMPASS => (
+        "compass",
+        "Brújula",
+        "#0c9a58",
+        glyph!(
             r##"<circle cx="12" cy="12" r="8.5" fill="none" stroke="#fff" stroke-width="1.9"/><path d="M15.5 8.5l-2 5-5 2 2-5z" fill="#fff"/>"##
-        ),
-    },
-    Avatar {
-        id: "star",
-        name: "Estrella",
-        color: "#ca8a04",
-        glyph: glyph!(
+        )
+    ),
+    STAR => (
+        "star",
+        "Estrella",
+        "#ca8a04",
+        glyph!(
             r##"<path d="M12 3.5l2.5 5.3 5.8.8-4.2 4.1 1 5.8L12 16.7 6.9 19.5l1-5.8-4.2-4.1 5.8-.8z" fill="#fff"/>"##
-        ),
-    },
-    Avatar {
-        id: "moon",
-        name: "Luna",
-        color: "#4f46e5",
-        glyph: glyph!(
+        )
+    ),
+    MOON => (
+        "moon",
+        "Luna",
+        "#4f46e5",
+        glyph!(
             r##"<path d="M19 14.5A7.5 7.5 0 019.5 5a7.5 7.5 0 109.5 9.500z" fill="#fff"/>"##
-        ),
-    },
-    Avatar {
-        id: "sun",
-        name: "Sol",
-        color: "#ea580c",
-        glyph: glyph!(
+        )
+    ),
+    SUN => (
+        "sun",
+        "Sol",
+        "#ea580c",
+        glyph!(
             r##"<circle cx="12" cy="12" r="4" fill="#fff"/><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M5.600 18.400l1.800-1.800M16.600 7.400l1.800-1.800" fill="none" stroke="#fff" stroke-width="1.900" stroke-linecap="round"/>"##
-        ),
-    },
-    Avatar {
-        id: "leaf",
-        name: "Hoja",
-        color: "#059669",
-        glyph: glyph!(
+        )
+    ),
+    LEAF => (
+        "leaf",
+        "Hoja",
+        "#059669",
+        glyph!(
             r##"<path d="M5 19c0-8 5-13 14-14 0 9-5 14-13 14z" fill="#fff"/><path d="M5 19l8-8" fill="none" stroke="#059669" stroke-width="1.500" stroke-linecap="round"/>"##
-        ),
-    },
-    Avatar {
-        id: "wave",
-        name: "Ola",
-        color: "#0891b2",
-        glyph: glyph!(
+        )
+    ),
+    WAVE => (
+        "wave",
+        "Ola",
+        "#0891b2",
+        glyph!(
             r##"<path d="M3 9c3-3 5 3 9 0s6 3 9 0M3 15c3-3 5 3 9 0s6 3 9 0" "##,
             r##"fill="none" stroke="#fff" stroke-width="1.900" stroke-linecap="round" stroke-linejoin="round"/>"##
-        ),
-    },
-    Avatar {
-        id: "bolt",
-        name: "Rayo",
-        color: "#7c3aed",
-        glyph: glyph!(r##"<path d="M13 3L6 13.500h5L10 21l8-11h-5.500z" fill="#fff"/>"##),
-    },
-    Avatar {
-        id: "heart",
-        name: "Corazón",
-        color: "#db2777",
-        glyph: glyph!(
+        )
+    ),
+    BOLT => (
+        "bolt",
+        "Rayo",
+        "#7c3aed",
+        glyph!(r##"<path d="M13 3L6 13.500h5L10 21l8-11h-5.500z" fill="#fff"/>"##)
+    ),
+    HEART => (
+        "heart",
+        "Corazón",
+        "#db2777",
+        glyph!(
             r##"<path d="M12 19.500S4.500 15 4.500 9.500A4 4 0 0112 7.800 4 4 0 0119.500 9.500C19.500 15 12 19.500 12 19.500z" fill="#fff"/>"##
-        ),
-    },
-    Avatar {
-        id: "mountain",
-        name: "Montaña",
-        color: "#475569",
-        glyph: glyph!(r##"<path d="M3 19l6.500-11 3.500 6 2-3L21 19z" fill="#fff"/>"##),
-    },
-    Avatar {
-        id: "flag",
-        name: "Bandera",
-        color: "#dc2626",
-        glyph: glyph!(
+        )
+    ),
+    MOUNTAIN => (
+        "mountain",
+        "Montaña",
+        "#475569",
+        glyph!(r##"<path d="M3 19l6.500-11 3.500 6 2-3L21 19z" fill="#fff"/>"##)
+    ),
+    FLAG => (
+        "flag",
+        "Bandera",
+        "#dc2626",
+        glyph!(
             r##"<path d="M6 21V4" "##,
             r##"fill="none" stroke="#fff" stroke-width="1.900" stroke-linecap="round"/><path d="M6 5h11l-2.500 4 2.500 4H6z" fill="#fff"/>"##
-        ),
-    },
-];
+        )
+    ),
+);
 
 /// The avatar with this id, or the first one when the id is not known.
 pub fn get(id: &str) -> &'static Avatar {

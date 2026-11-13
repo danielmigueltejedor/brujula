@@ -51,79 +51,34 @@ pub struct Suggestion {
     pub color: &'static str,
 }
 
+macro_rules! suggestions {
+    ($($key:ident => ($name:literal, $url:literal, $color:literal)),+ $(,)?) => {{
+        $(const $key: Suggestion = Suggestion {
+            name: $name,
+            url: $url,
+            color: $color,
+        };)+
+        &[$($key),+]
+    }};
+}
+
 /// The usual ones, in the order they are offered.
-pub const SUGGESTED: &[Suggestion] = &[
-    Suggestion {
-        name: "YouTube",
-        url: "https://www.youtube.com/",
-        color: "#FF0033",
-    },
-    Suggestion {
-        name: "Discord",
-        url: "https://discord.com/app",
-        color: "#5865F2",
-    },
-    Suggestion {
-        name: "WhatsApp",
-        url: "https://web.whatsapp.com/",
-        color: "#25D366",
-    },
-    Suggestion {
-        name: "Gmail",
-        url: "https://mail.google.com/",
-        color: "#EA4335",
-    },
-    Suggestion {
-        name: "GitHub",
-        url: "https://github.com/",
-        color: "#24292F",
-    },
-    Suggestion {
-        name: "X",
-        url: "https://x.com/",
-        color: "#14171A",
-    },
-    Suggestion {
-        name: "Reddit",
-        url: "https://www.reddit.com/",
-        color: "#FF4500",
-    },
-    Suggestion {
-        name: "Spotify",
-        url: "https://open.spotify.com/",
-        color: "#1DB954",
-    },
-    Suggestion {
-        name: "Netflix",
-        url: "https://www.netflix.com/",
-        color: "#E50914",
-    },
-    Suggestion {
-        name: "Twitch",
-        url: "https://www.twitch.tv/",
-        color: "#9146FF",
-    },
-    Suggestion {
-        name: "Instagram",
-        url: "https://www.instagram.com/",
-        color: "#E4405F",
-    },
-    Suggestion {
-        name: "Telegram",
-        url: "https://web.telegram.org/",
-        color: "#26A5E4",
-    },
-    Suggestion {
-        name: "ChatGPT",
-        url: "https://chatgpt.com/",
-        color: "#10A37F",
-    },
-    Suggestion {
-        name: "Calendar",
-        url: "https://calendar.google.com/",
-        color: "#4285F4",
-    },
-];
+pub const SUGGESTED: &[Suggestion] = suggestions!(
+    YOUTUBE => ("YouTube", "https://www.youtube.com/", "#FF0033"),
+    DISCORD => ("Discord", "https://discord.com/app", "#5865F2"),
+    WHATSAPP => ("WhatsApp", "https://web.whatsapp.com/", "#25D366"),
+    GMAIL => ("Gmail", "https://mail.google.com/", "#EA4335"),
+    GITHUB => ("GitHub", "https://github.com/", "#24292F"),
+    X => ("X", "https://x.com/", "#14171A"),
+    REDDIT => ("Reddit", "https://www.reddit.com/", "#FF4500"),
+    SPOTIFY => ("Spotify", "https://open.spotify.com/", "#1DB954"),
+    NETFLIX => ("Netflix", "https://www.netflix.com/", "#E50914"),
+    TWITCH => ("Twitch", "https://www.twitch.tv/", "#9146FF"),
+    INSTAGRAM => ("Instagram", "https://www.instagram.com/", "#E4405F"),
+    TELEGRAM => ("Telegram", "https://web.telegram.org/", "#26A5E4"),
+    CHATGPT => ("ChatGPT", "https://chatgpt.com/", "#10A37F"),
+    CALENDAR => ("Calendar", "https://calendar.google.com/", "#4285F4"),
+);
 
 const PALETTE: &[&str] = &[
     "#6C7AE0", "#E0766C", "#4FA67F", "#C78B3C", "#8A6CE0", "#3C9CC7", "#C7487A", "#5E6B7A",
