@@ -109,13 +109,26 @@ impl Browser {
         let this = self.clone();
         let v = view.clone();
         view.evaluate_javascript(
-            "document.scrollingElement.scrollTop",
+            "(document.querySelector('main>section.on')?.id ?? '') + ' ' + document.scrollingElement.scrollTop",
             None,
             None,
             gio::Cancellable::NONE,
             move |value| {
-                let top = value.ok().map(|j| j.to_int32());
-                this.pending_scroll.set(top);
+                // The page shows one section at a time: it comes back to that one, at that height.
+                let state = value.ok().map(|j| j.to_str().to_string()).unwrap_or_default();
+                let (section, top) = state.split_once(' ').unwrap_or(("", "0"));
+                // A section asked for before the redraw (the new boost's, say) wins over this
+                // one, and the height of the old one means nothing there.
+                let mut wanted = this.pending_section.borrow_mut();
+                if wanted.is_some() {
+                    this.pending_scroll.set(None);
+                } else {
+                    if !section.is_empty() && section.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        *wanted = Some(section.to_owned());
+                    }
+                    this.pending_scroll.set(top.parse().ok());
+                }
+                drop(wanted);
                 this.render_settings(&v);
             },
         );

@@ -1618,11 +1618,7 @@ impl Browser {
         let this = Rc::downgrade(self);
         view.connect_is_playing_audio_notify(move |v| {
             if let Some(b) = this.upgrade() {
-                if let Some(id) = b.id_of(v) {
-                    let audible = v.is_playing_audio();
-                    let c = b.model.borrow_mut().update(id, |t| t.audible = audible);
-                    b.apply(c);
-                }
+                b.audio_changed(v);
             }
         });
         let this = Rc::downgrade(self);
@@ -1955,6 +1951,45 @@ impl Browser {
             self.rebuild_strip();
         }
         self.schedule_essentials();
+    }
+
+    /// The page started or stopped making sound. A video in a tab in the background flips this
+    /// all the time (every pause for buffering, every silent second), and each flip used to run
+    /// everything a tab change runs: the rows put in order, the filter run again, the session
+    /// saved. That is churn in the window while the tab in front is the one being used, so the
+    /// indicator is all that is touched, and a page that goes quiet is given a moment to start
+    /// again before the indicator goes away.
+    fn audio_changed(self: &Rc<Self>, view: &WebView) {
+        let Some(id) = self.id_of(view) else { return };
+        if view.is_playing_audio() {
+            self.set_audible(id, true);
+            return;
+        }
+        let this = Rc::downgrade(self);
+        let view = view.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+            if let Some(b) = this.upgrade() {
+                if !view.is_playing_audio() {
+                    b.set_audible(id, false);
+                }
+            }
+        });
+    }
+
+    fn set_audible(&self, id: TabId, audible: bool) {
+        if self
+            .model
+            .borrow()
+            .get(id)
+            .is_none_or(|t| t.audible == audible)
+        {
+            return;
+        }
+        let changes = self.model.borrow_mut().update(id, |t| t.audible = audible);
+        for c in &changes {
+            self.emit_tab_change(c);
+        }
+        self.sync_row(id);
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
@@ -2359,16 +2394,19 @@ impl Browser {
         if view.uri().as_deref() != Some(prefs::SETTINGS_URI) || view.is_loading() {
             return;
         }
-        if let Some(top) = self.pending_scroll.take() {
-            let script = format!("document.scrollingElement.scrollTop = {top}");
-            view.evaluate_javascript(&script, None, None, gio::Cancellable::NONE, |_| {});
+        let top = self.pending_scroll.take();
+        let section = self.pending_section.borrow_mut().take();
+        if top.is_none() && section.is_none() {
             return;
         }
-        let Some(section) = self.pending_section.borrow_mut().take() else {
-            return;
-        };
         // The id is alphanumeric (checked when it was stored), so it cannot break the script.
-        let script = format!("document.getElementById('{section}')?.scrollIntoView()");
+        let mut script = String::new();
+        if let Some(section) = section {
+            script.push_str(&format!("window.showSection?.('{section}');"));
+        }
+        if let Some(top) = top {
+            script.push_str(&format!("document.scrollingElement.scrollTop = {top};"));
+        }
         view.evaluate_javascript(&script, None, None, gio::Cancellable::NONE, |_| {});
     }
 

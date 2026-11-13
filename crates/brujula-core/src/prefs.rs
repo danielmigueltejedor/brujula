@@ -1768,7 +1768,6 @@ const CSS: &str = r#"
 :root[data-theme=light]{color-scheme:light;--bg:#f3f4f6;--fg:#12161a;--muted:#5d6872;--card:#fff;--line:#e4e7ec;--chip:#eef0f4;--mf:#dfe3e8;--sb:#f9fafb;--pg:#fff;--line2:#d3d8de;--shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px -12px rgba(16,24,40,.08)}
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54;--shadow:0 1px 2px rgba(0,0,0,.3)}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
 body{margin:0;font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
 .shell{display:grid;grid-template-columns:14.5rem minmax(0,44rem);justify-content:center;gap:3.5rem;padding:3.25rem 2rem 8rem}
 .nav{position:sticky;top:3rem;align-self:start;display:flex;flex-direction:column;gap:.15rem}
@@ -1778,7 +1777,8 @@ body{margin:0;font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:v
 .nav a.on{background:var(--card);color:var(--fg);box-shadow:var(--shadow);font-weight:560}
 .nav a.on .ico{color:var(--accent)}
 .ico{flex:none}
-section{margin-bottom:3rem;scroll-margin-top:2.5rem}
+main>section{display:none;margin-bottom:3rem}
+main>section.on{display:block}
 .shead{display:flex;gap:.9rem;align-items:center;margin:0 .25rem 1rem}
 .sicon{display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;border-radius:.85rem;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
 h2{font-size:1.4rem;font-weight:660;letter-spacing:-.02em;margin:0;line-height:1.2}
@@ -1882,7 +1882,7 @@ const unit=(el)=>el.parentElement.querySelector('output');
 const fill=(i)=>i.style.setProperty('--p',((i.value-i.min)*100/(i.max-i.min||1))+'%');
 document.addEventListener('click',e=>{
   const nav=e.target.closest('a[href^="#"]');
-  if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
+  if(nav){e.preventDefault();show(nav.getAttribute('href').slice(1));return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
   const es=e.target.closest('[data-addessential]');
@@ -1919,14 +1919,15 @@ document.addEventListener('input',e=>{
   else if(i.type==='color'){if(i.dataset.k==='accent')document.body.style.setProperty('--accent',i.value);later(()=>send(i.dataset.k,i.value))}
 });
 const links=[...document.querySelectorAll('[data-nav]')];
-const mark=(id)=>links.forEach(a=>a.classList.toggle('on',a.dataset.nav===id));
-if('IntersectionObserver' in window){
-  const seen=new Map();
-  const io=new IntersectionObserver(es=>{es.forEach(x=>seen.set(x.target.id,x.isIntersecting));
-    const first=[...document.querySelectorAll('main section')].find(s=>seen.get(s.id));if(first)mark(first.id)},{rootMargin:'-20% 0px -60% 0px'});
-  document.querySelectorAll('main section').forEach(s=>io.observe(s));
-}
-mark('general');
+const secs=[...document.querySelectorAll('main>section')];
+const show=(id)=>{
+  const t=secs.find(s=>s.id===id)||secs[0];if(!t)return;
+  secs.forEach(s=>s.classList.toggle('on',s===t));
+  links.forEach(a=>{const on=a.dataset.nav===t.id;a.classList.toggle('on',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+  window.scrollTo(0,0);
+};
+window.showSection=show;
+show('general');
 "##;
 
 #[cfg(test)]
@@ -2334,7 +2335,7 @@ mod tests {
     }
 
     #[test]
-    fn the_nav_links_to_every_section_and_the_page_scrolls_to_them() {
+    fn the_nav_links_to_every_section_and_the_page_shows_one_at_a_time() {
         let html = render(
             &Settings::default(),
             &Bookmarks::default(),
@@ -2345,8 +2346,11 @@ mod tests {
             assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
             assert!(html.contains(&format!(r#"<section id="{id}""#)), "{id}");
         }
-        // Fragments are not navigations the browser accepts, so the page scrolls itself.
-        assert!(JS.contains("scrollIntoView"));
+        // Fragments are not navigations the browser accepts, and a long page scrolled with
+        // animation shows unpainted tiles: the page shows one section at a time instead.
+        assert!(JS.contains("window.showSection"));
+        assert!(!JS.contains("scrollIntoView"));
+        assert!(!CSS.contains("scroll-behavior"));
     }
 
     #[test]
