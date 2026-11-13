@@ -1,0 +1,40 @@
+# Maintainer: Daniel Miguel Tejedor <danielmigueltejedor@icloud.com>
+pkgname=brujula
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Brújula, el navegador de Nodalix: WebKit, pestañas verticales, bloqueador de anuncios y extensiones de Chromium'
+arch=(x86_64)
+url='https://github.com/danielmigueltejedor/brujula'
+license=(GPL-3.0-or-later)
+depends=(gtk4 webkitgtk-6.0 libsoup3 hicolor-icon-theme)
+makedepends=(cargo git)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p brujula
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen -p brujula-core
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/brujula "$pkgdir/usr/bin/brujula"
+  install -Dm644 packaging/dev.danielmiguelt.Brujula.desktop \
+    "$pkgdir/usr/share/applications/dev.danielmiguelt.Brujula.desktop"
+  install -Dm644 packaging/icons/dev.danielmiguelt.Brujula.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/dev.danielmiguelt.Brujula.svg"
+  install -Dm644 COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}
