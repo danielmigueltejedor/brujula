@@ -170,6 +170,15 @@ impl Settings {
                 a.frame_angle = degrees;
                 effect.appearance = true;
             }
+            "texture" => {
+                a.texture = crate::settings::Texture::from_id(value)
+                    .ok_or_else(|| format!("unknown texture: {value}"))?;
+                effect.appearance = true;
+            }
+            "texture_amount" => {
+                a.texture_amount = number(value)?.clamp(10, 100);
+                effect.appearance = true;
+            }
             "opacity" => {
                 a.opacity = number(value)?.clamp(50, 100);
                 effect.appearance = true;
@@ -1091,6 +1100,21 @@ fn sync_section(s: &Settings, view: &Extras) -> String {
     section("sync", &body)
 }
 
+/// The buttons that pick the texture, and how strong it is.
+fn texture_picker(a: &crate::settings::Appearance) -> String {
+    let buttons: String = crate::settings::Texture::ALL
+        .iter()
+        .map(|(t, id, label)| {
+            let on = if *t == a.texture { " on" } else { "" };
+            format!(r#"<button type="button" class="seg{on}" data-k="texture" data-v="{id}">{label}</button>"#)
+        })
+        .collect();
+    format!(
+        r#"<div class="actions"><div class="segs" role="group">{buttons}</div></div>{}"#,
+        slider("texture_amount", a.texture_amount, 10, 100, " %")
+    )
+}
+
 /// The preferences page for the current settings.
 pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -> String {
     let a = &s.appearance;
@@ -1172,6 +1196,11 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 "Degradado del marco",
                 "Varios colores que se funden; se usa en lugar del color liso. Elige uno hecho o monta el tuyo.",
                 &gradient_picker(a),
+            ),
+            stacked(
+                "Textura",
+                "Un relieve fino sobre el marco y los paneles, bajo los colores.",
+                &texture_picker(a),
             ),
             row(
                 "Opacidad de la barra y el marco",
@@ -1429,6 +1458,7 @@ Tema|claro oscuro modo sistema|appearance
 Color de acento|color tinte acento|appearance
 Color del marco|marco fondo color|appearance
 Transparencia|opacidad transparente cristal|appearance
+Textura|granulado grano relieve puntos líneas cuadrícula|appearance
 Redondeo de esquinas|bordes radio esquinas|appearance
 Disposición|islas marco zen diseño layout|layout
 Pestañas horizontales|pestañas arriba horizontal vertical|layout
@@ -1662,6 +1692,11 @@ mod tests {
         let mut s = Settings::default();
         assert!(s.apply("theme", "dark").unwrap().appearance);
         assert_eq!(s.appearance.theme, Theme::Dark);
+        s.apply("texture", "grain").unwrap();
+        assert_eq!(s.appearance.texture, crate::settings::Texture::Grain);
+        assert!(s.apply("texture", "<script>").is_err());
+        s.apply("texture_amount", "999").unwrap();
+        assert_eq!(s.appearance.texture_amount, 100);
         s.apply("opacity", "5").unwrap();
         assert_eq!(s.appearance.opacity, 50);
         s.apply("sidebar_width", "9999").unwrap();

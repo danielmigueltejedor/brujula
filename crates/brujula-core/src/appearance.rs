@@ -3,7 +3,7 @@
 //! Everything here is plain GTK CSS built from validated numbers and colours (see
 //! [`Appearance::sanitized`]), so a setting can never put arbitrary text in the sheet.
 
-use crate::settings::{mix_colors, text_on, Appearance, Layout, TabPosition};
+use crate::settings::{mix_colors, text_on, Appearance, Layout, TabPosition, Texture};
 
 /// Dark ink on a light frame, light ink on a dark one.
 fn text_on_frame(frame: &str) -> &'static str {
@@ -11,6 +11,49 @@ fn text_on_frame(frame: &str) -> &'static str {
         "#f2f4f5"
     } else {
         "#14181b"
+    }
+}
+
+/// The texture as a CSS background image and the size it repeats at, or `None` for no texture.
+/// Mid grey with some alpha reads on a light frame and on a dark one.
+fn texture_layer(a: &Appearance) -> Option<(String, &'static str)> {
+    // (images, sizes), one size for each image.
+    let strength = f64::from(a.texture_amount) / 100.0;
+    let grey = |alpha: f64| format!("rgba(128, 128, 128, {alpha:.2})");
+    match a.texture {
+        Texture::None => None,
+        Texture::Grain => Some((
+            // Noise drawn by the SVG renderer; `%23` is the `#` of the filter's reference.
+            format!(
+                "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>\
+                 <filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/>\
+                 <feColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 {:.2} 0'/></filter>\
+                 <rect width='160' height='160' filter='url(%23n)'/></svg>\")",
+                0.15 + strength * 1.1
+            ),
+            "160px 160px",
+        )),
+        Texture::Lines => Some((
+            format!(
+                "repeating-linear-gradient(45deg, {c} 0px, {c} 1px, transparent 1px, transparent 6px)",
+                c = grey(0.06 + strength * 0.2)
+            ),
+            "auto",
+        )),
+        Texture::Dots => Some((
+            format!(
+                "radial-gradient(circle, {c} 0px, {c} 1.2px, transparent 1.6px)",
+                c = grey(0.12 + strength * 0.4)
+            ),
+            "12px 12px",
+        )),
+        Texture::Grid => Some((
+            format!(
+                "linear-gradient({c} 1px, transparent 1px), linear-gradient(90deg, {c} 1px, transparent 1px)",
+                c = grey(0.04 + strength * 0.12)
+            ),
+            "24px 24px, 24px 24px",
+        )),
     }
 }
 
@@ -27,20 +70,38 @@ pub fn css(a: &Appearance) -> String {
     };
     let mut css = String::new();
     // A gradient replaces the plain colour of the frame; its first colour stands in wherever a
-    // single one is needed.
-    let gradient = if a.frame_gradient.len() >= 2 {
+    // single one is needed. The texture goes over it.
+    let fade = (a.frame_gradient.len() >= 2).then(|| {
         let stops: Vec<String> = a
             .frame_gradient
             .iter()
             .map(|c| format!("alpha({c}, {opacity:.2})"))
             .collect();
         format!(
-            " background-image: linear-gradient({}deg, {});",
+            "linear-gradient({}deg, {})",
             a.frame_angle,
             stops.join(", ")
         )
-    } else {
+    });
+    let texture = texture_layer(&a);
+    let images: Vec<&str> = texture
+        .iter()
+        .map(|(i, _)| i.as_str())
+        .chain(fade.as_deref())
+        .collect();
+    let sizes: Vec<&str> = texture
+        .iter()
+        .map(|(_, s)| *s)
+        .chain(fade.as_ref().map(|_| "auto"))
+        .collect();
+    let gradient = if images.is_empty() {
         String::new()
+    } else {
+        format!(
+            " background-image: {}; background-size: {};",
+            images.join(", "),
+            sizes.join(", ")
+        )
     };
     let frame = a.frame_gradient.first().cloned().unwrap_or(frame);
     css.push_str(&format!(
@@ -52,6 +113,11 @@ pub fn css(a: &Appearance) -> String {
         r = a.radius,
         g = a.gap,
     ));
+    if let (Some((image, size)), Layout::Islands) = (&texture, a.layout) {
+        css.push_str(&format!(
+            "ndl-overlay-split-view > .ndl-sidebar-pane, .brujula-topbar {{ background-image: {image}; background-size: {size}; }}\n"
+        ));
+    }
     // Dialogs and their rounded corners follow the look chosen: a veil of the frame's colours
     // over the panel, so a gradient reaches them too.
     css.push_str(&format!(
@@ -153,6 +219,44 @@ mod tests {
         assert!(
             solid.contains("ndl-dialog { background-image: linear-gradient(alpha(#abcdef, 0.14)")
         );
+    }
+
+    #[test]
+    fn a_texture_goes_over_the_gradient_and_is_never_text_from_outside() {
+        let none = css(&Appearance::default());
+        assert!(!none.contains("repeating-linear-gradient") && !none.contains("data:image"));
+        let lines = css(&Appearance {
+            texture: Texture::Lines,
+            frame_gradient: vec!["#112233".into(), "#445566".into()],
+            ..Appearance::default()
+        });
+        assert!(lines.contains("background-image: repeating-linear-gradient(45deg"));
+        assert!(lines.contains("linear-gradient(135deg, alpha(#112233"));
+        assert!(lines.contains("background-size: auto, auto;"));
+        let grain = css(&Appearance {
+            texture: Texture::Grain,
+            ..Appearance::default()
+        });
+        assert!(grain.contains("feTurbulence") && grain.contains("160px 160px"));
+        // The `%` of a data address must be an escape: GTK refuses the sheet otherwise.
+        assert!(!grain.contains("%'") && grain.contains("%23n"));
+        let grid = css(&Appearance {
+            texture: Texture::Grid,
+            ..Appearance::default()
+        });
+        assert!(grid.contains("24px 24px, 24px 24px"));
+        // Stronger is more visible.
+        let faint = css(&Appearance {
+            texture: Texture::Dots,
+            texture_amount: 10,
+            ..Appearance::default()
+        });
+        let strong = css(&Appearance {
+            texture: Texture::Dots,
+            texture_amount: 100,
+            ..Appearance::default()
+        });
+        assert_ne!(faint, strong);
     }
 
     #[test]

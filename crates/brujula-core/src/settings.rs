@@ -36,6 +36,47 @@ pub enum TabPosition {
     Horizontal,
 }
 
+/// A texture over the frame and the panels, under the colours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Texture {
+    #[default]
+    None,
+    /// Fine noise, like paper.
+    Grain,
+    /// Thin diagonal lines.
+    Lines,
+    Dots,
+    Grid,
+}
+
+impl Texture {
+    /// The id used by the preferences page and the settings file, and the name people see.
+    pub const ALL: [(Texture, &'static str, &'static str); 5] = [
+        (Texture::None, "none", "Ninguna"),
+        (Texture::Grain, "grain", "Granulado"),
+        (Texture::Lines, "lines", "Líneas"),
+        (Texture::Dots, "dots", "Puntos"),
+        (Texture::Grid, "grid", "Cuadrícula"),
+    ];
+
+    pub fn id(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(t, ..)| *t == self)
+            .map_or("none", |(_, id, _)| id)
+    }
+
+    pub fn from_id(id: &str) -> Option<Texture> {
+        Self::ALL
+            .iter()
+            .find(|(_, i, _)| *i == id)
+            .map(|(t, ..)| *t)
+    }
+}
+
+pub const TEXTURE_AMOUNT_DEFAULT: u32 = 40;
+
 pub const ACCENT_DEFAULT: &str = "#0c9a58";
 pub const SIDEBAR_WIDTH_DEFAULT: u32 = 232;
 pub const SIDEBAR_WIDTH_MIN: u32 = 180;
@@ -70,6 +111,9 @@ pub struct Appearance {
     pub gap: u32,
     /// Width of the sidebar, in pixels.
     pub sidebar_width: u32,
+    pub texture: Texture,
+    /// How visible the texture is, 10 to 100 per cent.
+    pub texture_amount: u32,
 }
 
 impl Default for Appearance {
@@ -86,6 +130,8 @@ impl Default for Appearance {
             radius: 16,
             gap: 8,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            texture: Texture::None,
+            texture_amount: TEXTURE_AMOUNT_DEFAULT,
         }
     }
 }
@@ -164,6 +210,7 @@ impl Appearance {
         self.sidebar_width = self
             .sidebar_width
             .clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+        self.texture_amount = self.texture_amount.clamp(10, 100);
         self
     }
 }
