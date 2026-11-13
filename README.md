@@ -1,4 +1,6 @@
 <div align="center">
+  <a href="https://getnodalia.com"><img src="./docs/images/nodalia-mark.svg" width="64" height="64" alt="Nodalia"></a>
+  <br><br>
   <img src="./docs/images/brujula-icon.svg" width="192" height="192" alt="Brújula">
   <h1>Brújula</h1>
   <p><strong>El navegador de Nodalix: rápido, seguro y a tu manera.</strong></p>
