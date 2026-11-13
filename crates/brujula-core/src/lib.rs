@@ -3,12 +3,27 @@
 #![forbid(unsafe_code)]
 
 pub mod adblock;
+pub mod appearance;
+pub mod archive;
+pub mod bookmarks;
+pub mod boosts;
+pub mod cloud;
 pub mod downloads;
+pub mod edge;
+pub mod ext;
+pub mod folders;
+pub mod https;
+pub mod icons;
 pub mod newtab;
+pub mod notes;
 pub mod omnibox;
+pub mod prefs;
 pub mod scriptlets;
 pub mod search;
 pub mod session;
 pub mod settings;
+pub mod sleep;
+pub mod spaces;
 pub mod suggest;
+pub mod sync;
 pub mod tabs;

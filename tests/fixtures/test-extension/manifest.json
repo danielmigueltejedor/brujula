@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "version": "1.0.0",
+  "default_locale": "es",
+  "description": "Extensión de prueba de Brújula",
+  "permissions": ["storage", "tabs", "scripting", "declarativeNetRequest"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {"service_worker": "bg.js"},
+  "action": {"default_popup": "popup.html", "default_title": "Prueba"},
+  "options_page": "options.html",
+  "content_scripts": [
+    {"matches": ["http://127.0.0.1/*"], "js": ["content.js"], "css": ["content.css"], "run_at": "document_end"}
+  ],
+  "declarative_net_request": {"rule_resources": [{"id": "r1", "enabled": true, "path": "rules.json"}]}
+}

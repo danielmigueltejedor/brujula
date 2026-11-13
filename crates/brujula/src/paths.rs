@@ -24,6 +24,22 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+pub fn bookmarks_file() -> PathBuf {
+    data_dir().join("bookmarks.json")
+}
+
+pub fn archive_file() -> PathBuf {
+    data_dir().join("archive.json")
+}
+
+pub fn notes_file() -> PathBuf {
+    data_dir().join("notes.json")
+}
+
+pub fn boosts_file() -> PathBuf {
+    data_dir().join("boosts.json")
+}
+
 pub fn session_file() -> PathBuf {
     data_dir().join("session.json")
 }
@@ -38,4 +54,13 @@ pub fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(tmp, path)
+}
+
+/// Where the installed extensions live: one folder per id, with the unpacked package in `pkg`.
+pub fn extensions_dir() -> PathBuf {
+    data_dir().join("extensions")
+}
+
+pub fn extensions_file() -> PathBuf {
+    data_dir().join("extensions.json")
 }

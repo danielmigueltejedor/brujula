@@ -20,6 +20,9 @@ pub struct FilterList {
     pub name: &'static str,
     pub url: &'static str,
     pub enabled_by_default: bool,
+    /// Shipped from uBlock Origin's own repository: may use the `trusted-*` scriptlets. Lists
+    /// from anyone else may not.
+    pub trusted: bool,
 }
 
 /// Lists enabled out of the box: ads, trackers, annoyances, cookie banners and malware.
@@ -28,61 +31,70 @@ pub const DEFAULT_LISTS: &[FilterList] = &[
         id: "easylist",
         name: "EasyList",
         url: "https://easylist.to/easylist/easylist.txt",
+        trusted: false,
         enabled_by_default: true,
     },
     FilterList {
         id: "easyprivacy",
         name: "EasyPrivacy",
         url: "https://easylist.to/easylist/easyprivacy.txt",
+        trusted: false,
         enabled_by_default: true,
     },
     FilterList {
         id: "ublock-filters",
         name: "uBlock filters",
         url: "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+        trusted: true,
         enabled_by_default: true,
     },
     FilterList {
         id: "ublock-privacy",
         name: "uBlock filters – Privacy",
         url: "https://ublockorigin.github.io/uAssets/filters/privacy.txt",
+        trusted: true,
         enabled_by_default: true,
     },
     FilterList {
         id: "ublock-badware",
         name: "uBlock filters – Badware risks",
         url: "https://ublockorigin.github.io/uAssets/filters/badware.txt",
+        trusted: true,
         enabled_by_default: true,
     },
     FilterList {
         id: "ublock-unbreak",
         name: "uBlock filters – Unbreak",
         url: "https://ublockorigin.github.io/uAssets/filters/unbreak.txt",
+        trusted: true,
         enabled_by_default: true,
     },
     FilterList {
         id: "fanboy-cookiemonster",
         name: "EasyList Cookie",
         url: "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+        trusted: false,
         enabled_by_default: true,
     },
     FilterList {
         id: "easylist-spanish",
         name: "EasyList Spanish",
         url: "https://easylist-downloads.adblockplus.org/easylistspanish.txt",
+        trusted: false,
         enabled_by_default: true,
     },
     FilterList {
         id: "fanboy-annoyance",
         name: "Fanboy's Annoyances",
         url: "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+        trusted: false,
         enabled_by_default: false,
     },
 ];
 
 /// Names the format of the cached compiled rules. Change it whenever the `adblock` crate is
 /// upgraded: serialised data is not guaranteed to load across versions.
-pub const CACHE_FORMAT: &str = "adblock-0.13-network-and-scriptlets";
+pub const CACHE_FORMAT: &str = "adblock-0.13-network-and-scriptlets-trust";
 
 /// How long a downloaded list is trusted before it is fetched again.
 pub const REFRESH_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -117,7 +129,16 @@ pub struct Compiled {
 ///
 /// `allow` lists sites where blocking is off (see [`normalize_host`]).
 pub fn compile<'a>(lists: impl IntoIterator<Item = &'a str>, allow: &[String]) -> Compiled {
-    let lists: Vec<&str> = lists.into_iter().collect();
+    compile_lists(lists.into_iter().map(|t| (t, false)), allow)
+}
+
+/// Like [`compile`], with each list marked as trusted or not (see [`FilterList::trusted`]).
+pub fn compile_lists<'a>(
+    lists: impl IntoIterator<Item = (&'a str, bool)>,
+    allow: &[String],
+) -> Compiled {
+    let marked: Vec<(&str, bool)> = lists.into_iter().collect();
+    let lists: Vec<&str> = marked.iter().map(|(t, _)| *t).collect();
     let options = ParseOptions::default();
 
     let mut set = FilterSet::new(true);
@@ -149,7 +170,7 @@ pub fn compile<'a>(lists: impl IntoIterator<Item = &'a str>, allow: &[String]) -
             allow: allow.to_vec(),
         },
         rule_count,
-        scriptlets: crate::scriptlets::parse(lists.iter().copied()),
+        scriptlets: crate::scriptlets::parse(marked.iter().copied()),
     }
 }
 
@@ -583,6 +604,30 @@ news.example.org##div[data-ad=\"1\"]
         for l in DEFAULT_LISTS {
             assert!(l.url.starts_with("https://"), "{}", l.id);
             assert!(ids.insert(l.id), "duplicate {}", l.id);
+        }
+    }
+
+    #[test]
+    fn a_third_party_list_cannot_bring_trusted_scriptlets() {
+        let text = "y.com##+js(trusted-set-cookie, a, b)\ny.com##+js(set, x, 1)\n";
+        let third_party = compile_lists([(text, false)], &[]);
+        assert_eq!(third_party.scriptlets.rules.len(), 1);
+        assert_eq!(third_party.scriptlets.rules[0].name, "set");
+        let ublock = compile_lists([(text, true)], &[]);
+        assert_eq!(ublock.scriptlets.rules.len(), 2);
+        // The plain entry point is for lists nobody vouches for.
+        assert_eq!(compile([text], &[]).scriptlets.rules.len(), 1);
+    }
+
+    #[test]
+    fn only_lists_from_ublock_origin_are_trusted() {
+        for l in DEFAULT_LISTS {
+            assert_eq!(
+                l.trusted,
+                l.url.starts_with("https://ublockorigin.github.io/uAssets/"),
+                "{}",
+                l.id
+            );
         }
     }
 }

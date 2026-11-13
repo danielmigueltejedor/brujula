@@ -1,0 +1,11 @@
+<!doctype html><title>Pagina</title><body><h1>Pagina de prueba</h1><p id=out>out:</p>
+<script src="/blocked.js"></script>
+<script>document.getElementById('out').textContent += ' blocked_ran=' + (window.__blocked_ran === true);</script>
+<script>
+const L=(k,v)=>fetch('/log?'+k+'='+encodeURIComponent(v));
+const id='abcdefghijklmnopabcdefghijklmnop';
+L('web_handler', String(!!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers['brujulaExt_'+id])));
+L('web_chrome', String(typeof chrome));
+fetch('brujula-ext://'+id+'/popup.js').then(r=>L('web_fetch_ext','ok '+r.status),e=>L('web_fetch_ext','refused'));
+const i=new Image(); i.onload=()=>L('web_img','loaded'); i.onerror=()=>L('web_img','refused'); i.src='brujula-ext://'+id+'/icons/x.png';
+</script>

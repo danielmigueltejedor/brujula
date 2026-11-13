@@ -6,13 +6,13 @@
   min-height: 36px;
   padding: 0 var(--ndl-space-md);
   border-radius: 999px;
-  background: alpha(currentColor, 0.07);
+  background: rgba(127, 127, 127, 0.12);
 }
-.brujula-urlbutton:hover { background: alpha(currentColor, 0.12); }
+.brujula-urlbutton:hover { background: rgba(127, 127, 127, 0.2); }
 
 /* Tabs: tall enough to read, with room around the favicon and the close button. */
 .brujula-tabs { padding: 0; }
-.brujula-tabs > row { margin: 2px 0; padding: 0; min-height: 40px; }
+.brujula-row { margin: 2px 0; padding: 0; min-height: 40px; }
 .brujula-tab { padding: 0 var(--ndl-space-md); min-height: 40px; }
 .brujula-tab .brujula-tab-title { font-size: var(--ndl-font-size-small); }
 .brujula-tab-favicon { opacity: 0.95; }
@@ -23,18 +23,22 @@
   opacity: 0;
   color: inherit;
 }
-.brujula-tab-close:hover { background: alpha(currentColor, 0.15); }
-row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
+.brujula-tab-close:hover { background: rgba(127, 127, 127, 0.25); }
+.brujula-row:hover .brujula-tab-close, .brujula-current .brujula-tab-close { opacity: 1; }
+.brujula-row.brujula-split { box-shadow: inset 3px 0 0 var(--ndl-color-accent-default); }
+.brujula-splitview > separator { min-width: 2px; background: rgba(127, 127, 127, 0.3); }
+.brujula-peek { background: rgba(0, 0, 0, 0.4); }
+.brujula-peek-card { background: var(--ndl-color-surface-panel); border-radius: 16px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
+.brujula-peek-header { padding: 6px 8px 6px 16px; }
 .brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
 
 /* Spotlight */
 .brujula-scrim { background: rgba(0, 0, 0, 0.35); }
 .brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
-.brujula-spotlight row { min-height: 44px; }
+.brujula-spotlight-row { min-height: 44px; }
 
-.brujula-progress trough { min-height: 2px; }
-.brujula-progress progress { min-height: 2px; }
+.brujula-progress { min-height: 2px; }
 
 /* The window-controls bar over the page, and the sidebar when it floats. */
 .brujula-floatbar {
@@ -47,3 +51,28 @@ row:hover .brujula-tab-close, row:selected .brujula-tab-close { opacity: 1; }
 .collapsed .brujula-side { box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 /* Sidebar not pinned: the site fills the window edge to edge. */
 ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius: 0; }
+
+/* Spaces switcher */
+.brujula-space { min-width: 28px; min-height: 28px; padding: 0 var(--ndl-space-xs); border-radius: 999px; }
+.brujula-space-current { background: var(--ndl-color-accent-subtle); }
+
+/* Tab bar of the horizontal layout */
+.brujula-strip { padding: 0 var(--ndl-space-xs); }
+.brujula-chip { min-height: 32px; padding: 0 var(--ndl-space-md); border-radius: 10px; }
+.brujula-chip:hover { background: rgba(127, 127, 127, 0.14); }
+.brujula-chip-current, .brujula-chip-current:hover { background: rgba(127, 127, 127, 0.22); }
+.brujula-chip:hover .brujula-tab-close { opacity: 1; }
+
+/* The navigation row is as narrow as the sidebar can get: compact buttons (min-width counts
+   the content only, so 16px of icon plus the padding and the border is 26px). */
+.brujula-side .brujula-nav button, .brujula-side .brujula-nav menubutton > button { min-width: 16px; min-height: 20px; padding: 4px; }
+
+/* The icon grid of the space editor */
+.brujula-icon-choice { min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
+.brujula-icon-current { background: var(--ndl-color-accent-subtle); }
+
+/* Folders in the sidebar */
+.brujula-folder .brujula-folder-name { font-weight: 600; }
+.brujula-folder-count { font-size: var(--ndl-font-size-small); }
+.brujula-in-folder .brujula-tab { padding-left: calc(var(--ndl-space-md) + 14px); }
+.brujula-newfolder { min-width: 28px; min-height: 28px; margin-right: var(--ndl-space-xs); }
