@@ -56,6 +56,7 @@ mod float;
 mod folders;
 mod history;
 mod notes;
+mod page_action;
 mod passwords;
 mod peek;
 mod profiles_ui;
@@ -194,6 +195,8 @@ struct Chrome {
     url_button: gtk::Button,
     url_icon: gtk::Image,
     url_label: gtk::Label,
+    /// What the page in front allows: add an extension, install a web app. Hidden otherwise.
+    page_action: gtk::Button,
 }
 
 fn build_chrome() -> Chrome {
@@ -262,6 +265,7 @@ fn build_chrome() -> Chrome {
         url_button,
         url_icon,
         url_label,
+        page_action: page_action::build_button(),
     }
 }
 
@@ -374,6 +378,8 @@ pub struct Browser {
     syncing: Cell<bool>,
     /// Set when the rules are being rebuilt for a site switch; the page reloads once they land.
     pending_reload: Cell<bool>,
+    /// The address of the last page asked about its web manifest, and whether it has one.
+    page_manifest: RefCell<(String, bool)>,
 }
 
 impl Browser {
@@ -437,6 +443,7 @@ impl Browser {
         side_header.set_show_end_title_buttons(false);
         side_header.set_show_start_title_buttons(false);
         side_header.pack_end(&side_chrome.toggle);
+        side_header.pack_end(&side_chrome.page_action);
         let notes_button = gtk::Button::builder()
             .icon_name("ndl-file-text-symbolic")
             .css_classes(["flat", "brujula-newfolder"])
@@ -603,6 +610,7 @@ impl Browser {
         top_chrome.url_button.set_margin_start(8);
         top_chrome.url_button.set_margin_end(8);
         top_nav.append(&top_chrome.url_button);
+        top_nav.append(&top_chrome.page_action);
         top_nav.append(&top_chrome.star);
         top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
@@ -765,6 +773,7 @@ impl Browser {
             rows: RefCell::new(HashMap::new()),
             syncing: Cell::new(false),
             pending_reload: Cell::new(false),
+            page_manifest: RefCell::new((String::new(), false)),
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
         if let Some(display) = gdk::Display::default() {
@@ -790,6 +799,12 @@ impl Browser {
             c.ext.set_create_popup_func(move |mb| {
                 if let (Some(b), Some(p)) = (this.upgrade(), mb.popover()) {
                     b.fill_ext_popover(&p);
+                }
+            });
+            let this = Rc::downgrade(self);
+            c.page_action.connect_clicked(move |_| {
+                if let Some(b) = this.upgrade() {
+                    b.run_page_action();
                 }
             });
         }
@@ -1576,6 +1591,7 @@ impl Browser {
                 }
                 if ev == LoadEvent::Finished {
                     b.record_visit(v);
+                    b.detect_manifest(v);
                     hide_elements(&b.filters, v);
                     b.scroll_settings(v);
                     b.push_sync_status(v);
@@ -2077,6 +2093,7 @@ impl Browser {
         self.sync_progress();
         self.refresh_site_action();
         self.refresh_bookmark_action();
+        self.refresh_page_action();
     }
 
     fn set_action_enabled(&self, name: &str, enabled: bool) {
