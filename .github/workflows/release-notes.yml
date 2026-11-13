@@ -1,0 +1,26 @@
+name: Release notes
+
+# Every version needs hand-written release notes in docs/release-X.Y.Z.md: the release page and
+# the app's news page both show that file. A pull request whose Cargo.toml version has no complete
+# notes fails here. Notes fixed after a release reach its page through release-auto.yml.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-notes-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Release notes are written
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the notes of the current version
+        run: scripts/check-release-notes.sh
