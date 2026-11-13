@@ -939,12 +939,12 @@ fn ai_section(view: &AiView) -> String {
         ),
         row(
             "Preguntar antes de leer cada sitio",
-            "La primera vez que la IA quiere leer un sitio en una conversación te lo pregunta. Las pestañas que abre ella misma para la tarea se leen sin preguntar.",
+            "La primera vez que la IA quiere leer otro sitio en una conversación te lo pregunta. La página que estás mirando y las pestañas que abre ella misma para la tarea se leen sin preguntar.",
             &switch("ai.confirm_reads", s.confirm_reads),
         ),
         row(
             "Abrir pestañas",
-            "«Sin preguntar» deja que abra búsquedas y enlaces que ha visto; una dirección que no salía en lo que leyó se pregunta siempre. Nunca abre direcciones de la red local.",
+            "Buscar en la web siempre se hace solo. «Sin preguntar» (lo normal) deja que abra los enlaces que ha visto; una dirección que no salía en lo que leyó se pregunta siempre. Nunca abre direcciones de la red local.",
             &format!(r#"<div class="segs" role="group">{open_modes}</div>"#),
         ),
         row(

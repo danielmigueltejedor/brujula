@@ -14,9 +14,9 @@ Solo lo que le das y lo que el panel muestra en la línea «Puede ver…»:
 | Herramienta | Qué envía | Permiso |
 |---|---|---|
 | Listar pestañas | título y dirección de las pestañas | siempre (si el asistente está activo) |
-| Leer una página | el texto visible (hasta un límite) y los enlaces/botones | pregunta una vez por sitio y conversación; las pestañas que abrió la propia IA no preguntan |
-| Buscar en la web | la consulta | abre una pestaña con tu buscador |
-| Abrir / cambiar / cerrar pestaña | una dirección | pregunta, salvo «Permitirlo en toda la conversación»; solo cierra las pestañas que abrió ella |
+| Leer una página | el texto visible (hasta un límite) y los enlaces/botones | la página que estás mirando y las pestañas que abrió la propia IA no preguntan; otro sitio, una vez por sitio y conversación |
+| Buscar en la web | la consulta | nunca pregunta: abre una pestaña con tu buscador |
+| Abrir / cambiar / cerrar pestaña | una dirección | por defecto sin preguntar (se puede cambiar a «Preguntar siempre»); una dirección que no salía en lo que leyó se pregunta siempre; solo cierra las pestañas que abrió ella |
 | Pulsar / escribir en una página | el elemento y el texto | desactivado por defecto; si lo activas, **siempre** pregunta |
 
 Nunca se envían: contraseñas, campos de pago, campos ocultos, el valor de ningún campo de formulario, ventanas privadas, páginas `brujula://` ni `file:`, ni los sitios que excluyas. Las direcciones privadas (localhost, red local) no se pueden abrir desde la IA.
@@ -27,12 +27,12 @@ Nunca se envían: contraseñas, campos de pago, campos ocultos, el valor de ning
 - **Destino fijo**: ChatGPT, Claude y Gemini usan su dirección oficial. Un servidor propio debe ser `https`, o `http` solo en este equipo; sin usuario ni parámetros; no se siguen redirecciones.
 - **El texto de una página es un dato, no una orden**. Va marcado como contenido no fiable. Si la IA ya leyó una página y luego pide abrir una dirección que no estaba en lo leído, se pregunta aunque hayas dado permiso general (defensa contra inyección de instrucciones).
 - Límites por conversación: 14 pasos y 8 pestañas abiertas. El botón de parar cancela al momento.
-- La lectura y la interacción se pueden apagar por separado; abrir pestañas pregunta siempre salvo que elijas dejarlo hacer sin preguntar.
+- La lectura y la interacción se pueden apagar por separado; si prefieres que cada pestaña que abra la IA se pregunte, se cambia en los ajustes.
 - Las conversaciones solo viven en memoria; al cerrar el panel o empezar otra se olvidan.
 
 ## Ajustes
 
-`ai.json` en la carpeta del perfil (sin la clave). Preferencias → IA: proveedor, modelo, dirección (solo «Otro servidor»), clave (Poner/Cambiar/Quitar), «Probar conexión», permisos, buscador y sitios excluidos.
+`ai.json` en la carpeta del perfil (sin la clave). Los mismos ajustes están dentro del panel (botón de los controles de la cabecera, que desliza los ajustes sobre la conversación) y en Preferencias → IA: proveedor, modelo, dirección (solo «Otro servidor»), clave (Poner/Cambiar/Quitar), «Probar conexión», permisos, buscador y sitios excluidos.
 
 ## Qué no está verificado
 

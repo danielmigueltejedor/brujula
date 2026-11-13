@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use futures_channel::oneshot;
 
+use super::ai_pane::AiPane;
 use super::*;
 
 /// What the user answered to a question of the assistant.
@@ -33,6 +34,9 @@ pub(super) struct AiUi {
     pub new_chat: gtk::Button,
     pub close: gtk::Button,
     pub prefs: gtk::Button,
+    /// The chat and the settings, one over the other.
+    stack: gtk::Stack,
+    pub pane: AiPane,
     messages: gtk::Box,
     scroller: gtk::ScrolledWindow,
     sees: gtk::Label,
@@ -77,6 +81,9 @@ impl AiUi {
 
         let mark = gtk::Image::from_icon_name(icon());
         mark.set_pixel_size(18);
+        mark.set_hexpand(true);
+        mark.set_halign(gtk::Align::Center);
+        mark.set_valign(gtk::Align::Center);
         let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         badge.add_css_class("brujula-ai-badge");
         badge.set_valign(gtk::Align::Center);
@@ -154,6 +161,9 @@ impl AiUi {
         empty.add_css_class("brujula-ai-empty");
         let big = gtk::Image::from_icon_name(icon());
         big.set_pixel_size(26);
+        big.set_hexpand(true);
+        big.set_halign(gtk::Align::Center);
+        big.set_valign(gtk::Align::Center);
         let halo = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         halo.add_css_class("brujula-ai-halo");
         halo.set_halign(gtk::Align::Center);
@@ -250,10 +260,19 @@ impl AiUi {
         column.append(&foot);
         // A scrolled window that never scrolls: it asks for no more than its width, so the
         // text inside wraps instead of widening the panel.
+        let pane = AiPane::new();
+        let stack = gtk::Stack::builder()
+            .transition_type(gtk::StackTransitionType::SlideLeftRight)
+            .transition_duration(220)
+            .vexpand(true)
+            .vhomogeneous(false)
+            .build();
+        stack.add_named(&column, Some("chat"));
+        stack.add_named(&pane.root, Some("settings"));
         let clamp = gtk::ScrolledWindow::builder()
-            .child(&column)
+            .child(&stack)
             .hscrollbar_policy(gtk::PolicyType::Never)
-            .vscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
             .propagate_natural_width(false)
             .propagate_natural_height(false)
             .min_content_width(340)
@@ -270,6 +289,8 @@ impl AiUi {
             new_chat,
             close,
             prefs,
+            stack,
+            pane,
             messages,
             scroller,
             sees,
@@ -280,6 +301,16 @@ impl AiUi {
             card: RefCell::new(None),
             on_link: Rc::new(RefCell::new(None)),
         }
+    }
+
+    /// Slides the settings in over the conversation, or the conversation back.
+    pub fn show_settings(&self, open: bool) {
+        self.stack
+            .set_visible_child_name(if open { "settings" } else { "chat" });
+    }
+
+    pub fn settings_open(&self) -> bool {
+        self.stack.visible_child_name().as_deref() == Some("settings")
     }
 
     /// Called with the address of a link the user clicked in an answer.
