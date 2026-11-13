@@ -343,9 +343,6 @@ impl Browser {
 
     /// The tabs of the space in front as chips, for the horizontal layout.
     pub(super) fn rebuild_strip(self: &Rc<Self>) {
-        while let Some(child) = self.strip.first_child() {
-            self.strip.remove(&child);
-        }
         let (tabs, selected) = {
             let m = self.model.borrow();
             (
@@ -353,6 +350,34 @@ impl Browser {
                 m.selected(),
             )
         };
+        // Pages report loading and progress all the time; building the chips again under the
+        // pointer would eat clicks that were half made. Only what the chips show decides.
+        let key: String = tabs
+            .iter()
+            .map(|t| {
+                let icon = self
+                    .views
+                    .borrow()
+                    .get(&t.id)
+                    .and_then(|v| v.favicon())
+                    .map_or(0, |tex| tex.as_ptr() as usize);
+                format!(
+                    "{}|{}|{}|{}|{}|{icon};",
+                    t.id.0,
+                    t.title,
+                    t.url,
+                    t.pinned,
+                    selected == Some(t.id)
+                )
+            })
+            .collect();
+        if *self.strip_key.borrow() == key {
+            return;
+        }
+        *self.strip_key.borrow_mut() = key;
+        while let Some(child) = self.strip.first_child() {
+            self.strip.remove(&child);
+        }
         for tab in tabs {
             let id = tab.id;
             let title = if !tab.title.is_empty() {
@@ -393,22 +418,16 @@ impl Browser {
                 inner.append(&label);
                 inner.append(&close);
             }
-            let chip = gtk::Button::builder()
-                .child(&inner)
-                .tooltip_text(&title)
-                .css_classes(["flat", "brujula-chip"])
-                .build();
+            // A box, not a button: a button inside a button never gets its own clicks, so the
+            // close button of a chip would select the tab instead of closing it.
+            let chip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            chip.append(&inner);
+            chip.set_tooltip_text(Some(&title));
+            chip.add_css_class("brujula-chip");
             if selected == Some(id) {
                 chip.add_css_class("brujula-chip-current");
                 chip.add_css_class("brujula-current");
             }
-            let this = Rc::downgrade(self);
-            chip.connect_clicked(move |_| {
-                if let Some(b) = this.upgrade() {
-                    let c = b.model.borrow_mut().select(id);
-                    b.apply(c);
-                }
-            });
             let this = Rc::downgrade(self);
             close.connect_clicked(move |_| {
                 if let Some(b) = this.upgrade() {
@@ -421,6 +440,10 @@ impl Browser {
             click.connect_pressed(move |g, _, x, y| {
                 let Some(b) = this.upgrade() else { return };
                 match g.current_button() {
+                    gdk::BUTTON_PRIMARY => {
+                        let c = b.model.borrow_mut().select(id);
+                        b.apply(c);
+                    }
                     gdk::BUTTON_MIDDLE => b.close_tab(id),
                     gdk::BUTTON_SECONDARY => b.show_tab_menu(id, &anchor, x, y),
                     _ => {}

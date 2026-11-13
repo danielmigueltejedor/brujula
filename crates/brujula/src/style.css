@@ -59,7 +59,8 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* Tab bar of the horizontal layout */
 .brujula-strip { padding: 0 var(--ndl-space-xs); }
 .brujula-chip { min-height: 32px; padding: 0 var(--ndl-space-md); border-radius: 10px; }
-.brujula-chip-current { background: rgba(127, 127, 127, 0.22); }
+.brujula-chip:hover { background: rgba(127, 127, 127, 0.14); }
+.brujula-chip-current, .brujula-chip-current:hover { background: rgba(127, 127, 127, 0.22); }
 .brujula-chip:hover .brujula-tab-close { opacity: 1; }
 
 /* The navigation row is as narrow as the sidebar can get: compact buttons (min-width counts

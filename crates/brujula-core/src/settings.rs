@@ -57,6 +57,11 @@ pub struct Appearance {
     /// Colour of the window frame (what shows around the page in `Frame` layout); empty is the
     /// theme's own. `#rrggbb`.
     pub frame_color: String,
+    /// Two to four colours that the frame fades through, in place of the plain colour; empty for
+    /// none. `#rrggbb` each.
+    pub frame_gradient: Vec<String>,
+    /// Direction of the gradient in degrees, a multiple of 45 (0 fades upwards, 90 to the right).
+    pub frame_angle: u32,
     /// How opaque the sidebar and window frame are, 50 to 100 per cent.
     pub opacity: u32,
     /// Corner radius of the islands, in pixels.
@@ -75,12 +80,32 @@ impl Default for Appearance {
             tabs: TabPosition::Vertical,
             accent: ACCENT_DEFAULT.to_owned(),
             frame_color: String::new(),
+            frame_gradient: Vec::new(),
+            frame_angle: 135,
             opacity: 100,
             radius: 16,
             gap: 8,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
         }
     }
+}
+
+/// Most colours a gradient has.
+pub const MAX_STOPS: usize = 4;
+
+/// The average of some `#rrggbb` colours, for deciding what ink reads on a gradient.
+pub fn mix_colors(colors: &[String]) -> Option<String> {
+    let parsed: Vec<[u32; 3]> = colors
+        .iter()
+        .filter_map(|c| parse_hex_color(c))
+        .map(|h| {
+            let ch = |i: usize| u32::from(u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0));
+            [ch(1), ch(3), ch(5)]
+        })
+        .collect();
+    let n = u32::try_from(parsed.len()).ok().filter(|n| *n > 0)?;
+    let avg = |k: usize| parsed.iter().map(|c| c[k]).sum::<u32>() / n;
+    Some(format!("#{:02x}{:02x}{:02x}", avg(0), avg(1), avg(2)))
 }
 
 /// `#rrggbb` (any case) as lowercase, or `None`.
@@ -120,6 +145,16 @@ impl Appearance {
         } else {
             parse_hex_color(&self.frame_color).unwrap_or_default()
         };
+        self.frame_gradient = self
+            .frame_gradient
+            .iter()
+            .filter_map(|c| parse_hex_color(c))
+            .take(MAX_STOPS)
+            .collect();
+        if self.frame_gradient.len() < 2 {
+            self.frame_gradient.clear();
+        }
+        self.frame_angle = (self.frame_angle.min(360) / 45 * 45) % 360;
         self.opacity = self.opacity.clamp(50, 100);
         self.radius = self.radius.min(28);
         self.gap = self.gap.min(20);

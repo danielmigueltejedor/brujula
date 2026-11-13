@@ -93,17 +93,29 @@ impl Browser {
         }
     }
 
-    /// Draws the preferences page again, if it is open.
-    pub(super) fn redraw_settings(&self) {
+    /// Draws the preferences page again where it was scrolled to, for changes that alter what the
+    /// page shows (a gradient losing its third colour, appearance back to the defaults).
+    pub(super) fn redraw_settings(self: &Rc<Self>) {
         let view = self
             .views
             .borrow()
             .values()
             .find(|v| v.uri().as_deref() == Some(prefs::SETTINGS_URI))
             .cloned();
-        if let Some(v) = view {
-            self.render_settings(&v);
-        }
+        let Some(view) = view else { return };
+        let this = self.clone();
+        let v = view.clone();
+        view.evaluate_javascript(
+            "document.scrollingElement.scrollTop",
+            None,
+            None,
+            gio::Cancellable::NONE,
+            move |value| {
+                let top = value.ok().map(|j| j.to_int32());
+                this.pending_scroll.set(top);
+                this.render_settings(&v);
+            },
+        );
     }
 
     /// Starts a boost for the site of the tab and shows it in the preferences.

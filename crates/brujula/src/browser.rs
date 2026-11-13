@@ -51,6 +51,7 @@ mod notes;
 mod peek;
 mod sleep;
 mod split;
+mod system_theme;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -257,11 +258,17 @@ pub struct Browser {
     edge: RefCell<EdgeDetector>,
     /// The preferences section to scroll to once the page has loaded.
     pending_section: RefCell<Option<String>>,
+    /// Where the preferences page was scrolled to before it was drawn again.
+    pending_scroll: Cell<Option<i32>>,
     /// Restored tabs that have not been opened yet: their page loads when they are selected, so
     /// starting with many tabs does not start many page loads.
     lazy: RefCell<HashMap<TabId, String>>,
     /// Addresses that were upgraded to HTTPS and have not loaded yet, with the one asked for.
     https_tried: RefCell<HashMap<String, String>>,
+    /// Whether the desktop prefers a dark look (see `system_theme`).
+    system_dark: Cell<bool>,
+    /// What the tab chips of the horizontal layout last showed.
+    strip_key: RefCell<String>,
     /// Sites that did not answer on HTTPS; they open as asked until the browser is closed.
     http_only: RefCell<std::collections::HashSet<String>>,
     /// True while the saved tabs are being put back; the tab that ends up in front loads then.
@@ -462,19 +469,9 @@ impl Browser {
             .hscrollbar_policy(gtk::PolicyType::External)
             .vscrollbar_policy(gtk::PolicyType::Never)
             .build();
-        let top_header = ndl::HeaderBar::new();
-        top_header.set_show_start_title_buttons(false);
-        top_header.set_show_end_title_buttons(true);
-        top_header.set_title_widget(Some(&strip_scroll));
-        top_header.pack_end(&icon_button(
-            "ndl-plus-symbolic",
-            "Nueva pestaña (Ctrl+T)",
-            "win.new-tab",
-        ));
+        // The address row is on top, with the window controls; the tabs are under it.
         let top_nav = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-        top_nav.set_margin_start(8);
-        top_nav.set_margin_end(8);
-        top_nav.set_margin_bottom(6);
+        top_nav.set_hexpand(true);
         top_nav.append(&top_chrome.back);
         top_nav.append(&top_chrome.forward);
         top_nav.append(&top_chrome.reload);
@@ -484,10 +481,24 @@ impl Browser {
         top_nav.append(&top_chrome.star);
         top_nav.append(&top_chrome.shield);
         top_nav.append(&top_chrome.menu);
+        let top_header = ndl::HeaderBar::new();
+        top_header.set_show_start_title_buttons(false);
+        top_header.set_show_end_title_buttons(true);
+        top_header.set_title_widget(Some(&top_nav));
+        let tabs_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        tabs_row.set_margin_start(8);
+        tabs_row.set_margin_end(8);
+        tabs_row.set_margin_bottom(6);
+        tabs_row.append(&strip_scroll);
+        tabs_row.append(&icon_button(
+            "ndl-plus-symbolic",
+            "Nueva pestaña (Ctrl+T)",
+            "win.new-tab",
+        ));
         let topbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
         topbar.add_css_class("brujula-topbar");
         topbar.append(&top_header);
-        topbar.append(&top_nav);
+        topbar.append(&tabs_row);
         topbar.set_visible(false);
         let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
         column.append(&topbar);
@@ -582,8 +593,13 @@ impl Browser {
             appearance_css: gtk::CssProvider::new(),
             edge: RefCell::new(EdgeDetector::default()),
             pending_section: RefCell::new(None),
+            pending_scroll: Cell::new(None),
             lazy: RefCell::new(HashMap::new()),
             https_tried: RefCell::new(HashMap::new()),
+            strip_key: RefCell::new(String::new()),
+            system_dark: Cell::new(gtk::Settings::default().is_some_and(|s| {
+                s.gtk_interface_color_scheme() == gtk::InterfaceColorScheme::Dark
+            })),
             http_only: RefCell::new(std::collections::HashSet::new()),
             restoring: Cell::new(false),
             hide_bar: RefCell::new(None),
@@ -612,6 +628,7 @@ impl Browser {
             );
         }
         this.apply_appearance();
+        this.watch_system_theme();
         this.apply_layout();
         this.wire();
         this
@@ -1963,6 +1980,11 @@ impl Browser {
         if view.uri().as_deref() != Some(prefs::SETTINGS_URI) || view.is_loading() {
             return;
         }
+        if let Some(top) = self.pending_scroll.take() {
+            let script = format!("document.scrollingElement.scrollTop = {top}");
+            view.evaluate_javascript(&script, None, None, gio::Cancellable::NONE, |_| {});
+            return;
+        }
         let Some(section) = self.pending_section.borrow_mut().take() else {
             return;
         };
@@ -1990,6 +2012,10 @@ impl Browser {
             self.bookmarks.borrow_mut().remove(value);
             self.save_bookmarks();
             self.refresh_bookmark_action();
+            return;
+        }
+        if key == "redraw" {
+            self.redraw_settings();
             return;
         }
         let result = self.settings.borrow_mut().apply(key, value);
@@ -2028,7 +2054,8 @@ impl Browser {
         self.appearance_css.load_from_string(&appearance::css(&a));
         let style = ndl::StyleManager::default();
         style.set_color_scheme(match a.theme {
-            Theme::System => ndl::ColorScheme::Default,
+            Theme::System if self.system_dark.get() => ndl::ColorScheme::ForceDark,
+            Theme::System => ndl::ColorScheme::ForceLight,
             Theme::Light => ndl::ColorScheme::ForceLight,
             Theme::Dark => ndl::ColorScheme::ForceDark,
         });

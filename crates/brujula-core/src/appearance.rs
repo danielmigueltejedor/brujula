@@ -3,7 +3,7 @@
 //! Everything here is plain GTK CSS built from validated numbers and colours (see
 //! [`Appearance::sanitized`]), so a setting can never put arbitrary text in the sheet.
 
-use crate::settings::{text_on, Appearance, Layout, TabPosition};
+use crate::settings::{mix_colors, text_on, Appearance, Layout, TabPosition};
 
 /// Dark ink on a light frame, light ink on a dark one.
 fn text_on_frame(frame: &str) -> &'static str {
@@ -26,8 +26,25 @@ pub fn css(a: &Appearance) -> String {
         a.frame_color.clone()
     };
     let mut css = String::new();
+    // A gradient replaces the plain colour of the frame; its first colour stands in wherever a
+    // single one is needed.
+    let gradient = if a.frame_gradient.len() >= 2 {
+        let stops: Vec<String> = a
+            .frame_gradient
+            .iter()
+            .map(|c| format!("alpha({c}, {opacity:.2})"))
+            .collect();
+        format!(
+            " background-image: linear-gradient({}deg, {});",
+            a.frame_angle,
+            stops.join(", ")
+        )
+    } else {
+        String::new()
+    };
+    let frame = a.frame_gradient.first().cloned().unwrap_or(frame);
     css.push_str(&format!(
-        "window.brujula-window {{ background-color: alpha({frame}, {opacity:.2}); }}\n\
+        "window.brujula-window {{ background-color: alpha({frame}, {opacity:.2});{gradient} }}\n\
          ndl-overlay-split-view > .ndl-sidebar-pane,\n\
          ndl-overlay-split-view > .ndl-content-pane {{ border-radius: {r}px; margin: {g}px; }}\n\
          ndl-overlay-split-view > .ndl-sidebar-pane {{ background-color: alpha(var(--ndl-color-surface-panel), {opacity:.2}); }}\n\
@@ -50,13 +67,18 @@ pub fn css(a: &Appearance) -> String {
         ));
         // The sidebar and the tab bar sit straight on the frame colour, so their text must read
         // on it whatever the theme is.
-        if !a.frame_color.is_empty() {
+        let ink_base = if a.frame_gradient.is_empty() {
+            a.frame_color.clone()
+        } else {
+            mix_colors(&a.frame_gradient).unwrap_or_default()
+        };
+        if !ink_base.is_empty() {
             css.push_str(&format!(
                 "window.brujula-frame .brujula-side, window.brujula-frame .brujula-topbar {{ color: {ink}; }}\n\
                  window.brujula-frame .brujula-side button.flat:not(:checked), window.brujula-frame .brujula-topbar button.flat:not(:checked) {{ color: inherit; }}\n\
                  window.brujula-frame .brujula-side button.flat:hover:not(:checked), window.brujula-frame .brujula-topbar button.flat:hover:not(:checked), window.brujula-frame .brujula-side row:hover:not(:selected), window.brujula-frame .brujula-side .brujula-space-current {{ background-color: alpha({ink}, 0.14); }}\n\
                  window.brujula-frame .brujula-side row:not(:selected), window.brujula-frame .brujula-side row:not(:selected) label, window.brujula-frame .brujula-side row:not(:selected) image {{ color: {ink}; }}\n",
-                ink = text_on_frame(&a.frame_color),
+                ink = text_on_frame(&ink_base),
             ));
         }
     }
@@ -136,6 +158,32 @@ mod tests {
             ..Appearance::default()
         });
         assert!(frame.contains("brujula-frame ndl-overlay-split-view > .ndl-sidebar-pane"));
+    }
+
+    #[test]
+    fn a_gradient_replaces_the_frame_colour_and_sets_the_ink_from_its_mean() {
+        let plain = css(&Appearance::default());
+        assert!(!plain.contains("linear-gradient"));
+        let dark = css(&Appearance {
+            layout: Layout::Frame,
+            frame_gradient: vec!["#101830".into(), "#201040".into()],
+            frame_angle: 90,
+            ..Appearance::default()
+        });
+        assert!(dark.contains("linear-gradient(90deg, alpha(#101830, 1.00), alpha(#201040, 1.00))"));
+        assert!(dark.contains("color: #f2f4f5"));
+        let light = css(&Appearance {
+            layout: Layout::Frame,
+            frame_gradient: vec!["#f0f0f0".into(), "#e0e8f0".into()],
+            ..Appearance::default()
+        });
+        assert!(light.contains("color: #14181b"));
+        // One colour is not a gradient.
+        let one = css(&Appearance {
+            frame_gradient: vec!["#101830".into()],
+            ..Appearance::default()
+        });
+        assert!(!one.contains("linear-gradient"));
     }
 
     #[test]

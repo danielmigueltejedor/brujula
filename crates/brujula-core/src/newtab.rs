@@ -378,6 +378,7 @@ form:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in s
 .engbtn{display:flex;align-items:center;gap:.1rem;margin-left:.55rem;padding:.3rem .35rem .3rem .3rem;border-radius:999px;color:var(--muted);text-decoration:none}
 .engbtn:hover{background:var(--chip);color:var(--fg)}
 .engbtn svg{width:1rem;height:1rem}
+.eng svg{width:64%;height:64%;display:block}
 .eng{display:grid;place-items:center;flex:none;width:1.9rem;height:1.9rem;border-radius:.6rem;color:#fff;font-weight:750;font-size:1rem}
 input[type=search]{flex:1;min-width:0;font:inherit;font-size:1.1rem;color:var(--fg);background:transparent;border:0;padding:1rem 1.4rem 1rem .6rem;outline:none}
 input[type=search]::-webkit-search-cancel-button{display:none}

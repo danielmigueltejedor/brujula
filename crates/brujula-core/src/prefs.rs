@@ -120,6 +120,54 @@ impl Settings {
                 };
                 effect.appearance = true;
             }
+            "frame_gradient" => {
+                // A preset or a custom one: two to four colours, `#rrggbb` separated by commas.
+                // Empty goes back to the plain colour.
+                a.frame_gradient = if value.is_empty() {
+                    Vec::new()
+                } else {
+                    let stops: Vec<String> = value
+                        .split(',')
+                        .map(|c| parse_hex_color(c).ok_or("not a colour"))
+                        .collect::<Result<_, _>>()?;
+                    if !(2..=crate::settings::MAX_STOPS).contains(&stops.len()) {
+                        return Err("a gradient has two to four colours".to_owned());
+                    }
+                    stops
+                };
+                effect.appearance = true;
+            }
+            "frame_stop1" | "frame_stop2" | "frame_stop3" => {
+                // One colour of the gradient; the first two always exist, the third can go.
+                let at = usize::from(key.as_bytes()[10] - b'1');
+                if a.frame_gradient.len() < 2 {
+                    let first = if a.frame_color.is_empty() {
+                        "#dbe7e0".to_owned()
+                    } else {
+                        a.frame_color.clone()
+                    };
+                    a.frame_gradient = vec![first, "#dbe4f3".to_owned()];
+                }
+                if value.is_empty() && at == 2 {
+                    a.frame_gradient.truncate(2);
+                } else {
+                    let colour = parse_hex_color(value).ok_or("not a colour")?;
+                    if at < a.frame_gradient.len() {
+                        a.frame_gradient[at] = colour;
+                    } else {
+                        a.frame_gradient.push(colour);
+                    }
+                }
+                effect.appearance = true;
+            }
+            "frame_angle" => {
+                let degrees = number(value)?;
+                if degrees >= 360 || degrees % 45 != 0 {
+                    return Err(format!("not an angle: {degrees}"));
+                }
+                a.frame_angle = degrees;
+                effect.appearance = true;
+            }
             "opacity" => {
                 a.opacity = number(value)?.clamp(50, 100);
                 effect.appearance = true;
@@ -244,6 +292,84 @@ const SWATCHES: &[&str] = &[
     "#0c9a58", "#2563eb", "#7c3aed", "#db2777", "#e11d48", "#ea580c", "#ca8a04", "#0891b2",
     "#475569",
 ];
+
+/// Gradients for the frame: label and colours.
+const FRAME_GRADIENTS: &[(&str, &[&str])] = &[
+    ("Aurora", &["#c9f0e3", "#d7e0fb", "#f1d9f5"]),
+    ("Atardecer", &["#fde2c8", "#f9c5d1", "#d9c4f5"]),
+    ("Océano", &["#cfe8f7", "#c6d4f7", "#d9d0f5"]),
+    ("Bosque", &["#d4ead8", "#cfe6d0", "#e8efc9"]),
+    ("Lavanda", &["#e6dcf6", "#f1d9ec", "#dbe4f7"]),
+    ("Nube", &["#eef0f4", "#dfe4ec", "#f4eef0"]),
+    ("Medianoche", &["#1b2540", "#2b2250", "#16303a"]),
+    ("Brasas", &["#3a1d2a", "#4a2a1c", "#2a1a3a"]),
+    ("Esmeralda", &["#0f2f2a", "#14423a", "#1d2f4a"]),
+    ("Neón", &["#6a5cff", "#00c2a8", "#ff5ca8"]),
+];
+
+/// The gradient picker: presets, the colours one by one, the direction and the way back.
+fn gradient_picker(a: &crate::settings::Appearance) -> String {
+    let current = a.frame_gradient.join(",");
+    let presets: String = FRAME_GRADIENTS
+        .iter()
+        .map(|(label, stops)| {
+            let value = stops.join(",");
+            let on = if value == current { " on" } else { "" };
+            format!(
+                r##"<button type="button" class="dot grad{on}" style="background:linear-gradient(135deg,{value})" data-k="frame_gradient" data-v="{value}" data-redraw="1" aria-label="{label}" title="{label}"></button>"##
+            )
+        })
+        .collect();
+    let base = if a.frame_gradient.len() >= 2 {
+        a.frame_gradient.clone()
+    } else {
+        vec![
+            if a.frame_color.is_empty() {
+                "#dbe7e0".to_owned()
+            } else {
+                a.frame_color.clone()
+            },
+            "#dbe4f3".to_owned(),
+        ]
+    };
+    let stop = |i: usize| {
+        base.get(i).map_or_else(String::new, |c| {
+            format!(
+                r#"<input type="color" data-k="frame_stop{n}" value="{c}" aria-label="Color {n} del degradado">"#,
+                n = i + 1
+            )
+        })
+    };
+    let third = if base.len() > 2 {
+        format!(
+            r#"{}<button type="button" class="seg plain" data-k="frame_stop3" data-v="" data-redraw="1">Quitar el tercero</button>"#,
+            stop(2)
+        )
+    } else {
+        r##"<button type="button" class="seg plain" data-k="frame_stop3" data-v="#f1d9f5" data-redraw="1">Añadir un tercer color</button>"##.to_owned()
+    };
+    let angles: String = [
+        (0, "↑"),
+        (45, "↗"),
+        (90, "→"),
+        (135, "↘"),
+        (180, "↓"),
+        (225, "↙"),
+        (270, "←"),
+        (315, "↖"),
+    ]
+    .iter()
+    .map(|(deg, arrow)| {
+        let on = if *deg == a.frame_angle { " on" } else { "" };
+        format!(r#"<button type="button" class="seg{on}" data-k="frame_angle" data-v="{deg}">{arrow}</button>"#)
+    })
+    .collect();
+    format!(
+        r#"<div class="dots grads">{presets}</div><div class="actions">{}{}{third}<button type="button" class="seg plain" data-k="frame_gradient" data-v="" data-redraw="1">Sin degradado</button></div><div class="actions"><div class="segs" role="group">{angles}</div></div>"#,
+        stop(0),
+        stop(1),
+    )
+}
 
 const FRAME_SWATCHES: &[&str] = &[
     "#dbe7e0", "#dbe4f3", "#e6dff3", "#f3dfe8", "#f3e6d8", "#e9e9e9", "#1a2420", "#1a1f2e",
@@ -730,6 +856,11 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                     })
                 ),
             ),
+            stacked(
+                "Degradado del marco",
+                "Varios colores que se funden; se usa en lugar del color liso. Elige uno hecho o monta el tuyo.",
+                &gradient_picker(&a),
+            ),
             row(
                 "Opacidad de la barra y el marco",
                 "Con un compositor que lo permita, deja ver el escritorio.",
@@ -1091,6 +1222,7 @@ input[type=range]{-webkit-appearance:none;appearance:none;width:13rem;height:.4r
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:1.15rem;height:1.15rem;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:.9rem}
 .actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
+.dot.grad{width:2.6rem;border-radius:.7rem}
 .engines{display:grid;grid-template-columns:repeat(auto-fill,minmax(10rem,1fr));gap:.6rem;width:100%}
 .engine{display:flex;align-items:center;gap:.7rem;padding:.65rem .8rem;border:1px solid var(--line);border-radius:.9rem;background:transparent;font:inherit;color:var(--fg);cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
 .engine:hover{border-color:color-mix(in srgb,var(--fg) 30%,var(--line))}
@@ -1102,6 +1234,7 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
 .note{margin:0;padding:1rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+.eng svg{width:64%;height:64%;display:block}
 .eng{display:grid;place-items:center;flex:none;width:1.9rem;height:1.9rem;border-radius:.6rem;color:#fff;font-weight:750;font-size:1rem;font-family:system-ui,sans-serif}
 .space{padding:.85rem 1.25rem;border-top:1px solid var(--line)}
 .space:first-child{border-top:0}
@@ -1144,6 +1277,7 @@ document.addEventListener('click',e=>{
   if(b.dataset.toggle){const on=!b.classList.contains('on');b.classList.toggle('on',on);b.setAttribute('aria-checked',on);send(k,on?'1':'0');return}
   const v=b.dataset.v;
   if(b.dataset.removeall){const r=b.closest('.boost');if(r)r.remove();send(k,b.dataset.v);return}
+  if(b.dataset.redraw){send(k,v);setTimeout(()=>send('redraw','1'),200);return}
   if(b.dataset.remove){const r=b.closest('.row,.space');if(r)r.remove();send(k,v);return}
   send(k,v);
   if(k==='accent'){document.body.style.setProperty('--accent',v)}
@@ -1151,7 +1285,7 @@ document.addEventListener('click',e=>{
   if(group){group.querySelectorAll('.on').forEach(x=>x.classList.remove('on'));b.classList.add('on')}
   if(b.dataset.pick){const s=b.closest('.space');const cur=s.querySelector('.iconbtn .cur');if(cur){cur.innerHTML=b.innerHTML;const g=cur.firstElementChild;if(g){g.setAttribute('width',22);g.setAttribute('height',22)}}s.classList.remove('open')}
   if(k==='theme'){document.documentElement.dataset.theme=v}
-  if(k==='reset_appearance'){setTimeout(()=>location.reload(),150)}
+  if(k==='reset_appearance'){setTimeout(()=>send('redraw','1'),150)}
 });
 document.addEventListener('change',e=>{
   const i=e.target;if((i.type==='text'||i.tagName==='TEXTAREA')&&i.dataset.k)send(i.dataset.k,i.value)
@@ -1293,6 +1427,51 @@ mod tests {
             &Extras::default(),
         );
         assert!(empty.contains("Ninguna cuenta"));
+    }
+
+    #[test]
+    fn the_frame_gradient_takes_presets_single_stops_and_an_angle() {
+        let mut s = Settings::default();
+        s.apply("frame_gradient", "#112233,#AABBCC,#445566")
+            .unwrap();
+        assert_eq!(
+            s.appearance.frame_gradient,
+            vec!["#112233", "#aabbcc", "#445566"]
+        );
+        for bad in [
+            "#112233",
+            "#112233,red",
+            "#1,#2",
+            "a,b,c,d,e",
+            "#112233;x,#445566",
+        ] {
+            assert!(s.apply("frame_gradient", bad).is_err(), "{bad}");
+        }
+        s.apply("frame_stop2", "#ff0000").unwrap();
+        assert_eq!(s.appearance.frame_gradient[1], "#ff0000");
+        s.apply("frame_stop3", "").unwrap();
+        assert_eq!(s.appearance.frame_gradient.len(), 2);
+        s.apply("frame_stop3", "#00ff00").unwrap();
+        assert_eq!(s.appearance.frame_gradient.len(), 3);
+        assert!(s.apply("frame_stop1", "url(x)").is_err());
+        s.apply("frame_angle", "90").unwrap();
+        assert_eq!(s.appearance.frame_angle, 90);
+        assert!(s.apply("frame_angle", "50").is_err());
+        assert!(s.apply("frame_angle", "360").is_err());
+        // One stop on its own starts a gradient from the plain colour.
+        let mut t = Settings::default();
+        t.apply("frame_stop2", "#123456").unwrap();
+        assert_eq!(t.appearance.frame_gradient.len(), 2);
+        s.apply("frame_gradient", "").unwrap();
+        assert!(s.appearance.frame_gradient.is_empty());
+        let html = render(
+            &t,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(html.contains(r#"data-k="frame_angle" data-v="135""#));
+        assert!(html.contains(r#"data-k="frame_gradient""#));
     }
 
     #[test]
