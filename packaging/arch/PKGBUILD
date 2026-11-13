@@ -8,6 +8,7 @@ url='https://github.com/danielmigueltejedor/brujula'
 license=(GPL-3.0-or-later)
 depends=(gtk4 webkitgtk-6.0 libsoup3 hicolor-icon-theme)
 makedepends=(cargo git)
+optdepends=('libsecret: guardar las claves del asistente de IA en el llavero')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 

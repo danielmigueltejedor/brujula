@@ -44,6 +44,8 @@ use crate::filters::Filters;
 use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
+mod ai;
+mod ai_panel;
 mod archive;
 mod boosts;
 mod cloudsync;
@@ -124,6 +126,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
     app.set_accels_for_action("win.toggle-history", &["<Ctrl>h"]);
+    app.set_accels_for_action("win.toggle-assistant", &["<Ctrl><Shift>a"]);
     app.set_accels_for_action("win.open-settings", &["<Ctrl>comma"]);
     app.set_accels_for_action("win.toggle-bookmark", &["<Ctrl>d"]);
     app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
@@ -303,6 +306,8 @@ pub struct Browser {
     ess: essentials::EssentialsUi,
     /// The downloads button and its panel.
     dl: downloads_panel::DownloadsUi,
+    /// The optional AI assistant (see `ai.rs`).
+    ai: ai::AiState,
     hist: history_panel::HistoryUi,
     /// Opens the notepad of the space in front.
     notes_button: gtk::Button,
@@ -445,6 +450,7 @@ impl Browser {
         window.set_default_size(1280, 800);
         window.set_icon_name(Some(paths::APP_ID));
 
+        let ai = ai::AiState::new(private);
         let side_chrome = build_chrome();
         let slim_chrome = build_chrome();
         let top_chrome = build_chrome();
@@ -533,6 +539,7 @@ impl Browser {
         side.append(&hist.stack);
         // Next to the notes, in the top row.
         side_header.pack_start(&hist.side_button);
+        side_header.pack_start(&ai.ui.side_button);
         let folder_button = gtk::Button::builder()
             .icon_name("ndl-folder-plus-symbolic")
             .css_classes(["flat", "brujula-newfolder"])
@@ -632,6 +639,7 @@ impl Browser {
         top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
         top_nav.append(&dl.slot_top);
+        top_nav.append(&ai.ui.top_button);
         top_nav.append(&hist.top_button);
         top_nav.append(&top_chrome.menu);
         let top_header = ndl::HeaderBar::new();
@@ -657,6 +665,7 @@ impl Browser {
         let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         body.append(&ess.rail);
         body.append(&page);
+        body.append(&ai.ui.panel);
         page.set_hexpand(true);
         page.set_vexpand(true);
         let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -730,6 +739,7 @@ impl Browser {
             essentials: RefCell::new(essentials::load()),
             ess,
             dl,
+            ai,
             hist,
             notes_button,
             notes: RefCell::new(notes::load()),
@@ -809,6 +819,7 @@ impl Browser {
         this.wire();
         this.wire_downloads();
         this.wire_history_panel();
+        this.wire_ai();
         this.refresh_essentials();
         this
     }
@@ -2366,6 +2377,10 @@ impl Browser {
             self.change_import(what, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("ai.") {
+            self.change_ai(what, value);
+            return;
+        }
         if let Some(what) = key.strip_prefix("pw.") {
             self.change_passwords(what, value);
             return;
@@ -2615,7 +2630,8 @@ impl Browser {
         let views = self.views.borrow();
         let history = self.history.borrow();
         let visited = history.search(text, 8);
-        suggest::suggestions_with_history(
+        let ask = self.ai_search_row(text);
+        let items = suggest::suggestions_with_history(
             text,
             &tabs,
             marks.items(),
@@ -2664,7 +2680,16 @@ impl Browser {
                 action: s.action,
             }
         })
-        .collect()
+        .collect::<Vec<Item>>();
+        // With the assistant running the search box, a question or a task comes first.
+        Self::with_ask(items, ask)
+    }
+
+    fn with_ask(mut items: Vec<Item>, ask: Option<Item>) -> Vec<Item> {
+        if let Some(a) = ask {
+            items.insert(0, a);
+        }
+        items
     }
 
     /// Carries out what the user chose in the Spotlight, in the tab in front.
@@ -2676,6 +2701,7 @@ impl Browser {
             }
             Action::Go(url) => self.navigate(&url),
             Action::Settings(section) => self.open_settings(Some(&section)),
+            Action::Ask(text) => self.ai_ask(&text),
             Action::Search(q) => {
                 let template = self.settings.borrow().search_template().to_owned();
                 let url = omnibox::search_url(&q, &template);
@@ -2942,6 +2968,7 @@ fn main_menu() -> gio::Menu {
         Some("Instalar como aplicación web…"),
         Some("win.install-webapp"),
     );
+    opts.append(Some("Asistente de IA"), Some("win.toggle-assistant"));
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
     let about = gio::Menu::new();

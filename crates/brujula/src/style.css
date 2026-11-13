@@ -104,3 +104,14 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-who-face { border-radius: 50%; transition: transform 140ms ease; }
 .brujula-who:hover .brujula-who-face { transform: scale(1.06); }
 .brujula-who-name { font-size: 1.2em; font-weight: 500; }
+
+/* The AI assistant's panel. */
+.brujula-ai { margin-left: var(--ndl-space-sm); }
+.brujula-ai-head { padding: 10px 8px 4px 16px; }
+.brujula-ai-sees { font-size: 0.85em; color: var(--ndl-color-text-secondary); padding: 0 16px 8px 16px; }
+.brujula-ai-note { font-size: 0.85em; color: var(--ndl-color-text-tertiary); }
+.brujula-ai-bubble { padding: 8px 12px; border-radius: 14px; }
+.brujula-ai-user { background: var(--ndl-color-accent-default); color: var(--ndl-color-text-on-accent); }
+.brujula-ai-bot { background: var(--ndl-color-surface-raised); }
+.brujula-ai-error { background: var(--ndl-color-status-danger-bg); color: var(--ndl-color-status-danger-fg); }
+.brujula-ai-ask { background: var(--ndl-color-status-warning-bg); color: var(--ndl-color-status-warning-fg); border-radius: 14px; padding: 10px 12px; }

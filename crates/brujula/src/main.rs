@@ -4,6 +4,7 @@ mod favicons;
 mod filters;
 mod fonts;
 mod icons;
+mod keyring;
 mod paths;
 mod profiles;
 mod save_download;

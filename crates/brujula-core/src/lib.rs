@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod adblock;
+pub mod ai;
 pub mod appearance;
 pub mod archive;
 pub mod avatars;

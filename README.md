@@ -51,6 +51,7 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 - **Contraseñas** guardadas cifradas (Argon2id + XChaCha20-Poly1305) con una contraseña maestra, que solo se rellenan en el sitio exacto y al tocar el campo.
 - **Aplicaciones web**: cualquier sitio en su propia ventana, con icono en el lanzador y perfil aparte (menú → «Instalar como aplicación web…», o el botón que aparece en la barra cuando el sitio lo permite).
 - **Historial** local, con búsqueda en el Spotlight y borrado por horas o completo, y **ventana privada** (Ctrl+Mayús+N o `brujula --private`) que no guarda historial, cookies ni pestañas.
+- **Asistente de IA opcional** (apagado por defecto): ChatGPT, Claude, Gemini, Ollama o tu propio servidor, con tu clave en el llavero. Puede ver tus pestañas, leer páginas y abrir sitios solo con tu permiso, y puede encargarse del buscador. Ver [docs/ai-assistant.md](docs/ai-assistant.md).
 - Arc-isms: archivo automático, vista dividida, Peek (Mayús+clic), notas por espacio, ventana flotante.
 
 ## Instalar
