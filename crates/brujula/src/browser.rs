@@ -45,6 +45,7 @@ use crate::paths;
 use crate::spotlight::{Item, Spotlight};
 
 mod ai;
+mod ai_pane;
 mod ai_panel;
 mod archive;
 mod boosts;

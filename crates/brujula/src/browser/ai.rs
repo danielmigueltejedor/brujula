@@ -14,7 +14,7 @@ use super::*;
 
 use brujula_core::ai::policy::{self, Call, Decision, Grant, Target};
 use brujula_core::ai::wire::{self, Message, Part, Role, ToolCall};
-use brujula_core::ai::{page, prompt, AiSettings};
+use brujula_core::ai::{page, prompt, AiSettings, Provider};
 use glib::translate::IntoGlib;
 use serde_json::json;
 
@@ -118,10 +118,11 @@ impl Browser {
         ui.close.connect_clicked(move |_| this.ai_hide_panel());
         let this = self.clone();
         ui.prefs.connect_clicked(move |_| {
-            // The preferences need the room the panel takes.
-            this.ai_hide_panel();
-            this.open_settings(Some("ai"));
+            let open = !this.ai.ui.settings_open();
+            this.ai_sync_pane();
+            this.ai.ui.show_settings(open);
         });
+        self.wire_ai_pane();
         let weak = Rc::downgrade(self);
         ui.set_on_link(move |uri| {
             // A link in an answer is the user's to follow, but only on the web.
@@ -159,7 +160,7 @@ impl Browser {
         let mut sees = String::new();
         if s.read {
             sees.push_str(
-                "Puede ver los títulos y direcciones de tus pestañas y leer las páginas que le apruebes. ",
+                "Puede ver los títulos y direcciones de tus pestañas y leer la página que miras; otras, solo si le dejas. Busca y abre pestañas por su cuenta. ",
             );
         } else {
             sees.push_str("Solo ve lo que le escribes aquí: no ve tus pestañas. ");
@@ -180,6 +181,8 @@ impl Browser {
             sees.push('.');
         }
         ui.set_sees(&sees);
+        drop(s);
+        self.ai_sync_pane();
     }
 
     fn ai_show_panel(self: &Rc<Self>) {
@@ -581,6 +584,7 @@ impl Browser {
                 id: id.0,
                 url,
                 title,
+                active: self.model.borrow().selected() == Some(id),
                 element: element.as_deref(),
             }),
             _ => None,
@@ -808,7 +812,7 @@ impl Browser {
             }
             let changed = this.ai.key_set.replace(has) != has;
             if redraw || changed {
-                this.redraw_settings();
+                this.ai_redraw();
             }
         });
     }
@@ -826,7 +830,7 @@ impl Browser {
                 glib::spawn_future_local(async move {
                     let _ = crate::keyring::clear(provider.id()).await;
                     this.ai.key_set.set(false);
-                    this.redraw_settings();
+                    this.ai_redraw();
                 });
             }
             "test" => self.ai_test(),
@@ -834,6 +838,9 @@ impl Browser {
                 let result = self.ai.settings.borrow_mut().apply(what, value);
                 if let Err(why) = result {
                     eprintln!("brujula: setting refused: {why}");
+                    // Said in the panel too, or the entry would go back to the old value silently.
+                    *self.ai.status.borrow_mut() = format!("No se guardó: {why}");
+                    self.ai_sync_pane();
                     return;
                 }
                 self.ai_save();
@@ -843,12 +850,125 @@ impl Browser {
                 if matches!(what, "enabled" | "provider") {
                     self.ai.key_set.set(false);
                     self.ai_refresh_key(false);
-                    self.redraw_settings();
+                    self.ai_redraw();
                 } else if what == "base_url" || what == "model" {
-                    self.redraw_settings();
+                    self.ai_redraw();
                 }
             }
         }
+    }
+
+    /// Draws the preferences page again and puts the panel's own settings in line with it.
+    fn ai_redraw(self: &Rc<Self>) {
+        self.redraw_settings();
+        self.ai_sync_pane();
+    }
+
+    fn ai_sync_pane(&self) {
+        self.ai.ui.pane.sync(&self.ai_view());
+    }
+
+    /// Connects the settings inside the panel to the same changes the preferences page makes.
+    fn wire_ai_pane(self: &Rc<Self>) {
+        let pane = &self.ai.ui.pane;
+        let this = self.clone();
+        pane.back
+            .connect_clicked(move |_| this.ai.ui.show_settings(false));
+
+        let this = self.clone();
+        pane.provider.connect_selected_notify(move |d| {
+            if this.ai.ui.pane.syncing() {
+                return;
+            }
+            if let Some(p) = Provider::ALL.get(d.selected() as usize) {
+                if *p != this.ai.settings.borrow().provider {
+                    this.change_ai("provider", p.id());
+                }
+            }
+        });
+
+        // An entry keeps what is typed when Enter is pressed or when it loses the focus.
+        let text_entry = |entry: &gtk::Entry, key: &'static str| {
+            let commit = {
+                let this = self.clone();
+                let entry = entry.clone();
+                Rc::new(move || {
+                    if this.ai.ui.pane.syncing() {
+                        return;
+                    }
+                    let text = entry.text().trim().to_owned();
+                    let same = {
+                        let s = this.ai.settings.borrow();
+                        match key {
+                            "model" => s.model == text,
+                            _ => s.base_url == text,
+                        }
+                    };
+                    if !same {
+                        this.change_ai(key, &text);
+                    }
+                })
+            };
+            let c = commit.clone();
+            entry.connect_activate(move |_| c());
+            let focus = gtk::EventControllerFocus::new();
+            focus.connect_leave(move |_| commit());
+            entry.add_controller(focus);
+        };
+        text_entry(&pane.model, "model");
+        text_entry(&pane.address, "base_url");
+
+        let this = self.clone();
+        pane.key_set
+            .connect_clicked(move |_| this.change_ai("key.set", ""));
+        let this = self.clone();
+        pane.key_clear
+            .connect_clicked(move |_| this.change_ai("key.clear", ""));
+        let this = self.clone();
+        pane.test
+            .connect_clicked(move |_| this.change_ai("test", ""));
+
+        let switch = |sw: &gtk::Switch, key: &'static str, on: &'static str, off: &'static str| {
+            let this = self.clone();
+            sw.connect_active_notify(move |sw| {
+                if !this.ai.ui.pane.syncing() {
+                    this.change_ai(key, if sw.is_active() { on } else { off });
+                }
+            });
+        };
+        switch(&pane.read, "read", "1", "0");
+        switch(&pane.confirm, "confirm_reads", "1", "0");
+        switch(&pane.open_auto, "open", "auto", "ask");
+        switch(&pane.interact, "interact", "1", "0");
+        switch(&pane.search, "search", "1", "0");
+
+        let add = {
+            let this = self.clone();
+            Rc::new(move || {
+                let entry = &this.ai.ui.pane.blocked_entry;
+                let text = entry.text().trim().to_owned();
+                if text.is_empty() {
+                    return;
+                }
+                entry.set_text("");
+                this.change_ai("blocked.add", &text);
+            })
+        };
+        let a = add.clone();
+        pane.blocked_entry.connect_activate(move |_| a());
+        pane.blocked_add.connect_clicked(move |_| add());
+        let this = self.clone();
+        pane.set_on_remove(move |host| this.change_ai("blocked.remove", host));
+
+        let this = self.clone();
+        pane.off
+            .connect_clicked(move |_| this.change_ai("enabled", "0"));
+        let this = self.clone();
+        pane.all.connect_clicked(move |_| {
+            // The page needs the room the panel takes.
+            this.ai_hide_panel();
+            this.open_settings(Some("ai"));
+        });
     }
 
     fn ai_ask_key(self: &Rc<Self>) {
@@ -885,7 +1005,7 @@ impl Browser {
                         Err(why) => dialogs::notice(&this.window, "No se guardó la clave", &why),
                     }
                     drop(key);
-                    this.redraw_settings();
+                    this.ai_redraw();
                 });
             },
         );
@@ -925,12 +1045,13 @@ impl Browser {
                 Ok(text) => format!("Funciona: {} respondió «{text}».", settings.model()),
                 Err(why) => format!("No funciona: {why}"),
             };
-            this.redraw_settings();
+            this.ai_redraw();
         });
     }
 
     /// Changes the line under «Probar la conexión» on the preferences page without drawing it again.
     fn ai_say_in_page(&self, text: &str) {
+        self.ai.ui.pane.set_status(text);
         let view = self
             .views
             .borrow()

@@ -131,7 +131,10 @@ pub struct AiSettings {
     pub read: bool,
     /// Ask before reading a site for the first time in a conversation.
     pub confirm_reads: bool,
-    /// Whether opening tabs needs a yes each time.
+    /// Whether opening tabs needs a yes each time. Off by default: a tab opened to look something
+    /// up changes nothing. (Saved as `open_tabs`: what 0.7.0 saved as `open` meant the opposite
+    /// default, so it is not read.)
+    #[serde(rename = "open_tabs")]
     pub open: Autonomy,
     /// The assistant may click and type in pages (every action is asked, always).
     pub interact: bool,
@@ -149,7 +152,7 @@ impl Default for AiSettings {
             search: false,
             read: true,
             confirm_reads: true,
-            open: Autonomy::Ask,
+            open: Autonomy::Auto,
             interact: false,
             blocked: Vec::new(),
         }
@@ -341,9 +344,17 @@ mod tests {
     fn everything_starts_off_and_cautious() {
         let s = AiSettings::default();
         assert!(!s.enabled && !s.search && !s.interact);
-        assert_eq!(s.open, Autonomy::Ask);
+        assert_eq!(s.open, Autonomy::Auto);
         assert!(s.confirm_reads);
         assert!(s.not_ready(true).is_some(), "disabled means not ready");
+    }
+
+    #[test]
+    fn what_0_7_0_saved_as_open_is_not_read() {
+        let s = AiSettings::from_json(r#"{"enabled":true,"open":"ask"}"#);
+        assert_eq!(s.open, Autonomy::Auto);
+        let s = AiSettings::from_json(r#"{"enabled":true,"open_tabs":"ask"}"#);
+        assert_eq!(s.open, Autonomy::Ask);
     }
 
     #[test]

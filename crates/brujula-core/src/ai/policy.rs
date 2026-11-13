@@ -152,6 +152,8 @@ pub struct Target<'a> {
     pub id: u64,
     pub url: &'a str,
     pub title: &'a str,
+    /// The tab the user is looking at: they asked about it, so reading it needs no question.
+    pub active: bool,
     /// What the element a click or entry is about looks like («botón «Comprar»»), from the last
     /// reading of the page, so the user is shown what is going to be pressed.
     pub element: Option<&'a str>,
@@ -291,6 +293,7 @@ pub fn decide(
             }
             let host = host_of(t.url).unwrap_or_default();
             let known = !s.confirm_reads
+                || t.active
                 || session.opened.contains(&t.id)
                 || session.read_hosts.contains(&host);
             if known {
@@ -317,16 +320,8 @@ pub fn decide(
             if session.opened.len() >= MAX_OPENED {
                 return Decision::Deny("Ya se abrieron demasiadas pestañas".to_owned());
             }
-            let query = clip(call.args["query"].as_str().unwrap_or_default(), 200);
-            if s.open == Autonomy::Auto || session.open_ok {
-                Decision::Allow
-            } else {
-                Decision::Ask {
-                    title: "¿Abrir una búsqueda en una pestaña nueva?".to_owned(),
-                    detail: format!("«{query}»"),
-                    always: Some(Grant::Open),
-                }
-            }
+            // A search goes to the user's own engine and changes nothing: it never asks.
+            Decision::Allow
         }
         OPEN_TAB => {
             let Some(raw) = call.args["url"].as_str() else {
@@ -437,6 +432,7 @@ mod tests {
             id,
             url,
             title: "Título",
+            active: false,
             element: Some("botón «Comprar»"),
         }
     }
@@ -539,8 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn opening_asks_by_default_and_not_when_the_user_said_so() {
+    fn opening_asks_only_when_the_user_asked_for_it_and_not_when_they_allowed_it() {
         let mut s = on();
+        s.open = Autonomy::Ask;
         let mut session = Session::default();
         let args = json!({"url": "https://example.com/"});
         assert!(matches!(
@@ -559,6 +556,28 @@ mod tests {
         s.open = Autonomy::Auto;
         assert_eq!(
             decide(&s, &session, &call(OPEN_TAB, &args), None),
+            Decision::Allow
+        );
+    }
+
+    #[test]
+    fn searching_and_reading_the_page_in_view_never_ask() {
+        let mut s = on();
+        s.open = Autonomy::Ask;
+        let q = json!({"query": "vuelos baratos"});
+        assert_eq!(
+            decide(&s, &Session::default(), &call(SEARCH, &q), None),
+            Decision::Allow
+        );
+        let args = json!({});
+        let mut here = tab(1, "https://shop.example/");
+        assert!(matches!(
+            decide(&s, &Session::default(), &call(READ_PAGE, &args), Some(here)),
+            Decision::Ask { .. }
+        ));
+        here.active = true;
+        assert_eq!(
+            decide(&s, &Session::default(), &call(READ_PAGE, &args), Some(here)),
             Decision::Allow
         );
     }
