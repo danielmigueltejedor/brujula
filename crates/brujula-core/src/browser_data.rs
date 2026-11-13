@@ -285,7 +285,10 @@ fn decrypt(blob: &[u8], keys: &Keys) -> Option<Vec<u8>> {
     } else {
         (keys.v11?, blob.strip_prefix(b"v11")?)
     };
-    Aes128CbcDec::new(&key.into(), &[b' '; 16].into())
+    // Chromium encrypted these values with an IV of sixteen spaces; only reading them back needs
+    // it, so a fixed IV is the format here, not a weakness of anything this browser encrypts.
+    let iv: [u8; 16] = std::array::from_fn(|_| b' '); // NOSONAR
+    Aes128CbcDec::new(&key.into(), &iv.into())
         .decrypt_padded_vec_mut::<Pkcs7>(data)
         .ok()
 }
