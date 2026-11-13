@@ -115,6 +115,8 @@ impl Browser {
             history,
             history_total,
             vault: self.vault_view(),
+            profiles: self.profile_rows(),
+            profile: paths::profile().to_owned(),
             essentials: self
                 .essentials
                 .borrow()

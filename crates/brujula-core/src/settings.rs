@@ -248,6 +248,9 @@ pub struct Settings {
     pub history_enabled: bool,
     /// Offer to save the passwords typed in pages, and fill them in (never in a private window).
     pub passwords_enabled: bool,
+    /// The welcome page has been gone through. True for settings saved before it existed; a
+    /// first run starts it false.
+    pub welcome_done: bool,
 }
 
 /// The times the user can choose to archive after, in hours (0 is never).
@@ -274,6 +277,7 @@ impl Default for Settings {
             https_first: true,
             history_enabled: true,
             passwords_enabled: true,
+            welcome_done: true,
         }
     }
 }

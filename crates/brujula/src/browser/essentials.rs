@@ -285,7 +285,7 @@ impl Browser {
         }
     }
 
-    fn essential_alert(&self, heading: &str, body: &str) {
+    pub(super) fn essential_alert(&self, heading: &str, body: &str) {
         crate::dialogs::notice(&self.window, heading, body);
     }
 

@@ -25,6 +25,7 @@ use brujula_core::settings::{
 use brujula_core::spaces::Spaces;
 use brujula_core::suggest::{self, Action, Kind};
 use brujula_core::tabs::{Change, TabId, TabModel};
+use brujula_core::welcome::WELCOME_URI;
 use gtk::gdk;
 use gtk::gio;
 use gtk::glib;
@@ -57,10 +58,12 @@ mod history;
 mod notes;
 mod passwords;
 mod peek;
+mod profiles_ui;
 mod sleep;
 mod split;
 mod system_theme;
 mod webapps;
+mod welcome;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -350,9 +353,15 @@ pub struct Browser {
 
 impl Browser {
     fn new(app: &gtk::Application, private: bool) -> Rc<Self> {
-        let settings = std::fs::read_to_string(paths::settings_file())
+        let first_run = !paths::settings_file().exists();
+        let mut settings = std::fs::read_to_string(paths::settings_file())
             .map(|t| Settings::from_json(&t))
             .unwrap_or_default();
+        // Settings saved before the welcome page existed count as having seen it; a profile
+        // that has never been opened has not.
+        if first_run && !private {
+            settings.welcome_done = false;
+        }
 
         let session = if private {
             // Cookies, cache and storage live in memory and go with the window.
@@ -375,11 +384,19 @@ impl Browser {
         let filters = Filters::new(ucm.clone());
 
         let window = ndl::ApplicationWindow::new(app);
-        window.set_title(Some(if private {
-            "Brújula · Privado"
+        let title = if private {
+            "Brújula · Privado".to_owned()
+        } else if paths::profile() != brujula_core::profiles::DEFAULT_ID {
+            // Windows of different people must be told apart.
+            let profiles = crate::profiles::load();
+            match profiles.get(paths::profile()) {
+                Some(p) => format!("Brújula · {}", p.name),
+                None => "Brújula".to_owned(),
+            }
         } else {
-            "Brújula"
-        }));
+            "Brújula".to_owned()
+        };
+        window.set_title(Some(&title));
         if private {
             window.add_css_class("brujula-private");
         }
@@ -1346,7 +1363,10 @@ impl Browser {
         for u in urls {
             self.open_tab(u, None, true);
         }
-        if self.model.borrow().is_empty() {
+        if self.needs_welcome() {
+            // The first thing a person sees; the new-tab page waits behind it.
+            self.open_tab(WELCOME_URI, None, true);
+        } else if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
         }
     }
@@ -1393,7 +1413,7 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) -> TabId {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
-        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI {
+        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI || url == WELCOME_URI {
             url.to_owned()
         } else {
             let template = self.settings.borrow().search_template().to_owned();
@@ -1641,6 +1661,7 @@ impl Browser {
             if !uri.starts_with("brujula://")
                 || uri == newtab::NEWTAB_URI
                 || uri == prefs::SETTINGS_URI
+                || uri == WELCOME_URI
             {
                 return false;
             }
@@ -1652,6 +1673,12 @@ impl Browser {
             if page == prefs::SETTINGS_URI {
                 if let Some((key, value)) = prefs::parse_change(&uri) {
                     b.change_setting(&key, &value);
+                }
+                return true;
+            }
+            if page == WELCOME_URI {
+                if let Some(ask) = brujula_core::welcome::parse_action(&uri) {
+                    b.welcome_ask(v, ask);
                 }
                 return true;
             }
@@ -1680,6 +1707,8 @@ impl Browser {
             self.render_newtab(&view, false);
         } else if url == prefs::SETTINGS_URI {
             self.render_settings(&view);
+        } else if url == WELCOME_URI {
+            self.render_welcome(&view);
         } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
@@ -1952,6 +1981,8 @@ impl Browser {
             tab.title.clone()
         } else if tab.url == prefs::SETTINGS_URI {
             "Preferencias".to_owned()
+        } else if tab.url == WELCOME_URI {
+            "Bienvenida".to_owned()
         } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
@@ -1992,6 +2023,8 @@ impl Browser {
             (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
         } else if tab.url == prefs::SETTINGS_URI {
             ("Preferencias".to_owned(), "ndl-lock-symbolic")
+        } else if tab.url == WELCOME_URI {
+            ("Bienvenida".to_owned(), "ndl-lock-symbolic")
         } else if tab.url.starts_with("https://") {
             (host_of(&tab.url), "ndl-lock-symbolic")
         } else {
@@ -2084,6 +2117,7 @@ impl Browser {
         match view.uri().as_deref() {
             Some(prefs::SETTINGS_URI) => self.render_settings(view),
             Some(newtab::NEWTAB_URI) => self.render_newtab(view, false),
+            Some(WELCOME_URI) => self.render_welcome(view),
             _ => view.reload(),
         }
     }
@@ -2159,6 +2193,10 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("archive.") {
             self.change_archive(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("profile.") {
+            self.change_profile(what, value);
             return;
         }
         if let Some(what) = key.strip_prefix("essential.") {
@@ -2336,6 +2374,7 @@ impl Browser {
                 || url == "about:blank"
                 || url == newtab::NEWTAB_URI
                 || url == prefs::SETTINGS_URI
+                || url == WELCOME_URI
         };
         // Tabs open in this space (newest first), then the ones closed lately.
         let mut recent: Vec<newtab::Link> = model
@@ -2421,7 +2460,9 @@ impl Browser {
         let tabs: Vec<_> = model
             .tabs()
             .iter()
-            .filter(|t| t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI)
+            .filter(|t| {
+                t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI && t.url != WELCOME_URI
+            })
             .cloned()
             .collect();
         let marks = self.bookmarks.borrow();

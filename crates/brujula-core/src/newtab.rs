@@ -361,7 +361,7 @@ pub fn parse_set_engine(uri: &str) -> Option<&'static Engine> {
 }
 
 /// The browser's mascot, a navigator in a cap with a compass on it (see `mascot.svg`).
-const MASCOT: &str = include_str!("mascot.svg");
+pub(crate) const MASCOT: &str = include_str!("mascot.svg");
 
 const CSS: &str = r#"
 :root{color-scheme:light dark;--bg:#f5f6f8;--fg:#12161a;--muted:#617079;--card:#fff;--line:#e3e7ec;--chip:#edf0f3;--shadow:0 1px 2px rgba(16,24,40,.05),0 12px 32px -14px rgba(16,24,40,.18)}

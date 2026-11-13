@@ -478,6 +478,11 @@ pub struct Extras {
     pub webapps: Vec<(String, String, String)>,
     /// The essentials: id, name and address.
     pub essentials: Vec<(u32, String, String)>,
+    /// The profiles: id, name, avatar and whether a password locks it. Empty until a second one
+    /// is made or the welcome page made the first.
+    pub profiles: Vec<(String, String, String, bool)>,
+    /// The id of the profile this window runs as.
+    pub profile: String,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -536,6 +541,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Espacios",
         "Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.",
         "workspace",
+    ),
+    (
+        "profiles",
+        "Perfiles",
+        "Perfiles",
+        "Una persona por perfil, con sus propios marcadores, pestañas, contraseñas y ajustes. Se elige al abrir el navegador.",
+        "user",
     ),
     (
         "essentials",
@@ -836,6 +848,80 @@ fn essentials_section(view: &Extras) -> String {
         )
     };
     section("essentials", &format!("{items}{empty}{add}"))
+}
+
+/// The profiles: the ones there are and a form for another.
+fn profiles_section(view: &Extras) -> String {
+    use crate::profiles::{DEFAULT_ID, MAX_PROFILES};
+    let items: String = view
+        .profiles
+        .iter()
+        .map(|(id, name, avatar, locked)| {
+            let current = *id == view.profile;
+            let is_default = id == DEFAULT_ID;
+            let id = escape(id);
+            let state = match (current, *locked) {
+                (true, true) => "Este perfil · con contraseña",
+                (true, false) => "Este perfil",
+                (false, true) => "Con contraseña",
+                (false, false) => "Sin contraseña",
+            };
+            let open = if current {
+                String::new()
+            } else {
+                format!(r#"<button type="button" class="seg plain" data-k="profile.open" data-v="{id}">Abrir</button>"#)
+            };
+            let remove = if current || is_default {
+                String::new()
+            } else {
+                format!(r#"<button type="button" class="seg plain danger" data-k="profile.remove" data-v="{id}">Quitar</button>"#)
+            };
+            format!(
+                r#"<div class="row"><span class="pface">{svg}</span><div class="what"><b>{name}</b><p>{state}</p></div><div class="ctl">{open}<button type="button" class="seg plain" data-k="profile.password" data-v="{id}">Contraseña</button>{remove}</div></div>"#,
+                svg = crate::avatars::get(avatar).svg(40),
+                name = escape(name),
+            )
+        })
+        .collect();
+    let empty = if view.profiles.is_empty() {
+        r#"<p class="empty">Solo tienes el perfil principal. Añade otro para que cada persona tenga sus marcadores, pestañas y contraseñas.</p>"#
+    } else {
+        ""
+    };
+    let note = stacked(
+        "Qué protege la contraseña",
+        "Solo impide abrir tu perfil desde el selector. No cifra los archivos del perfil: quien tenga acceso a esta cuenta del equipo podría leerlos. Para eso usa la bóveda de contraseñas y el cifrado del disco.",
+        "",
+    );
+    let add = if view.profiles.len() >= MAX_PROFILES {
+        stacked(
+            "Añadir un perfil",
+            &format!("Ya hay {MAX_PROFILES}, el máximo."),
+            "",
+        )
+    } else {
+        let faces: String = crate::avatars::AVATARS
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                format!(
+                    r#"<label class="pav" title="{}"><input type="radio" name="pavatar" value="{}"{}>{}</label>"#,
+                    escape(a.name),
+                    a.id,
+                    if i == 0 { " checked" } else { "" },
+                    a.svg(36),
+                )
+            })
+            .collect();
+        stacked(
+            "Añadir un perfil",
+            "Un nombre y una imagen. La contraseña, si la quieres, se pone después con el botón «Contraseña».",
+            &format!(
+                r#"<div class="pavs">{faces}</div><div class="addrow"><input type="text" id="profile-name" class="field wide" placeholder="Nombre" maxlength="24" aria-label="Nombre"><button type="button" class="seg plain" data-addprofile="1">Añadir</button></div>"#
+            ),
+        )
+    };
+    section("profiles", &format!("{items}{empty}{add}{note}"))
 }
 
 /// The web apps: a form to make one, and the ones that exist.
@@ -1332,6 +1418,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let passwords_section = passwords_section(s, sync);
     let webapps_section = webapps_section(sync);
     let essentials_section = essentials_section(sync);
+    let profiles_section = profiles_section(sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1383,7 +1470,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1441,6 +1528,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Ventana privada",
         "privado privada incógnito incognito sin rastro navegación",
         "history",
+    ),
+    (
+        "Perfiles",
+        "perfil perfiles usuario usuarios personas contraseña selector cuenta avatar",
+        "profiles",
     ),
     (
         "Esenciales",
@@ -1571,6 +1663,11 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .engine b{font-weight:560;font-size:.92rem}
 .css{width:100%;font:12.5px ui-monospace,monospace;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:.7rem;padding:.7rem;resize:vertical}
 .boost .row.stack{padding-top:0;border-top:0}
+.pface{display:grid;place-items:center;flex:none;margin-right:.9rem}.pface+.what{flex:1}.pface svg{width:2.5rem;height:2.5rem;border-radius:50%}
+.pavs{display:flex;flex-wrap:wrap;gap:.4rem;width:100%}
+.pav{position:relative;display:block;border-radius:50%;cursor:pointer}.pav input{position:absolute;opacity:0;inset:0}
+.pav svg{display:block;width:2.3rem;height:2.3rem;border-radius:50%;outline:3px solid transparent;outline-offset:2px;transition:outline-color .15s}
+.pav input:checked+svg{outline-color:var(--accent)}.pav input:focus-visible+svg{outline-color:var(--fg)}
 .addrow{display:flex;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
@@ -1613,6 +1710,8 @@ document.addEventListener('click',e=>{
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
   const es=e.target.closest('[data-addessential]');
   if(es){const u=document.getElementById('essential-url'),n=document.getElementById('essential-name');if(u&&u.value.trim()){send('essential.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
+  const pf=e.target.closest('[data-addprofile]');
+  if(pf){const n=document.getElementById('profile-name'),a=document.querySelector('input[name=pavatar]:checked');if(n&&n.value.trim()){send('profile.add',n.value.trim()+'\n'+(a?a.value:''));n.value=''}return}
   const wa=e.target.closest('[data-addwebapp]');
   if(wa){const u=document.getElementById('webapp-url'),n=document.getElementById('webapp-name');if(u&&u.value.trim()){send('webapp.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const ext=e.target.closest('[data-addext]');
@@ -2150,5 +2249,32 @@ mod tests {
             !html.contains(r#"data-k="essential.suggest" data-v="https://www.youtube.com/""#),
             "a site that is an essential is not offered again"
         );
+    }
+
+    #[test]
+    fn the_profiles_page_lists_them_and_never_offers_to_remove_the_one_in_use() {
+        let s = Settings::default();
+        let mut extras = Extras {
+            profile: "p1".into(),
+            ..Extras::default()
+        };
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addprofile="1""#));
+        assert!(empty.contains("No cifra los archivos"));
+        extras.profiles = vec![
+            ("default".into(), "Ana <x>".into(), "moon".into(), true),
+            ("p1".into(), "Luis".into(), "sun".into(), false),
+            ("p2".into(), "Eva".into(), "leaf".into(), false),
+        ];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains("Ana &lt;x&gt;"));
+        // The main profile and the one in use cannot be removed; the other can.
+        assert!(!html.contains(r#"data-k="profile.remove" data-v="default""#));
+        assert!(!html.contains(r#"data-k="profile.remove" data-v="p1""#));
+        assert!(html.contains(r#"data-k="profile.remove" data-v="p2""#));
+        // The one in use is not opened from itself.
+        assert!(!html.contains(r#"data-k="profile.open" data-v="p1""#));
+        assert!(html.contains(r#"data-k="profile.open" data-v="default""#));
+        assert!(html.contains("Con contraseña"));
     }
 }

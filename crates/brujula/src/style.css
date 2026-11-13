@@ -90,3 +90,10 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-ess-dot { min-width: 4px; min-height: 4px; margin-bottom: 2px; border-radius: 99px; background: currentColor; opacity: 0.55; }
 .brujula-rail { padding: var(--ndl-space-sm) 6px; }
 .brujula-rail .brujula-ess { min-width: 36px; min-height: 36px; }
+
+/* The chooser of profiles: «¿Quién navega?» */
+.brujula-who-title { font-size: 2em; font-weight: 500; }
+.brujula-who { padding: 14px 16px; border-radius: 18px; }
+.brujula-who-face { border-radius: 50%; transition: transform 140ms ease; }
+.brujula-who:hover .brujula-who-face { transform: scale(1.06); }
+.brujula-who-name { font-size: 1.2em; font-weight: 500; }
