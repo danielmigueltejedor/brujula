@@ -33,6 +33,12 @@ impl Essential {
             .unwrap_or_else(|| "?".to_owned())
     }
 
+    /// The name of this site's app icon in the icon theme, if it is one of the suggested sites
+    /// that the theme draws.
+    pub fn icon_name(&self) -> Option<&'static str> {
+        icon_name_for(&self.host())
+    }
+
     /// A colour for the placeholder tile: the site's brand colour when it is one of the
     /// suggested sites, else one picked from the host so the same site always has the same one.
     pub fn color(&self) -> &'static str {
@@ -51,23 +57,26 @@ pub struct Suggestion {
     pub name: &'static str,
     pub url: &'static str,
     pub color: &'static str,
+    /// The name of the app's icon in the icon theme (Nodalix has them), or empty.
+    pub icon: &'static str,
 }
 
-/// The usual ones, in the order they are offered: name, address and brand colour, one per line.
-const SUGGESTED_TABLE: &str = "YouTube|https://www.youtube.com/|#FF0033\n\
-        Discord|https://discord.com/app|#5865F2\n\
-        WhatsApp|https://web.whatsapp.com/|#25D366\n\
-        Gmail|https://mail.google.com/|#EA4335\n\
-        GitHub|https://github.com/|#24292F\n\
-        X|https://x.com/|#14171A\n\
-        Reddit|https://www.reddit.com/|#FF4500\n\
-        Spotify|https://open.spotify.com/|#1DB954\n\
-        Netflix|https://www.netflix.com/|#E50914\n\
-        Twitch|https://www.twitch.tv/|#9146FF\n\
-        Instagram|https://www.instagram.com/|#E4405F\n\
-        Telegram|https://web.telegram.org/|#26A5E4\n\
-        ChatGPT|https://chatgpt.com/|#10A37F\n\
-        Calendar|https://calendar.google.com/|#4285F4";
+/// The usual ones, in the order they are offered: name, address, brand colour and icon name, one
+/// per line.
+const SUGGESTED_TABLE: &str = "YouTube|https://www.youtube.com/|#FF0033|youtube\n\
+        Discord|https://discord.com/app|#5865F2|discord\n\
+        WhatsApp|https://web.whatsapp.com/|#25D366|whatsapp\n\
+        Gmail|https://mail.google.com/|#EA4335|\n\
+        GitHub|https://github.com/|#24292F|\n\
+        X|https://x.com/|#14171A|\n\
+        Reddit|https://www.reddit.com/|#FF4500|reddit\n\
+        Spotify|https://open.spotify.com/|#1DB954|spotify-client\n\
+        Netflix|https://www.netflix.com/|#E50914|netflix\n\
+        Twitch|https://www.twitch.tv/|#9146FF|\n\
+        Instagram|https://www.instagram.com/|#E4405F|instagram\n\
+        Telegram|https://web.telegram.org/|#26A5E4|telegram\n\
+        ChatGPT|https://chatgpt.com/|#10A37F|chatgpt\n\
+        Calendar|https://calendar.google.com/|#4285F4|google-calendar";
 
 /// The usual ones, in the order they are offered.
 pub static SUGGESTED: LazyLock<Vec<Suggestion>> = LazyLock::new(|| {
@@ -79,6 +88,7 @@ pub static SUGGESTED: LazyLock<Vec<Suggestion>> = LazyLock::new(|| {
                 name: parts.next()?,
                 url: parts.next()?,
                 color: parts.next()?,
+                icon: parts.next()?,
             })
         })
         .collect()
@@ -100,6 +110,16 @@ pub fn color_for(host: &str) -> &'static str {
         a.wrapping_mul(31).wrapping_add(usize::from(b))
     });
     PALETTE[sum % PALETTE.len()]
+}
+
+/// The icon-theme name of the app of a suggested host.
+pub fn icon_name_for(host: &str) -> Option<&'static str> {
+    let host = host.trim_start_matches("www.");
+    SUGGESTED
+        .iter()
+        .find(|s| host_of(s.url).is_some_and(|h| h.trim_start_matches("www.") == host))
+        .map(|s| s.icon)
+        .filter(|i| !i.is_empty())
 }
 
 fn host_of(url: &str) -> Option<String> {
@@ -289,6 +309,9 @@ mod tests {
         assert_eq!(e.initial(), "H");
         assert_eq!(e.color(), "#FF0033");
         assert_eq!(color_for("zzz.example"), color_for("zzz.example"));
+        assert_eq!(e.icon_name(), Some("youtube"));
+        assert_eq!(icon_name_for("www.twitch.tv"), None);
+        assert_eq!(icon_name_for("otro.example"), None);
         for s in SUGGESTED.iter() {
             assert!(normalize(s.url).is_some(), "{}", s.name);
         }

@@ -130,6 +130,45 @@ fn read_bookmarks(path: &Path) -> Option<Vec<Imported>> {
     bookmark_import::parse(&std::fs::read(path).ok()?).ok()
 }
 
+/// The icon theme's pictures of the suggested sites, as `data:` addresses (SVG or PNG).
+fn suggested_icons() -> Vec<(String, String)> {
+    let Some(display) = gdk::Display::default() else {
+        return Vec::new();
+    };
+    let theme = gtk::IconTheme::for_display(&display);
+    brujula_core::essentials::SUGGESTED
+        .iter()
+        .filter(|s| !s.icon.is_empty() && theme.has_icon(s.icon))
+        .filter_map(|s| {
+            let file = theme
+                .lookup_icon(
+                    s.icon,
+                    &[],
+                    64,
+                    1,
+                    gtk::TextDirection::None,
+                    gtk::IconLookupFlags::empty(),
+                )
+                .file()?;
+            let path = file.path()?;
+            let kind = match path.extension()?.to_str()? {
+                "svg" => "image/svg+xml",
+                "png" => "image/png",
+                _ => return None,
+            };
+            // An icon file is a few KB; a huge one is not an icon.
+            if std::fs::metadata(&path).ok()?.len() > 256 * 1024 {
+                return None;
+            }
+            let bytes = std::fs::read(&path).ok()?;
+            Some((
+                s.url.to_owned(),
+                format!("data:{kind};base64,{}", glib::base64_encode(&bytes)),
+            ))
+        })
+        .collect()
+}
+
 fn system_lang() -> String {
     glib::language_names()
         .first()
@@ -173,6 +212,7 @@ impl Browser {
             theme,
             accent: &settings.appearance.accent,
             sources: &sources,
+            icons: &suggested_icons(),
             ask_profile: crate::profiles::load().is_empty(),
         });
         drop(settings);

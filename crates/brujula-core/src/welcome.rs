@@ -25,6 +25,9 @@ pub struct Page<'a> {
     pub theme: &'a str,
     pub accent: &'a str,
     pub sources: &'a [Source],
+    /// The app icons the icon theme has for the suggested sites, as `data:` addresses: site
+    /// address and picture. A site without one gets a letter on its brand colour.
+    pub icons: &'a [(String, String)],
     /// Whether the last step makes the first profile (false once there is one).
     pub ask_profile: bool,
 }
@@ -380,15 +383,21 @@ fn avatar_picker(w: &Words) -> String {
     )
 }
 
-fn essentials_grid() -> String {
+fn essentials_grid(icons: &[(String, String)]) -> String {
     SUGGESTED
         .iter()
         .map(|s| {
+            let tile = match icons.iter().find(|(url, _)| url == s.url) {
+                Some((_, data)) => format!(r#"<img class="tile app" src="{}" alt="">"#, escape(data)),
+                None => format!(
+                    r#"<span class="tile" style="background:{}">{}</span>"#,
+                    s.color,
+                    escape(&s.name.chars().next().map(String::from).unwrap_or_default()),
+                ),
+            };
             format!(
-                r#"<button type="button" class="ess" data-url="{url}" aria-pressed="false"><span class="tile" style="background:{color}">{initial}</span><b>{name}</b><i class="tick" aria-hidden="true"></i></button>"#,
+                r#"<button type="button" class="ess" data-url="{url}" aria-pressed="false">{tile}<b>{name}</b><i class="tick" aria-hidden="true"></i></button>"#,
                 url = escape(s.url),
-                color = s.color,
-                initial = escape(&s.name.chars().next().map(String::from).unwrap_or_default()),
                 name = escape(s.name),
             )
         })
@@ -485,7 +494,7 @@ const T={{welcome:{welcome_js},next:{next_js},skip:{skip_js},done:{done_js}}};
         default_button = escape(w.t(Text::DefaultButton)),
         ess_title = escape(w.t(Text::EssTitle)),
         ess_hint = escape(w.t(Text::EssHint)),
-        essentials = essentials_grid(),
+        essentials = essentials_grid(page.icons),
         done_title = escape(w.t(Text::DoneTitle)),
         done_hint = escape(w.t(Text::DoneHint)),
         back = escape(w.t(Text::Back)),
@@ -544,6 +553,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .ess:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
 .ess[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 .tile{display:grid;place-items:center;flex:none;width:2rem;height:2rem;border-radius:.65rem;color:#fff;font-weight:700}
+.tile.app{background:none;border-radius:.5rem;object-fit:contain}
 .ess b{font-weight:520;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tick{margin-left:auto;width:.9rem;height:.9rem;border-radius:50%;border:1.5px solid var(--line)}
 .ess[aria-pressed=true] .tick{background:var(--accent);border-color:var(--accent);box-shadow:inset 0 0 0 2.5px var(--card)}
@@ -631,6 +641,10 @@ mod tests {
             sources: &[Source {
                 name: "Chrome <b>".into(),
             }],
+            icons: &[(
+                "https://www.youtube.com/".into(),
+                "data:image/svg+xml;base64,AAAA".into(),
+            )],
             ask_profile,
         })
     }
@@ -690,6 +704,9 @@ mod tests {
         for s in SUGGESTED.iter() {
             assert!(html.contains(s.url), "{}", s.name);
         }
+        // A site with an icon from the theme shows it; the rest show a letter.
+        assert!(html.contains(r#"<img class="tile app" src="data:image/svg+xml;base64,AAAA""#));
+        assert_eq!(html.matches("<img class=\"tile app\"").count(), 1);
         // Nothing in the typed text can close the script early: there is one script, one end.
         assert_eq!(html.matches("</script>").count(), 1);
     }

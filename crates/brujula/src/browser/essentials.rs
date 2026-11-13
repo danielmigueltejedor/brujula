@@ -21,6 +21,15 @@ fn site_name(host: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The essential's app icon, if the icon theme has one.
+fn theme_icon(e: &Essential) -> Option<&'static str> {
+    let name = e.icon_name()?;
+    let display = gdk::Display::default()?;
+    gtk::IconTheme::for_display(&display)
+        .has_icon(name)
+        .then_some(name)
+}
+
 pub(super) fn load() -> Essentials {
     std::fs::read_to_string(paths::essentials_file())
         .map(|t| Essentials::from_json(&t))
@@ -34,6 +43,9 @@ pub(super) struct EssentialsUi {
     pub rail: gtk::Box,
     colors: gtk::CssProvider,
     queued: Cell<bool>,
+    /// Hidden pages that are fetching the icon of a site, and the hosts already tried.
+    loaders: RefCell<Vec<WebView>>,
+    tried: RefCell<std::collections::HashSet<String>>,
 }
 
 impl EssentialsUi {
@@ -68,6 +80,8 @@ impl EssentialsUi {
             rail,
             colors,
             queued: Cell::new(false),
+            loaders: RefCell::new(Vec::new()),
+            tried: RefCell::new(std::collections::HashSet::new()),
         }
     }
 }
@@ -93,6 +107,53 @@ impl Browser {
             if let Some(b) = this.upgrade() {
                 b.ess.queued.set(false);
                 b.refresh_essentials();
+            }
+        });
+    }
+
+    /// Looks up, once per site, the icon of an essential that has neither an app icon nor one
+    /// the browser has seen: a hidden page loads the site only to read its icon.
+    fn fetch_missing_icons(self: &Rc<Self>, list: &[Essential]) {
+        if self.private {
+            return;
+        }
+        for e in list {
+            let host = e.host();
+            if theme_icon(e).is_some()
+                || favicons::lookup(&e.url).is_some()
+                || !self.ess.tried.borrow_mut().insert(host)
+            {
+                continue;
+            }
+            self.fetch_icon(&e.url);
+        }
+    }
+
+    fn fetch_icon(self: &Rc<Self>, url: &str) {
+        let settings = webkit6::Settings::new();
+        // Only the page's head is needed: no scripts, no media.
+        settings.set_enable_javascript(false);
+        settings.set_enable_media(false);
+        let view = WebView::builder()
+            .network_session(&self.session)
+            .settings(&settings)
+            .build();
+        let this = Rc::downgrade(self);
+        let page = url.to_owned();
+        view.connect_favicon_notify(move |v| {
+            if let (Some(tex), Some(b)) = (v.favicon(), this.upgrade()) {
+                favicons::remember(&page, &tex);
+                b.ess.loaders.borrow_mut().retain(|l| l != v);
+                b.schedule_essentials();
+            }
+        });
+        view.load_uri(url);
+        self.ess.loaders.borrow_mut().push(view.clone());
+        // A site that never shows an icon does not keep a page alive.
+        let this = Rc::downgrade(self);
+        glib::timeout_add_seconds_local_once(30, move || {
+            if let Some(b) = this.upgrade() {
+                b.ess.loaders.borrow_mut().retain(|l| *l != view);
             }
         });
     }
@@ -147,6 +208,7 @@ impl Browser {
             self.ess.rail.append(&self.essential_tile(e, active, open));
         }
         self.ess.colors.load_from_string(&css);
+        self.fetch_missing_icons(&list);
         self.ess.grid.set_visible(!list.is_empty() && !horizontal);
         self.ess.rail.set_visible(!list.is_empty() && horizontal);
     }
@@ -160,17 +222,17 @@ impl Browser {
         if active {
             button.add_css_class("brujula-ess-active");
         }
-        let face: gtk::Widget = match favicons::lookup(&e.url) {
-            Some(texture) => {
-                let pic = gtk::Picture::for_paintable(&texture);
-                pic.set_content_fit(gtk::ContentFit::Contain);
-                pic.set_can_shrink(true);
-                pic.set_size_request(24, 24);
-                pic.set_halign(gtk::Align::Center);
-                pic.set_valign(gtk::Align::Center);
-                pic.upcast()
+        let face: gtk::Widget = match (theme_icon(e), favicons::lookup(&e.url)) {
+            // The app's own icon from the icon theme, drawn as the app draws it.
+            (Some(name), _) => {
+                let icon = gtk::Image::from_icon_name(name);
+                icon.set_pixel_size(28);
+                icon.set_halign(gtk::Align::Center);
+                icon.set_valign(gtk::Align::Center);
+                icon.upcast()
             }
-            None => {
+            (None, Some(texture)) => favicons::picture_sized(&texture, 24),
+            (None, None) => {
                 button.add_css_class("brujula-ess-letter");
                 button.add_css_class(&format!("brujula-ess-c{}", e.id));
                 let letter = gtk::Label::new(Some(&e.initial()));
