@@ -585,10 +585,10 @@ const CSS: &str = r#"
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 17%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+body{font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 main{height:100%;width:min(38rem,calc(100% - 3rem));margin:0 auto;display:flex;flex-direction:column;padding:0 0 1.6rem}
-.stage{flex:1;min-height:0;position:relative;overflow-y:auto;display:flex;flex-direction:column;justify-content:center}
-.step{display:none;animation:in .35s ease both;padding:1.5rem 0}
+.stage{flex:1;min-height:0;position:relative;overflow-y:auto;display:flex;flex-direction:column;justify-content:center;margin:0 -.75rem}
+.step{display:none;animation:in .35s ease both;padding:1.5rem .75rem}
 .step.on{display:block}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .intro{text-align:center}
@@ -620,7 +620,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .esgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(10.2rem,1fr));gap:.6rem}
 .ess{position:relative;display:flex;align-items:center;gap:.65rem;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:1rem;padding:.6rem .8rem;transition:border-color .15s,box-shadow .15s}
 .ess:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
-.ess[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.ess[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .tile{display:grid;place-items:center;flex:none;width:2rem;height:2rem;border-radius:.65rem;color:#fff;font-weight:700}
 .tile.app{background:none;border-radius:.5rem;object-fit:contain}
 .ess b{font-weight:520;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -629,7 +629,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .field{display:block;margin-bottom:1rem}
 .field span,legend{display:block;font-size:.78rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem;padding:0}
 .field input{width:100%;font:inherit;font-size:1.02rem;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:.9rem;padding:.75rem 1rem;box-shadow:var(--shadow)}
-.field input:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 24%,transparent)}
+.field input:focus{border-color:var(--accent);outline:none;box-shadow:inset 0 0 0 1px var(--accent)}
 .avatars{border:0;margin:0 0 1rem;padding:0;display:flex;flex-wrap:wrap;gap:.5rem}
 .avatars legend{width:100%}
 .av{position:relative;display:block;border-radius:50%;cursor:pointer;transition:transform .12s}
@@ -716,6 +716,25 @@ mod tests {
             )],
             ask_profile,
         })
+    }
+
+    #[test]
+    fn the_page_draws_no_glow_and_no_halo() {
+        // Nodalia Design: no decorative gradients or glows; a focused or picked control
+        // changes its border, it does not grow a blurred ring.
+        assert!(!CSS.contains("gradient"));
+        assert!(!CSS.contains("0 0 0 3px"));
+    }
+
+    #[test]
+    fn rings_and_outlines_fit_inside_the_scrolling_stage() {
+        // The stage scrolls, so it clips whatever crosses its sides: the ring of the picked
+        // avatar (3px outline 2px away) and the focus outlines. The steps keep that much room
+        // inside it, and the stage reaches out by as much so they still line up with the footer.
+        assert!(CSS.contains(".stage{") && CSS.contains("margin:0 -.75rem}"));
+        assert!(
+            CSS.contains(".step{display:none;animation:in .35s ease both;padding:1.5rem .75rem}")
+        );
     }
 
     #[test]

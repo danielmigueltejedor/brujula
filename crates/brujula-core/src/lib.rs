@@ -40,6 +40,20 @@ pub mod vault;
 pub mod webapps;
 pub mod welcome;
 
+/// Whether an address is one of the browser's own pages (new tab, preferences, welcome, news).
+/// They are drawn by Brújula, hold no web content and keep state a reload would throw away
+/// (the step of the welcome, a half-typed field), so nothing reloads them on its own.
+pub fn is_own_page(uri: &str) -> bool {
+    [
+        newtab::NEWTAB_URI,
+        newtab::CHOOSE_ENGINE_URI,
+        prefs::SETTINGS_URI,
+        welcome::WELCOME_URI,
+        news::NEWS_URI,
+    ]
+    .contains(&uri)
+}
+
 /// Text suitable for a user-visible name: no control characters, surrounding whitespace or
 /// more characters than the field can store.
 pub(crate) fn clean_name(name: &str, max: usize) -> String {
@@ -50,4 +64,30 @@ pub(crate) fn clean_name(name: &str, max: usize) -> String {
         .chars()
         .take(max)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_pages_are_told_apart_from_web_pages() {
+        for own in [
+            "brujula://newtab",
+            "brujula://choose-engine",
+            "brujula://settings",
+            "brujula://welcome",
+            "brujula://news",
+        ] {
+            assert!(is_own_page(own), "{own}");
+        }
+        for web in [
+            "https://example.com/",
+            "about:blank",
+            "",
+            "brujula://welcome?next=1",
+        ] {
+            assert!(!is_own_page(web), "{web}");
+        }
+    }
 }
