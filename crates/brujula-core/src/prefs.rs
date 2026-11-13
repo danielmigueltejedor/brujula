@@ -1379,6 +1379,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
             ),
             r#"<ul class="facts">
 <li>Los programas y scripts (.AppImage, .sh, .deb…) piden confirmación antes de bajarse y se guardan sin permiso de ejecución; los nombres de archivo se limpian.</li>
+<li>Cada descarga se guarda con un nombre oculto, se analiza al llegar (sin frenar la descarga) y solo entonces recibe su nombre. Si dice ser un documento, una imagen o un vídeo y por dentro es un programa, o si ClamAV está instalado y la reconoce como malware, te pregunta si la borras.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
 <li>Los errores de certificado nunca se saltan.</li>
 <li>Cámara, micrófono, ubicación y notificaciones se deniegan.</li>

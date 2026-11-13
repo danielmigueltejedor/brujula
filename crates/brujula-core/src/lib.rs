@@ -24,6 +24,7 @@ pub mod notes;
 pub mod omnibox;
 pub mod prefs;
 pub mod profiles;
+pub mod scan;
 pub mod scriptlets;
 pub mod search;
 pub mod session;

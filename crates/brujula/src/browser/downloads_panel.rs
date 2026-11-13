@@ -15,10 +15,14 @@ const KEEP: usize = 30;
 #[derive(Clone, PartialEq)]
 enum State {
     Running,
+    /// It has arrived and is being looked at.
+    Scanning,
     Done,
     Failed(String),
     Cancelled,
     Blocked,
+    /// Deleted after the check: why.
+    Removed(String),
 }
 
 struct Item {
@@ -108,7 +112,7 @@ impl DownloadsUi {
     fn forget_finished(&self) {
         let mut items = self.items.borrow_mut();
         items.retain(|i| {
-            let running = *i.state.borrow() == State::Running;
+            let running = matches!(*i.state.borrow(), State::Running | State::Scanning);
             if !running {
                 self.list.remove(&i.row);
             }
@@ -245,7 +249,9 @@ fn row_for(
                 format!("{} de {}", glib::format_size(got), glib::format_size(total))
             }
             State::Running => glib::format_size(got).to_string(),
+            State::Scanning => "Analizando…".to_owned(),
             State::Done => format!("Completada · {}", glib::format_size(got)),
+            State::Removed(why) => format!("Borrada: {why}"),
             State::Failed(why) => format!("No se pudo descargar: {why}"),
             State::Cancelled => "Cancelada".to_owned(),
             State::Blocked => "No descargada: es un programa o un script".to_owned(),
@@ -335,6 +341,9 @@ impl Browser {
                         *st.borrow_mut() = State::Blocked;
                         *dest.borrow_mut() = Some(PathBuf::from(name));
                     }
+                    Decision::Scanning => *st.borrow_mut() = State::Scanning,
+                    Decision::Finished => *st.borrow_mut() = State::Done,
+                    Decision::Removed(why) => *st.borrow_mut() = State::Removed(why),
                 }
                 rf();
             });
@@ -351,15 +360,6 @@ impl Browser {
                 } else {
                     State::Failed(error.message().to_string())
                 };
-            }
-            drop(s);
-            rf();
-        });
-        let (st, rf) = (state, refresh);
-        download.connect_finished(move |_| {
-            let mut s = st.borrow_mut();
-            if *s == State::Running {
-                *s = State::Done;
             }
             drop(s);
             rf();
