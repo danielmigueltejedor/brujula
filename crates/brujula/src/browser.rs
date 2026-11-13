@@ -397,6 +397,8 @@ pub struct Browser {
     page_manifest: RefCell<(String, bool)>,
     /// What the last look for a newer version found.
     update: RefCell<updates::UpdateState>,
+    /// Asks the sites that want to notify, remembers the answers and shows their notices.
+    notifier: Rc<crate::notify::Notifier>,
 }
 
 impl Browser {
@@ -453,6 +455,13 @@ impl Browser {
         }
         window.set_default_size(1280, 800);
         window.set_icon_name(Some(paths::APP_ID));
+        // Nothing is remembered in a private window, so no site is allowed there.
+        let notifier = crate::notify::Notifier::new(
+            app,
+            &window,
+            (!private).then(paths::site_permissions_file),
+            "Puedes cambiarlo cuando quieras en Preferencias → Seguridad.",
+        );
 
         let ai = ai::AiState::new(private);
         let side_chrome = build_chrome();
@@ -822,6 +831,7 @@ impl Browser {
             pending_reload: Cell::new(false),
             page_manifest: RefCell::new((String::new(), false)),
             update: RefCell::new(updates::UpdateState::default()),
+            notifier,
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
         if let Some(display) = gdk::Display::default() {
@@ -1578,6 +1588,19 @@ impl Browser {
             b = b.related_view(r);
         }
         let view = b.build();
+        // Before `harden`, which refuses every permission it is asked about.
+        let this = Rc::downgrade(self);
+        self.notifier.attach(
+            &view,
+            Rc::new(move |v: &WebView| {
+                let Some(b) = this.upgrade() else { return };
+                if let Some(id) = b.id_of(v) {
+                    let changes = b.model.borrow_mut().select(id);
+                    b.apply(changes);
+                }
+                b.window.present();
+            }),
+        );
         harden(&view);
 
         let this = Rc::downgrade(self);
@@ -2429,6 +2452,10 @@ impl Browser {
             self.change_ai(what, value);
             return;
         }
+        if key == "notifications.forget" {
+            self.notifier.forget(value);
+            return;
+        }
         if let Some(what) = key.strip_prefix("pw.") {
             self.change_passwords(what, value);
             return;
@@ -2948,9 +2975,6 @@ impl Browser {
     }
 }
 
-/// The settings every page of the browser gets: no windows of its own, no local files, no
-/// permissions. Camera, microphone, location, notifications and the like are refused until there
-/// is a prompt to ask the user.
 /// `Trabajo › Proyectos` for a folder inside another.
 fn folder_path(folders: &Folders, id: u32) -> String {
     let mut names = Vec::new();
@@ -2967,6 +2991,9 @@ fn folder_path(folders: &Folders, id: u32) -> String {
     names.join(" › ")
 }
 
+/// The settings every page of the browser gets: no windows of its own, no local files, no
+/// permissions. Camera, microphone, location and the like are refused; notifications are asked
+/// about before this (see `notify`), by the views that can.
 fn harden(view: &WebView) {
     harden_settings(view);
     view.connect_permission_request(|_, request| {

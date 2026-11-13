@@ -24,6 +24,7 @@ use webkit6::{
 use crate::dialogs;
 use crate::filters::Filters;
 use crate::icons;
+use crate::notify::Notifier;
 use crate::paths;
 
 pub fn registry() -> Webapps {
@@ -123,19 +124,20 @@ pub fn run(id: &str) -> glib::ExitCode {
         app.set_accels_for_action("win.forward", &["<Alt>Right"]);
         app.set_accels_for_action("win.reload", &["<Ctrl>r", "F5"]);
     });
-    let holder: Rc<RefCell<Option<Rc<Filters>>>> = Rc::new(RefCell::new(None));
+    // What the window needs to outlive the call that builds it.
+    type Kept = (Rc<Filters>, Rc<Notifier>);
+    let holder: Rc<RefCell<Option<Kept>>> = Rc::new(RefCell::new(None));
     gapp.connect_activate(move |gapp| {
         if let Some(w) = gapp.active_window() {
             w.present();
             return;
         }
-        let filters = present(gapp, &app);
-        *holder.borrow_mut() = Some(filters);
+        *holder.borrow_mut() = Some(present(gapp, &app));
     });
     gapp.run_with_args(&["brujula"])
 }
 
-fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
+fn present(gapp: &gtk::Application, app: &WebApp) -> (Rc<Filters>, Rc<Notifier>) {
     let settings = std::fs::read_to_string(paths::settings_file())
         .map(|t| Settings::from_json(&t))
         .unwrap_or_default();
@@ -178,6 +180,18 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&view));
     win.set_content(Some(&toolbar));
+
+    // Notifications: asked about once, kept in the profile of this app.
+    let notifier = Notifier::new(
+        gapp,
+        &win,
+        Some(paths::webapp_data_dir(&app.id).join("site-permissions.json")),
+        "Se recuerda para esta aplicación.",
+    );
+    {
+        let win = win.clone();
+        notifier.attach(&view, Rc::new(move |_| win.present()));
+    }
 
     for (name, f) in [
         (
@@ -332,7 +346,7 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
         }
         view.load_uri(&url);
     });
-    filters
+    (filters, notifier)
 }
 
 /// Theme and accent of the browser's preferences; «Sistema» follows the desktop.

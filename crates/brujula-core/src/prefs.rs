@@ -503,6 +503,8 @@ pub struct Extras {
     pub profiles: Vec<(String, String, String, bool)>,
     /// The id of the profile this window runs as.
     pub profile: String,
+    /// What each site was answered about notifications: origin, name and whether it is allowed.
+    pub notifications: Vec<(String, String, bool)>,
     /// What the update check found, in words (empty before the first check).
     pub update_status: String,
     /// The newer version that is waiting, if any.
@@ -1034,6 +1036,37 @@ fn essentials_section(view: &Extras) -> String {
         )
     };
     section("essentials", &format!("{items}{empty}{add}"))
+}
+
+/// The sites that were asked about notifications, each with a button to take the answer back.
+fn notifications_rows(view: &Extras) -> String {
+    if view.notifications.is_empty() {
+        return row(
+            "Notificaciones de sitios",
+            "Cuando una web pida mostrar notificaciones, Brújula te lo preguntará y aquí quedará lo que respondiste.",
+            "",
+        );
+    }
+    let items: String = view
+        .notifications
+        .iter()
+        .map(|(origin, label, allowed)| {
+            let state = if *allowed { "Permitidas" } else { "Bloqueadas" };
+            format!(
+                r#"<div class="row"><div class="what"><b>{}</b><p>{state}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="notifications.forget" data-v="{}" data-remove="1">Olvidar</button></div></div>"#,
+                escape(label),
+                escape(origin),
+            )
+        })
+        .collect();
+    format!(
+        "{}{items}",
+        row(
+            "Notificaciones de sitios",
+            "Olvidar una respuesta hace que el sitio vuelva a preguntar la próxima vez.",
+            "",
+        )
+    )
 }
 
 /// The profiles: the ones there are and a form for another.
@@ -1636,12 +1669,13 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 "Las direcciones http:// de sitios públicos se prueban antes como https://. Si el sitio no responde en HTTPS, se abre la dirección original; un certificado malo nunca se salta.",
                 &switch("https_first", s.https_first),
             ),
+            notifications_rows(sync),
             r#"<ul class="facts">
 <li>Los programas y scripts (.AppImage, .sh, .deb…) piden confirmación antes de bajarse y se guardan sin permiso de ejecución; los nombres de archivo se limpian.</li>
 <li>Cada descarga se guarda con un nombre oculto, se analiza al llegar (sin frenar la descarga) y solo entonces recibe su nombre. Si dice ser un documento, una imagen o un vídeo y por dentro es un programa, o si ClamAV está instalado y la reconoce como malware, te pregunta si la borras.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
 <li>Los errores de certificado nunca se saltan.</li>
-<li>Cámara, micrófono, ubicación y notificaciones se deniegan.</li>
+<li>Cámara, micrófono y ubicación se deniegan. Las notificaciones solo se muestran si las permites, sitio por sitio.</li>
 <li>Sin ventanas emergentes automáticas; una web no puede abrir archivos locales.</li>
 <li>Prevención de rastreo inteligente (ITP) y aislamiento por procesos de WebKit.</li>
 </ul>"#
@@ -2511,6 +2545,30 @@ mod tests {
         // Settings saved before passkeys existed keep them on.
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert!(old.passkeys_enabled);
+    }
+
+    #[test]
+    fn the_security_page_lists_the_notification_answers() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains("Notificaciones de sitios"));
+        assert!(!empty.contains(r#"data-k="notifications.forget""#));
+        extras.notifications = vec![
+            (
+                "https://web.whatsapp.com".into(),
+                "web.whatsapp.com".into(),
+                true,
+            ),
+            ("https://<x>.example".into(), "<x>.example".into(), false),
+        ];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains(
+            r#"data-k="notifications.forget" data-v="https://web.whatsapp.com" data-remove="1""#
+        ));
+        assert!(html.contains("Permitidas") && html.contains("Bloqueadas"));
+        assert!(html.contains("&lt;x&gt;.example"));
+        assert!(!html.contains("<x>.example"));
     }
 
     #[test]

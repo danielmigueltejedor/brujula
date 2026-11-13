@@ -102,6 +102,11 @@ pub fn essentials_file() -> PathBuf {
     data_dir().join("essentials.json")
 }
 
+/// What each site was allowed to do (show notifications), per profile.
+pub fn site_permissions_file() -> PathBuf {
+    data_dir().join("site-permissions.json")
+}
+
 pub fn webapps_file() -> PathBuf {
     root_data_dir().join("webapps.json")
 }

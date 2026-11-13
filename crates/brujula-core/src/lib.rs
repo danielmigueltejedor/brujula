@@ -32,6 +32,7 @@ pub mod scriptlets;
 pub mod search;
 pub mod session;
 pub mod settings;
+pub mod sitepermissions;
 pub mod sleep;
 pub mod spaces;
 pub mod suggest;
