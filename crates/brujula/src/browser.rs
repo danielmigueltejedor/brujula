@@ -64,6 +64,7 @@ mod profiles_ui;
 mod sleep;
 mod split;
 mod system_theme;
+mod tab_drag;
 mod updates;
 mod webapps;
 mod welcome;
@@ -1485,8 +1486,14 @@ impl Browser {
         // The last tab of a space gives way to a blank one: the user stays in the space.
         let alone = {
             let m = self.model.borrow();
-            m.get(id)
-                .is_some_and(|t| m.in_space(t.space).count() == 1 && m.len() > 1)
+            m.get(id).is_some_and(|t| {
+                if t.essential.is_some() {
+                    // An essential's page closing with nothing else listed leaves a blank tab.
+                    m.in_space(m.current_space()).count() == 0
+                } else {
+                    m.in_space(t.space).count() == 1 && m.len() > 1
+                }
+            })
         };
         if alone {
             if self
@@ -1643,9 +1650,25 @@ impl Browser {
         });
         // window.open / target=_blank: a new tab next to this one.
         let this = Rc::downgrade(self);
-        view.connect_create(move |v, _action| {
+        view.connect_create(move |v, action| {
             let b = this.upgrade()?;
             let opener = b.id_of(v);
+            // A link of an essential that leads to another site: a card over the page, no tab.
+            if let (Some(id), Some(uri)) = (
+                opener,
+                action
+                    .clone()
+                    .request()
+                    .and_then(|r| r.uri())
+                    .map(|u| u.to_string()),
+            ) {
+                if action.clone().navigation_type() == NavigationType::LinkClicked
+                    && b.leaves_essential(id, &uri)
+                {
+                    b.peek(&uri);
+                    return None;
+                }
+            }
             let (id, changes) = b.model.borrow_mut().open("", opener, true);
             let nv = b.create_view(id, "", Some(v));
             b.apply(changes);
@@ -1670,7 +1693,13 @@ impl Browser {
             if let Some(action) = nav.navigation_action() {
                 let shift = action.modifiers() & gdk::ModifierType::SHIFT_MASK.bits() != 0;
                 let web = uri.starts_with("https://") || uri.starts_with("http://");
-                if shift && web && action.navigation_type() == NavigationType::LinkClicked {
+                // From an essential's page, a link to another site is shown the same way
+                // without Shift: the essential stays on its own site.
+                let away = this
+                    .upgrade()
+                    .is_some_and(|b| b.id_of(v).is_some_and(|id| b.leaves_essential(id, &uri)));
+                if (shift || away) && web && action.navigation_type() == NavigationType::LinkClicked
+                {
                     decision.ignore();
                     if let Some(b) = this.upgrade() {
                         b.peek(&uri);
@@ -1824,6 +1853,10 @@ impl Browser {
                             r.row.remove_css_class("brujula-current");
                         }
                     }
+                    if !self.rows.borrow().contains_key(&id) {
+                        // An essential's page: no row of the list is the current one.
+                        self.list.unselect_all();
+                    }
                     self.syncing.set(false);
                     self.load_if_lazy();
                     self.sync_chrome();
@@ -1847,6 +1880,15 @@ impl Browser {
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
+        // The page of an essential has no row: its icon is its tab.
+        if self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.essential.is_some())
+        {
+            return;
+        }
         let favicon_icon = gtk::Image::from_icon_name("ndl-globe-symbolic");
         favicon_icon.set_pixel_size(16);
         let favicon_pic = gtk::Picture::new();
@@ -1917,6 +1959,7 @@ impl Browser {
             }
         });
         row.add_controller(click);
+        self.wire_tab_drag(&row, id);
 
         self.list.append(&row);
         self.rows.borrow_mut().insert(
@@ -1961,7 +2004,7 @@ impl Browser {
             let members: Vec<_> = model
                 .tabs()
                 .iter()
-                .filter(|t| folder_of(t) == Some(folder.id))
+                .filter(|t| t.essential.is_none() && folder_of(t) == Some(folder.id))
                 .collect();
             if let Some(fr) = folder_rows.get(&folder.id) {
                 fr.sync(folder, members.len());

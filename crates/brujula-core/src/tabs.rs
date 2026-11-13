@@ -20,6 +20,9 @@ pub struct Tab {
     /// When the tab was last in front, in milliseconds since 1970 (0 if not known). The tabs
     /// left alone for long enough are archived (see `archive`).
     pub active: u64,
+    /// The essential this page belongs to (see `essentials`): it is not in the list of tabs, the
+    /// essential's icon is its tab. `None` for any other tab.
+    pub essential: Option<u32>,
 }
 
 /// What a change to the model means for the UI.
@@ -60,9 +63,20 @@ impl TabModel {
         self.current_space = space;
     }
 
-    /// The tabs of one space, in order.
+    /// The tabs of one space that the list shows, in order. The pages of the essentials are not
+    /// in it: their icons are their tabs.
     pub fn in_space(&self, space: u32) -> impl Iterator<Item = &Tab> {
-        self.tabs.iter().filter(move |t| t.space == space)
+        self.tabs
+            .iter()
+            .filter(move |t| t.space == space && t.essential.is_none())
+    }
+
+    /// The page of essential `id`, if it is open.
+    pub fn essential_tab(&self, id: u32) -> Option<TabId> {
+        self.tabs
+            .iter()
+            .find(|t| t.essential == Some(id))
+            .map(|t| t.id)
     }
 
     /// Puts a tab in a folder, takes it out (`Some(NO_FOLDER)`) or leaves it to the smart folders
@@ -125,6 +139,26 @@ impl TabModel {
     /// otherwise it goes to the end. It never lands among the pinned tabs. The new tab becomes
     /// the selected one when `select` is true.
     pub fn open(&mut self, url: &str, after: Option<TabId>, select: bool) -> (TabId, Vec<Change>) {
+        self.open_as(url, after, select, None)
+    }
+
+    /// Opens the page of essential `essential` (at the end: it is not in the list anyway).
+    pub fn open_essential(
+        &mut self,
+        url: &str,
+        essential: u32,
+        select: bool,
+    ) -> (TabId, Vec<Change>) {
+        self.open_as(url, None, select, Some(essential))
+    }
+
+    fn open_as(
+        &mut self,
+        url: &str,
+        after: Option<TabId>,
+        select: bool,
+        essential: Option<u32>,
+    ) -> (TabId, Vec<Change>) {
         let id = TabId(self.next_id);
         self.next_id += 1;
         let at = match after.and_then(|a| self.position(a)) {
@@ -143,6 +177,7 @@ impl TabModel {
                 space: self.current_space,
                 folder: None,
                 active: 0,
+                essential,
             },
         );
         let mut changes = vec![Change::Opened(id)];
@@ -171,7 +206,7 @@ impl TabModel {
         if self.selected == Some(id) {
             // The neighbour in the same space if there is one: closing a tab must not throw
             // the user into another space.
-            let same = |t: &&Tab| t.space == tab.space;
+            let same = |t: &&Tab| t.space == tab.space && t.essential.is_none();
             let next = self.tabs[pos.min(self.tabs.len())..].iter().find(same);
             let prev = self.tabs[..pos.min(self.tabs.len())]
                 .iter()
@@ -179,7 +214,13 @@ impl TabModel {
                 .find(same);
             self.selected = match next.or(prev) {
                 Some(t) => Some(t.id),
-                None => self.tabs.first().map(|t| t.id),
+                // Only essentials left in the space: one of them, else whatever there is.
+                None => self
+                    .tabs
+                    .iter()
+                    .find(|t| t.space == tab.space)
+                    .or(self.tabs.first())
+                    .map(|t| t.id),
             };
             if let Some(s) = self.selected {
                 changes.push(Change::Selected(s));
@@ -231,11 +272,16 @@ impl TabModel {
             return Vec::new();
         };
         let ids: Vec<TabId> = self.in_space(cur.space).map(|t| t.id).collect();
-        let Some(at) = ids.iter().position(|i| *i == cur.id) else {
-            return Vec::new();
-        };
         let n = ids.len() as isize;
-        let next = (at as isize + delta).rem_euclid(n) as usize;
+        if n == 0 {
+            return Vec::new();
+        }
+        let next = match ids.iter().position(|i| *i == cur.id) {
+            Some(at) => (at as isize + delta).rem_euclid(n) as usize,
+            // From an essential's page: the first of the list going forward, the last going back.
+            None if delta >= 0 => 0,
+            None => n as usize - 1,
+        };
         self.select(ids[next])
     }
 
@@ -297,7 +343,7 @@ impl TabModel {
         let ids: Vec<TabId> = self
             .tabs
             .iter()
-            .filter(|t| t.id != keep && !t.pinned && t.space == space)
+            .filter(|t| t.id != keep && !t.pinned && t.space == space && t.essential.is_none())
             .map(|t| t.id)
             .collect();
         for id in &ids {
@@ -314,7 +360,7 @@ impl TabModel {
         let space = self.tabs[pos].space;
         let ids: Vec<TabId> = self.tabs[pos + 1..]
             .iter()
-            .filter(|t| !t.pinned && t.space == space)
+            .filter(|t| !t.pinned && t.space == space && t.essential.is_none())
             .map(|t| t.id)
             .collect();
         for id in &ids {
@@ -327,6 +373,41 @@ impl TabModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_page_of_an_essential_is_not_in_the_list() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        let (e, _) = m.open_essential("https://mail.example.com", 7, true);
+        assert_eq!(m.essential_tab(7), Some(e));
+        assert_eq!(m.essential_tab(8), None);
+        assert_eq!(m.in_space(1).map(|t| t.id).collect::<Vec<_>>(), vec![a]);
+        // Going back from an essential's page lands in the list, in either direction.
+        m.select_relative(1);
+        assert_eq!(m.selected(), Some(a));
+        m.select(e);
+        m.select_relative(-1);
+        assert_eq!(m.selected(), Some(a));
+        // Closing the essential's page goes back to a listed tab, and "close the others" leaves it.
+        m.select(e);
+        assert!(m.close_others(a).is_empty());
+        let changes = m.close(e);
+        assert!(changes.contains(&Change::Selected(a)));
+        assert_eq!(m.essential_tab(7), None);
+    }
+
+    #[test]
+    fn closing_a_listed_tab_prefers_another_listed_tab_to_an_essential() {
+        let mut m = TabModel::new();
+        let (a, _) = m.open("https://a.com", None, true);
+        let (e, _) = m.open_essential("https://e.com", 1, false);
+        let (b, _) = m.open("https://b.com", None, false);
+        m.select(a);
+        m.close(a);
+        assert_eq!(m.selected(), Some(b));
+        m.close(b);
+        assert_eq!(m.selected(), Some(e), "an essential is better than nothing");
+    }
 
     #[test]
     fn tabs_open_in_the_current_space_and_navigation_stays_inside_it() {

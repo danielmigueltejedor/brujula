@@ -54,7 +54,14 @@ impl Browser {
 
     /// Makes the space of tab `id` the one in front, e.g. after picking a tab in the Spotlight.
     pub(super) fn follow_space_of(self: &Rc<Self>, id: TabId) {
-        let Some(space) = self.model.borrow().get(id).map(|t| t.space) else {
+        // The page of an essential is in every space: it never takes the person to another one.
+        let Some(space) = self
+            .model
+            .borrow()
+            .get(id)
+            .filter(|t| t.essential.is_none())
+            .map(|t| t.space)
+        else {
             return;
         };
         self.last_in_space.borrow_mut().insert(space, id);

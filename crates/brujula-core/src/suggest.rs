@@ -219,6 +219,7 @@ mod tests {
             space: 1,
             folder: None,
             active: 0,
+            essential: None,
         }
     }
 

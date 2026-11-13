@@ -163,7 +163,7 @@ impl Snapshot {
             snap.tabs = model
                 .tabs()
                 .iter()
-                .filter(|t| is_web(&t.url))
+                .filter(|t| t.essential.is_none() && is_web(&t.url))
                 .filter_map(|t| {
                     let folder = folders
                         .folder_of(t.folder, t.space, &t.url, &t.title)
