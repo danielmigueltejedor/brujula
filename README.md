@@ -1,9 +1,34 @@
-# Brújula
+<div align="center">
+  <img src="./docs/images/brujula-icon.svg" width="192" height="192" alt="Brújula">
+  <h1>Brújula</h1>
+  <p><strong>El navegador de Nodalix: rápido, seguro y a tu manera.</strong></p>
 
-El navegador de [Nodalix](https://github.com/danielmigueltejedor/nodalix-os): WebKitGTK 6, interfaz con
-el Nodalia Design Language (`nodalia-gtk`), pestañas verticales o horizontales, espacios, un bloqueador de
-anuncios propio y compatibilidad con extensiones de Chromium. Escrito en Rust.
+  <p>
+    <a href="https://github.com/getnodalia/brujula/releases/latest"><img src="https://img.shields.io/github/v/release/getnodalia/brujula?label=stable&sort=semver" alt="Última versión"></a>
+    <img src="https://img.shields.io/badge/plataforma-Linux%20x86__64-FCC624?logo=linux&logoColor=black" alt="Linux x86_64">
+    <img src="https://img.shields.io/badge/motor-WebKitGTK%206-0C9A58" alt="WebKitGTK 6">
+    <img src="https://img.shields.io/badge/escrito%20en-Rust-DEA584?logo=rust&logoColor=black" alt="Rust">
+    <img src="https://img.shields.io/badge/licencia-GPL--3.0-blue" alt="GPL-3.0">
+  </p>
 
+  <p>
+    <a href="https://getnodalia.com/brujula/">Web</a> ·
+    <a href="#qué-trae">Qué trae</a> ·
+    <a href="#instalar">Instalar</a> ·
+    <a href="#capturas">Capturas</a> ·
+    <a href="#desarrollar">Desarrollar</a>
+  </p>
+</div>
+
+---
+
+<p align="center">
+  <img src="./docs/screenshots/newtab.webp" alt="Brújula: nueva pestaña con el buscador y los marcadores">
+</p>
+
+WebKitGTK 6, interfaz con el [Nodalia Design Language](https://github.com/danielmigueltejedor/nodalia-design)
+(`nodalia-gtk`), pestañas verticales o horizontales, espacios, un bloqueador de anuncios propio,
+contraseñas cifradas y compatibilidad con extensiones de Chromium. Escrito en Rust.
 Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 
 ## Qué trae
@@ -21,17 +46,37 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 
 ## Instalar
 
-En Arch o CachyOS:
+**AppImage** (x86_64): descárgala de la [última versión](https://github.com/getnodalia/brujula/releases/latest), hazla ejecutable y ábrela. Necesita una distribución con una glibc tan reciente como la de Arch (Arch, CachyOS, Nodalix…).
+
+```sh
+chmod +x Brujula-*-x86_64.AppImage
+./Brujula-*-x86_64.AppImage
+```
+
+**Arch o CachyOS**, compilándola:
 
 ```sh
 cd packaging/arch && makepkg -si
 ```
 
-Desde el código, con las dependencias (`gtk4`, `webkitgtk-6.0`, `libsoup3`) y Rust 1.85 o más:
+**Desde el código**, con las dependencias (`gtk4`, `webkitgtk-6.0`, `libsoup3`) y Rust 1.85 o más:
 
 ```sh
 cargo install --path crates/brujula --root ~/.local --locked
 ```
+
+## Capturas
+
+<table>
+  <tr>
+    <td><img src="./docs/screenshots/appearance.webp" alt="Preferencias de apariencia"></td>
+    <td><img src="./docs/screenshots/extensions.webp" alt="Extensiones de Chromium"></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/screenshots/passwords.webp" alt="Contraseñas"></td>
+    <td><img src="./docs/screenshots/webapps.webp" alt="Aplicaciones web"></td>
+  </tr>
+</table>
 
 ## Desarrollar
 
@@ -41,3 +86,16 @@ verificado y qué no. `crates/brujula-core` no tiene interfaz y se prueba con `c
 ## Licencia
 
 GPL-3.0-or-later. El repositorio conserva el código de GNOME Web (Epiphany), de donde partió.
+
+---
+
+<p align="center">
+  <a href="https://getnodalia.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./docs/images/nodalia-wordmark-white.svg">
+      <img src="./docs/images/nodalia-wordmark-black.svg" width="120" alt="Nodalia">
+    </picture>
+  </a>
+  <br>
+  Brújula es parte de <a href="https://getnodalia.com">Nodalia</a> y el navegador de <a href="https://github.com/danielmigueltejedor/nodalix-os">Nodalix OS</a>.
+</p>
