@@ -405,7 +405,7 @@ mod tests {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
-        format!("pw-{tag}-{nanos}")
+        (u64::from(nanos) + u64::from(tag)).to_string()
     }
 
     #[test]
