@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use webkit6::Download;
 
 use super::*;
+use crate::save_download::Decision;
 
 /// How many downloads the list keeps.
 const KEEP: usize = 30;
@@ -247,7 +248,7 @@ fn row_for(
             State::Done => format!("Completada · {}", glib::format_size(got)),
             State::Failed(why) => format!("No se pudo descargar: {why}"),
             State::Cancelled => "Cancelada".to_owned(),
-            State::Blocked => "Bloqueada: es un archivo que se puede ejecutar".to_owned(),
+            State::Blocked => "No descargada: es un programa o un script".to_owned(),
         });
         if running {
             row2.remove_css_class("brujula-download-done");
@@ -315,31 +316,21 @@ impl Browser {
         let this = Rc::downgrade(self);
         let (st, dest, rf) = (state.clone(), destination.clone(), refresh.clone());
         download.connect_decide_destination(move |d, suggested| {
-            let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
-                .unwrap_or_else(glib::home_dir);
-            let name = brujula_core::downloads::safe_file_name(suggested);
-            if brujula_core::downloads::is_dangerous(&name) {
-                *st.borrow_mut() = State::Blocked;
-                *dest.borrow_mut() = Some(PathBuf::from(&name));
+            let Some(b) = this.upgrade() else {
                 d.cancel();
-                rf();
-                if let Some(b) = this.upgrade() {
-                    dialogs::notice(
-                        &b.window,
-                        "Descarga bloqueada",
-                        &format!(
-                            "«{name}» es un archivo que se puede ejecutar. Brújula no lo guarda \
-                             para que ningún sitio web pueda dejar un programa o script en tu \
-                             equipo."
-                        ),
-                    );
-                }
                 return true;
-            }
-            let path = brujula_core::downloads::available_path(&dir, &name);
-            d.set_destination(&path.to_string_lossy());
-            *dest.borrow_mut() = Some(path);
-            rf();
+            };
+            let (st, dest, rf) = (st.clone(), dest.clone(), rf.clone());
+            crate::save_download::decide(&b.window, d, suggested, move |decision| {
+                match decision {
+                    Decision::Saving(path) => *dest.borrow_mut() = Some(path),
+                    Decision::Refused(name) => {
+                        *st.borrow_mut() = State::Blocked;
+                        *dest.borrow_mut() = Some(PathBuf::from(name));
+                    }
+                }
+                rf();
+            });
             true
         });
         let rf = refresh.clone();

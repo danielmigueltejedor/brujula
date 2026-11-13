@@ -8,7 +8,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use brujula_core::downloads;
 use brujula_core::settings::Settings;
 use brujula_core::webapps::{self, WebApp, Webapps};
 use gtk::gdk;
@@ -310,26 +309,13 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
             true
         });
     }
-    // Downloads: the Downloads folder, cleaned names, nothing that can run.
+    // Downloads: the Downloads folder, cleaned names, a program only if the person says so.
     {
         let win = win.clone();
         session.connect_download_started(move |_, download| {
             let win = win.clone();
             download.connect_decide_destination(move |d, suggested| {
-                let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
-                    .unwrap_or_else(glib::home_dir);
-                let name = downloads::safe_file_name(suggested);
-                if downloads::is_dangerous(&name) {
-                    d.cancel();
-                    dialogs::notice(
-                        &win,
-                        "Descarga bloqueada",
-                        &format!("«{name}» es un archivo que se puede ejecutar."),
-                    );
-                    return true;
-                }
-                let path = downloads::available_path(&dir, &name);
-                d.set_destination(&path.to_string_lossy());
+                crate::save_download::decide(&win, d, suggested, |_| {});
                 true
             });
         });

@@ -1342,7 +1342,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 &switch("https_first", s.https_first),
             ),
             r#"<ul class="facts">
-<li>Las descargas de programas y scripts se bloquean, y los nombres de archivo se limpian.</li>
+<li>Los programas y scripts (.AppImage, .sh, .deb…) piden confirmación antes de bajarse y se guardan sin permiso de ejecución; los nombres de archivo se limpian.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
 <li>Los errores de certificado nunca se saltan.</li>
 <li>Cámara, micrófono, ubicación y notificaciones se deniegan.</li>

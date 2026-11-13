@@ -5,6 +5,7 @@ mod filters;
 mod icons;
 mod paths;
 mod profiles;
+mod save_download;
 mod spotlight;
 mod tile;
 mod webapp;
