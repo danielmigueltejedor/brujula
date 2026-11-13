@@ -29,7 +29,7 @@ install -m755 "$bin" "$appdir/usr/bin/brujula"
 
 # WebKit starts its web and network processes from its own directory; they are copied whole so
 # their libraries are bundled too.
-webprocess=$(find /usr/lib /usr/lib64 /usr/libexec -name WebKitWebProcess -path '*webkitgtk-6.0*' 2>/dev/null | head -1)
+webprocess=$(find /usr/lib /usr/lib64 /usr/libexec -name WebKitWebProcess -path '*webkitgtk-6.0*' 2>/dev/null | head -1 || true)
 [ -n "$webprocess" ] || { echo "WebKitGTK 6.0 helper processes not found" >&2; exit 1; }
 webdir=$(dirname "$webprocess")
 mkdir -p "$appdir/usr/lib/webkitgtk-6.0"
