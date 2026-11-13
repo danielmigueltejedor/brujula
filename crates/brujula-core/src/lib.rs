@@ -28,3 +28,4 @@ pub mod spaces;
 pub mod suggest;
 pub mod sync;
 pub mod tabs;
+pub mod vault;

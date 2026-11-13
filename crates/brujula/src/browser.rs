@@ -53,6 +53,7 @@ mod float;
 mod folders;
 mod history;
 mod notes;
+mod passwords;
 mod peek;
 mod sleep;
 mod split;
@@ -323,6 +324,8 @@ pub struct Browser {
     /// The pages visited.
     history: RefCell<History>,
     history_save_queued: Cell<bool>,
+    /// The saved passwords, while the vault is open.
+    pw: passwords::PwState,
     /// The Chromium extensions installed and running.
     ext: RefCell<ext::ExtState>,
     filters: Rc<Filters>,
@@ -686,6 +689,7 @@ impl Browser {
                     .unwrap_or_default()
             }),
             history_save_queued: Cell::new(false),
+            pw: passwords::PwState::default(),
             ext: RefCell::new(ext::ExtState::default()),
             filters,
             settings: RefCell::new(settings),
@@ -1049,6 +1053,7 @@ impl Browser {
                 b.save_session();
                 b.save_notes();
                 b.flush_history();
+                b.pw_lock();
                 b.unfloat_all();
                 if b.private {
                     // The window goes, and with it the session and everything it held.
@@ -1236,6 +1241,7 @@ impl Browser {
             }
             if !this.private {
                 this.start_extensions();
+                this.start_passwords();
             }
             this.restore(&urls);
             if !this.private {
@@ -2157,6 +2163,10 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("history.") {
             self.change_history(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("pw.") {
+            self.change_passwords(what, value);
             return;
         }
         let result = self.settings.borrow_mut().apply(key, value);

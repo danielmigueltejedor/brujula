@@ -114,6 +114,7 @@ impl Browser {
         prefs::Extras {
             history,
             history_total,
+            vault: self.vault_view(),
             folders: offered_folders(),
             accounts: accounts()
                 .iter()

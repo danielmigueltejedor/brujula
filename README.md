@@ -14,6 +14,7 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 - **Personalizable**: tema, acento, marco con degradados, redondeo, separación, disposición (islas, marco, vertical, horizontal), espacios con icono, Boosts (CSS por sitio), buscador a elegir.
 - **Extensiones de Chromium**: scripts de contenido, fondo, ventana emergente, opciones, almacenamiento, mensajes, reglas de bloqueo… Se instalan desde una carpeta, un `.crx` o la Chrome Web Store, con un aviso de permisos. No todas las extensiones funcionarán: ver [docs/brujula-rust.md](docs/brujula-rust.md).
 - **Sincronización** de marcadores, espacios y pestañas por una carpeta (Dropbox, Nextcloud, iCloud Drive…) o una cuenta de Nodalix.
+- **Contraseñas** guardadas cifradas (Argon2id + XChaCha20-Poly1305) con una contraseña maestra, que solo se rellenan en el sitio exacto y al tocar el campo.
 - **Historial** local, con búsqueda en el Spotlight y borrado por horas o completo, y **ventana privada** (Ctrl+Mayús+N o `brujula --private`) que no guarda historial, cookies ni pestañas.
 - Arc-isms: archivo automático, vista dividida, Peek (Mayús+clic), notas por espacio, ventana flotante.
 
