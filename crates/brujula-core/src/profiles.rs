@@ -148,9 +148,7 @@ impl Profiles {
         }
         let lock = match password {
             None => None,
-            Some(password)
-                if (MIN_PASSWORD..=MAX_PASSWORD).contains(&password.chars().count()) =>
-            {
+            Some(password) if (MIN_PASSWORD..=MAX_PASSWORD).contains(&password.chars().count()) => {
                 Some(make_lock(password, memory, passes)?)
             }
             Some(_) => return None,
