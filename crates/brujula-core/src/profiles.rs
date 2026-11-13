@@ -64,16 +64,6 @@ pub fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn clean_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(MAX_NAME)
-        .collect()
-}
-
 fn derive(password: &str, salt: &[u8], memory: u32, passes: u32) -> Option<[u8; 32]> {
     if memory > MAX_MEMORY_KIB || passes > MAX_PASSES || passes == 0 {
         return None;
@@ -108,7 +98,7 @@ impl Profiles {
         let mut me: Self = serde_json::from_str(text).unwrap_or_default();
         let mut seen: Vec<String> = Vec::new();
         me.list.retain_mut(|p| {
-            p.name = clean_name(&p.name);
+            p.name = crate::clean_name(&p.name, MAX_NAME);
             if p.name.is_empty() {
                 p.name = "Perfil".to_owned();
             }
@@ -170,7 +160,7 @@ impl Profiles {
                 .map(|n| format!("p{n}"))
                 .find(|id| self.get(id).is_none())?
         };
-        let mut name = clean_name(name);
+        let mut name = crate::clean_name(name, MAX_NAME);
         if name.is_empty() {
             name = "Perfil".to_owned();
         }
@@ -190,7 +180,7 @@ impl Profiles {
 
     /// Changes the name and the picture.
     pub fn edit(&mut self, id: &str, name: &str, avatar: &str) {
-        let name = clean_name(name);
+        let name = crate::clean_name(name, MAX_NAME);
         if let Some(p) = self.list.iter_mut().find(|p| p.id == id) {
             if !name.is_empty() {
                 p.name = name;

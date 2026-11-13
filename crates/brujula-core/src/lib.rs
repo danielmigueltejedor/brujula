@@ -35,3 +35,15 @@ pub mod tabs;
 pub mod vault;
 pub mod webapps;
 pub mod welcome;
+
+/// Text suitable for a user-visible name: no control characters, surrounding whitespace or
+/// more characters than the field can store.
+pub(crate) fn clean_name(name: &str, max: usize) -> String {
+    name.chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(max)
+        .collect()
+}

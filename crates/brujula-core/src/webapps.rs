@@ -38,16 +38,6 @@ fn valid_id(id: &str) -> bool {
         && !id.starts_with('-')
 }
 
-fn clean_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(MAX_NAME)
-        .collect()
-}
-
 /// The host of a web address, without `www.`.
 pub fn host_of(url: &str) -> String {
     let rest = url.split("://").nth(1).unwrap_or("");
@@ -107,7 +97,7 @@ impl Webapps {
         w.items
             .retain(|i| valid_id(&i.id) && is_web(&i.url) && !i.name.trim().is_empty());
         for i in &mut w.items {
-            i.name = clean_name(&i.name);
+            i.name = crate::clean_name(&i.name, MAX_NAME);
         }
         let mut seen = std::collections::HashSet::new();
         w.items.retain(|i| seen.insert(i.id.clone()));
@@ -133,7 +123,7 @@ impl Webapps {
         if !is_web(url) {
             return None;
         }
-        let mut name = clean_name(name);
+        let mut name = crate::clean_name(name, MAX_NAME);
         if name.is_empty() {
             name = host_of(url);
         }

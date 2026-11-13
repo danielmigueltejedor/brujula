@@ -67,6 +67,31 @@ mod welcome;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
+fn append_popover_entry(
+    browser: &Rc<Browser>,
+    popover: &gtk::Popover,
+    column: &gtk::Box,
+    label: &str,
+    handler: Handler,
+) {
+    let button = gtk::Button::builder()
+        .label(label)
+        .css_classes(["flat"])
+        .build();
+    if let Some(label) = button.child().and_downcast::<gtk::Label>() {
+        label.set_xalign(0.0);
+    }
+    let browser = Rc::downgrade(browser);
+    let popover = popover.clone();
+    button.connect_clicked(move |_| {
+        popover.popdown();
+        if let Some(browser) = browser.upgrade() {
+            handler(&browser);
+        }
+    });
+    column.append(&button);
+}
+
 const CSS: &str = include_str!("style.css");
 
 pub fn install_css() {
@@ -2564,24 +2589,8 @@ impl Browser {
         pop.set_has_arrow(false);
         pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let this = Rc::downgrade(self);
         let add = |label: &str, f: Handler| {
-            let btn = gtk::Button::builder()
-                .label(label)
-                .css_classes(["flat"])
-                .build();
-            if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
-                l.set_xalign(0.0);
-            }
-            let this = this.clone();
-            let pop = pop.clone();
-            btn.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(b) = this.upgrade() {
-                    f(&b);
-                }
-            });
-            col.append(&btn);
+            append_popover_entry(self, &pop, &col, label, f);
         };
         add(
             if pinned {
