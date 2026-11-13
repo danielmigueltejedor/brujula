@@ -40,6 +40,19 @@ pub fn vault_file() -> PathBuf {
     data_dir().join("passwords.vault")
 }
 
+pub fn webapps_file() -> PathBuf {
+    data_dir().join("webapps.json")
+}
+
+/// The profile of a web app: its own cookies and storage.
+pub fn webapp_data_dir(id: &str) -> PathBuf {
+    data_dir().join("webapps").join(id)
+}
+
+pub fn webapp_cache_dir(id: &str) -> PathBuf {
+    cache_dir().join("webapps").join(id)
+}
+
 pub fn notes_file() -> PathBuf {
     data_dir().join("notes.json")
 }

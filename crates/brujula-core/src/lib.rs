@@ -29,3 +29,4 @@ pub mod suggest;
 pub mod sync;
 pub mod tabs;
 pub mod vault;
+pub mod webapps;

@@ -58,6 +58,7 @@ mod peek;
 mod sleep;
 mod split;
 mod system_theme;
+mod webapps;
 
 type Handler = Box<dyn Fn(&Rc<Browser>)>;
 
@@ -807,6 +808,7 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
         action(
             "open-extensions",
             Box::new(|b| b.open_settings(Some("extensions"))),
@@ -2165,6 +2167,10 @@ impl Browser {
             self.change_history(what, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("webapp.") {
+            self.change_webapp(what, value);
+            return;
+        }
         if let Some(what) = key.strip_prefix("pw.") {
             self.change_passwords(what, value);
             return;
@@ -2663,6 +2669,16 @@ impl Browser {
 /// permissions. Camera, microphone, location, notifications and the like are refused until there
 /// is a prompt to ask the user.
 fn harden(view: &WebView) {
+    harden_settings(view);
+    view.connect_permission_request(|_, request| {
+        request.deny();
+        true
+    });
+}
+
+/// The settings every view gets; a view that asks the user about permissions (a web app) adds
+/// its own handler instead of the one that refuses all.
+pub(crate) fn harden_settings(view: &WebView) {
     if let Some(s) = WebViewExt::settings(view) {
         s.set_enable_developer_extras(true);
         s.set_enable_back_forward_navigation_gestures(true);
@@ -2672,10 +2688,6 @@ fn harden(view: &WebView) {
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
     }
-    view.connect_permission_request(|_, request| {
-        request.deny();
-        true
-    });
 }
 
 fn icon_button(icon: &str, tip: &str, action: &str) -> gtk::Button {
@@ -2712,6 +2724,10 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     opts.append(Some("Extensiones"), Some("win.open-extensions"));
+    opts.append(
+        Some("Instalar como aplicación web…"),
+        Some("win.install-webapp"),
+    );
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
     m

@@ -474,6 +474,8 @@ pub struct Extras {
     pub history_total: usize,
     /// The password vault: whether it exists, whether it is open, and what it holds.
     pub vault: VaultView,
+    /// The web apps: id, name and address.
+    pub webapps: Vec<(String, String, String)>,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -553,6 +555,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Contraseñas",
         "Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.",
         "lock",
+    ),
+    (
+        "webapps",
+        "Aplicaciones web",
+        "Aplicaciones web",
+        "Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».",
+        "globe",
     ),
     (
         "boosts",
@@ -768,6 +777,33 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "passwords",
         &format!("{switch_row}{state}{logins}{empty}{never}"),
     )
+}
+
+/// The web apps: a form to make one, and the ones that exist.
+fn webapps_section(view: &Extras) -> String {
+    let add = stacked(
+        "Crear una aplicación web",
+        "La dirección del sitio y, si quieres, un nombre. Su perfil (cookies y sesiones) queda aparte del navegador y de las demás aplicaciones; los enlaces de otros sitios se abren en tu navegador.",
+        r#"<div class="addrow"><input type="text" id="webapp-name" class="field" placeholder="Nombre (opcional)" maxlength="40" aria-label="Nombre"><input type="text" id="webapp-url" class="field wide" placeholder="https://…" maxlength="2048" aria-label="Dirección"><button type="button" class="seg plain" data-addwebapp="1">Crear</button></div>"#,
+    );
+    let items: String = view
+        .webapps
+        .iter()
+        .map(|(id, name, url)| {
+            let id = escape(id);
+            format!(
+                r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="webapp.open" data-v="{id}">Abrir</button><button type="button" class="seg plain danger" data-k="webapp.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                escape(name),
+                escape(url),
+            )
+        })
+        .collect();
+    let empty = if view.webapps.is_empty() {
+        r#"<p class="empty">Todavía no hay aplicaciones web.</p>"#
+    } else {
+        ""
+    };
+    section("webapps", &format!("{add}{items}{empty}"))
 }
 
 /// The extensions: ways to add one, and a card for each that is installed.
@@ -1235,6 +1271,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let boosts_section = boosts_section(sync);
     let history_section = history_section(s, sync);
     let passwords_section = passwords_section(s, sync);
+    let webapps_section = webapps_section(sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1286,7 +1323,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{passwords_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1344,6 +1381,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Ventana privada",
         "privado privada incógnito incognito sin rastro navegación",
         "history",
+    ),
+    (
+        "Aplicaciones web",
+        "webapp webapps aplicaciones web instalar pwa ventana lanzador atajo",
+        "webapps",
     ),
     (
         "Contraseñas",
@@ -1504,6 +1546,8 @@ document.addEventListener('click',e=>{
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
+  const wa=e.target.closest('[data-addwebapp]');
+  if(wa){const u=document.getElementById('webapp-url'),n=document.getElementById('webapp-name');if(u&&u.value.trim()){send('webapp.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const ext=e.target.closest('[data-addext]');
   if(ext){const h=document.getElementById('ext-store');if(h&&h.value.trim())send('ext.install_store',h.value.trim());return}
   const open=e.target.closest('[data-open]');
@@ -2006,5 +2050,21 @@ mod tests {
         let mut s = s;
         s.apply("passwords_enabled", "0").unwrap();
         assert!(!s.passwords_enabled);
+    }
+
+    #[test]
+    fn the_web_apps_page_lists_the_apps_and_has_a_form() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addwebapp="1""#));
+        extras.webapps = vec![(
+            "mi-correo".into(),
+            "Mi <correo>".into(),
+            "https://mail.example/".into(),
+        )];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains(r#"data-k="webapp.open" data-v="mi-correo""#));
+        assert!(html.contains("Mi &lt;correo&gt;"));
     }
 }
