@@ -179,6 +179,7 @@ version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "brujula-core",
+ "futures-channel",
  "nodalia-gtk",
  "nodalia-update",
  "serde",

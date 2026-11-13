@@ -15,6 +15,8 @@ pub enum Action {
     SwitchTab(TabId),
     /// Open the preferences at this section (see `prefs::SECTIONS`).
     Settings(String),
+    /// Hand this text to the AI assistant (only when the user made it the search box).
+    Ask(String),
 }
 
 /// Where a suggestion comes from, so the Spotlight can pick its icon.
