@@ -54,15 +54,15 @@ done
 # The gtk plugin copies GTK's module directory and stops if there is none; recent GTK 4 builds
 # ship none, so an empty one is made (as root, as in the CI container; elsewhere it must exist).
 gtkmods=$(pkg-config --variable=libdir gtk4 2>/dev/null || echo /usr/lib)/gtk-4.0
-[ -d "$gtkmods" ] || mkdir -p "$gtkmods" 2>/dev/null || true
+[[ -d "$gtkmods" ]] || mkdir -p "$gtkmods" 2>/dev/null || true
 
 # The same for gdk-pixbuf, whose loaders are built in on recent systems: the plugin wants the
 # loaders directory and a loaders.cache, even empty.
 pixvar() { pkg-config --variable="$1" gdk-pixbuf-2.0 2>/dev/null || true; }
 pixdir=$(pixvar gdk_pixbuf_moduledir)
 pixcache=$(pixvar gdk_pixbuf_cache_file)
-[ -z "$pixdir" ] || [ -d "$pixdir" ] || mkdir -p "$pixdir" 2>/dev/null || true
-[ -z "$pixcache" ] || [ -f "$pixcache" ] || : > "$pixcache" 2>/dev/null || true
+[[ -z "$pixdir" || -d "$pixdir" ]] || mkdir -p "$pixdir" 2>/dev/null || true
+[[ -z "$pixcache" || -f "$pixcache" ]] || : > "$pixcache" 2>/dev/null || true
 
 export DEPLOY_GTK_VERSION=4
 export LINUXDEPLOY_OUTPUT_VERSION=$version

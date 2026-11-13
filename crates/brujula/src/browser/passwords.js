@@ -72,7 +72,7 @@
         if (!e.isTrusted) return;
         e.preventDefault();
         closeMenu();
-        fill(pair, l.id);
+        void fill(pair, l.id);
       });
       box.appendChild(b);
     }
@@ -93,8 +93,8 @@
     if (!r || !r.logins || !r.logins.length) { done.delete(pair.pw); return; }
     const typed = pair.user && pair.user.value;
     const mine = typed && r.logins.find((l) => l.u === typed);
-    if (mine) fill(pair, mine.id);
-    else if (r.logins.length === 1) fill(pair, r.logins[0].id);
+    if (mine) void fill(pair, mine.id);
+    else if (r.logins.length === 1) void fill(pair, r.logins[0].id);
     else chooser(pair, r.logins);
   };
   const touched = (e) => {
@@ -102,7 +102,7 @@
     const t = e.target;
     if (menu && !(t instanceof HTMLInputElement)) closeMenu();
     if (e.type === 'keydown' && (e.key === 'Tab' || e.key === 'Escape')) { closeMenu(); return; }
-    if (t instanceof HTMLInputElement) offer(t);
+    if (t instanceof HTMLInputElement) void offer(t);
   };
   document.addEventListener('pointerdown', touched, true);
   document.addEventListener('keydown', touched, true);
@@ -122,7 +122,7 @@
     if (key === last && now - lastAt < 1500) return;
     last = key;
     lastAt = now;
-    ask({ t: 'submit', href: location.href, u, p: pw.value });
+    void ask({ t: 'submit', href: location.href, u, p: pw.value });
   };
   document.addEventListener('submit', (e) => { if (e.isTrusted || e.target.tagName === 'FORM') report(e.target); }, true);
   document.addEventListener('click', (e) => {
