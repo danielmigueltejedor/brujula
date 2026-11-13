@@ -357,9 +357,14 @@ mod tests {
     #[test]
     fn a_vault_opens_only_with_its_master_password() {
         let mut v = vault();
-        v.put("https://example.com/login", "ana", "s3cret", 1);
+        v.put("https://example.com/login", "anita.lopez", "s3cret", 1);
         let text = v.seal();
-        assert!(!text.contains("example.com") && !text.contains("s3cret") && !text.contains("ana"));
+        // Needles long enough that base64 of random bytes cannot contain them by chance.
+        assert!(
+            !text.contains("example.com")
+                && !text.contains("s3cret")
+                && !text.contains("anita.lopez")
+        );
         let again = Vault::open(&text, "correct horse").unwrap();
         assert_eq!(again.logins().len(), 1);
         assert_eq!(again.logins()[0].password, "s3cret");
