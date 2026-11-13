@@ -74,6 +74,10 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+pub fn cookies_file() -> PathBuf {
+    brujula_core::cookie_store(&data_dir())
+}
+
 pub fn ai_file() -> PathBuf {
     config_dir().join("ai.json")
 }
@@ -105,6 +109,10 @@ pub fn webapps_file() -> PathBuf {
 /// The profile of a web app: its own cookies and storage.
 pub fn webapp_data_dir(id: &str) -> PathBuf {
     root_data_dir().join("webapps").join(id)
+}
+
+pub fn webapp_cookies_file(id: &str) -> PathBuf {
+    brujula_core::cookie_store(&webapp_data_dir(id))
 }
 
 pub fn webapp_cache_dir(id: &str) -> PathBuf {

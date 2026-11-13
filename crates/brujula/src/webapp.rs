@@ -146,6 +146,7 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
     if let Some(dm) = session.website_data_manager() {
         dm.set_favicons_enabled(true);
     }
+    crate::browser::keep_cookies(&session, &paths::webapp_cookies_file(&app.id));
     let ucm = UserContentManager::new();
     let filters = Filters::new(ucm.clone());
     filters.set_allow(settings.allowlist.clone());

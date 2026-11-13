@@ -41,6 +41,13 @@ pub mod vault;
 pub mod webapps;
 pub mod welcome;
 
+/// Where a profile (or a web app) keeps its cookies: a SQLite file in its own data folder.
+/// WebKit keeps cookies in memory unless it is given a file, so without it every restart, and
+/// so every update, signed the person out of every site.
+pub fn cookie_store(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("cookies.sqlite")
+}
+
 /// Whether an address is one of the browser's own pages (new tab, preferences, welcome, news).
 /// They are drawn by Brújula, hold no web content and keep state a reload would throw away
 /// (the step of the welcome, a half-typed field), so nothing reloads them on its own.
@@ -70,6 +77,17 @@ pub(crate) fn clean_name(name: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cookies_live_in_the_data_folder_they_belong_to() {
+        let dir = std::path::Path::new("/home/a/.local/share/brujula/profiles/x");
+        let file = cookie_store(dir);
+        assert!(file.starts_with(dir));
+        assert_eq!(
+            file.file_name().and_then(|n| n.to_str()),
+            Some("cookies.sqlite")
+        );
+    }
 
     #[test]
     fn own_pages_are_told_apart_from_web_pages() {

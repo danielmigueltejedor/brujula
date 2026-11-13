@@ -45,14 +45,20 @@ fn clean_title(title: &str) -> String {
 
 impl History {
     pub fn from_json(text: &str) -> Self {
-        let mut h: Self = serde_json::from_str(text).unwrap_or_default();
+        Self::parse(text).unwrap_or_default()
+    }
+
+    /// Reads a saved history, or `None` when the text is not one. The browser then keeps the
+    /// file aside instead of writing an empty history over it.
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut h: Self = serde_json::from_str(text).ok()?;
         h.items.retain(|i| is_web(&i.url) && i.url.len() <= MAX_URL);
         for i in &mut h.items {
             i.title = clean_title(&i.title);
         }
         h.items.sort_by_key(|i| std::cmp::Reverse(i.last));
         h.items.truncate(MAX_ENTRIES);
-        h
+        Some(h)
     }
 
     pub fn to_json(&self) -> String {
@@ -308,5 +314,18 @@ mod tests {
         assert_eq!(h.len(), MAX_ENTRIES);
         // The newest are the ones kept.
         assert_eq!(h.items()[0].last, MAX_ENTRIES as u64 + 99);
+    }
+
+    #[test]
+    fn a_saved_history_reads_back_and_a_broken_one_is_told_apart() {
+        let mut h = History::default();
+        h.record("https://example.com/", "Example", 5);
+        let saved = h.to_json();
+        assert_eq!(History::parse(&saved), Some(h));
+        // Neither a cut-off file nor something else may pass for an empty history, or the next
+        // save would write that over the pages the person had.
+        assert_eq!(History::parse(&saved[..saved.len() / 2]), None);
+        assert_eq!(History::parse("not json"), None);
+        assert_eq!(History::parse("{}"), Some(History::default()));
     }
 }
