@@ -170,6 +170,15 @@ impl Settings {
                 a.frame_angle = degrees;
                 effect.appearance = true;
             }
+            "texture" => {
+                a.texture = crate::settings::Texture::from_id(value)
+                    .ok_or_else(|| format!("unknown texture: {value}"))?;
+                effect.appearance = true;
+            }
+            "texture_amount" => {
+                a.texture_amount = number(value)?.clamp(10, 100);
+                effect.appearance = true;
+            }
             "opacity" => {
                 a.opacity = number(value)?.clamp(50, 100);
                 effect.appearance = true;
@@ -217,6 +226,9 @@ impl Settings {
             }
             "history_enabled" => {
                 self.history_enabled = flag(value)?;
+            }
+            "update_check" => {
+                self.update_check = flag(value)?;
             }
             "passwords_enabled" => {
                 self.passwords_enabled = flag(value)?;
@@ -485,6 +497,10 @@ pub struct Extras {
     pub profiles: Vec<(String, String, String, bool)>,
     /// The id of the profile this window runs as.
     pub profile: String,
+    /// What the update check found, in words (empty before the first check).
+    pub update_status: String,
+    /// The newer version that is waiting, if any.
+    pub update_version: String,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -1084,6 +1100,21 @@ fn sync_section(s: &Settings, view: &Extras) -> String {
     section("sync", &body)
 }
 
+/// The buttons that pick the texture, and how strong it is.
+fn texture_picker(a: &crate::settings::Appearance) -> String {
+    let buttons: String = crate::settings::Texture::ALL
+        .iter()
+        .map(|(t, id, label)| {
+            let on = if *t == a.texture { " on" } else { "" };
+            format!(r#"<button type="button" class="seg{on}" data-k="texture" data-v="{id}">{label}</button>"#)
+        })
+        .collect();
+    format!(
+        r#"<div class="actions"><div class="segs" role="group">{buttons}</div></div>{}"#,
+        slider("texture_amount", a.texture_amount, 10, 100, " %")
+    )
+}
+
 /// The preferences page for the current settings.
 pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -> String {
     let a = &s.appearance;
@@ -1165,6 +1196,11 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 "Degradado del marco",
                 "Varios colores que se funden; se usa en lugar del color liso. Elige uno hecho o monta el tuyo.",
                 &gradient_picker(a),
+            ),
+            stacked(
+                "Textura",
+                "Un relieve fino sobre el marco y los paneles, bajo los colores.",
+                &texture_picker(a),
             ),
             row(
                 "Opacidad de la barra y el marco",
@@ -1342,7 +1378,8 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 &switch("https_first", s.https_first),
             ),
             r#"<ul class="facts">
-<li>Las descargas de programas y scripts se bloquean, y los nombres de archivo se limpian.</li>
+<li>Los programas y scripts (.AppImage, .sh, .deb…) piden confirmación antes de bajarse y se guardan sin permiso de ejecución; los nombres de archivo se limpian.</li>
+<li>Cada descarga se guarda con un nombre oculto, se analiza al llegar (sin frenar la descarga) y solo entonces recibe su nombre. Si dice ser un documento, una imagen o un vídeo y por dentro es un programa, o si ClamAV está instalado y la reconoce como malware, te pregunta si la borras.</li>
 <li><code>javascript:</code>, <code>data:</code> y <code>blob:</code> no se abren desde la barra de direcciones.</li>
 <li>Los errores de certificado nunca se saltan.</li>
 <li>Cámara, micrófono, ubicación y notificaciones se deniegan.</li>
@@ -1354,13 +1391,35 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
         .concat(),
     );
 
+    let update_button = if sync.update_version.is_empty() {
+        r#"<button type="button" class="seg plain" data-k="update.check" data-v="now">Buscar ahora</button>"#.to_owned()
+    } else {
+        format!(
+            r#"<button type="button" class="seg" data-k="update.install" data-v="now">Actualizar a {}</button>"#,
+            escape(&sync.update_version)
+        )
+    };
+    let update_hint = if sync.update_status.is_empty() {
+        "Brújula mira en GitHub si hay una versión nueva. Solo pide el número de versión: no envía nada tuyo."
+    } else {
+        &sync.update_status
+    };
     let about = section(
         "about",
-        &row(
-            &format!("Brújula {}", env!("CARGO_PKG_VERSION")),
-            "El navegador de Nodalix. WebKit, bloqueador integrado, pestañas verticales y el lenguaje de diseño NDL.",
-            "",
-        ),
+        &[
+            row(
+                &format!("Brújula {}", env!("CARGO_PKG_VERSION")),
+                "El navegador de Nodalix. WebKit, bloqueador integrado, pestañas verticales y el lenguaje de diseño NDL.",
+                "",
+            ),
+            row("Actualizaciones", update_hint, &update_button),
+            row(
+                "Buscar al abrir",
+                "Mira una vez cada doce horas si hay una versión nueva y te lo dice. El AppImage se actualiza solo si quieres; una copia instalada con el sistema se actualiza con el sistema.",
+                &switch("update_check", s.update_check),
+            ),
+        ]
+        .concat(),
     );
 
     let nav: String = PAGES
@@ -1379,7 +1438,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <html lang="es" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Preferencias</title>
-<style>{css}</style></head>
+<style>{faces}{css}</style></head>
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
@@ -1388,6 +1447,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <script>{js}</script>
 </body></html>
 "##,
+        faces = crate::fonts::FACES,
         css = CSS,
         js = JS,
         accent = escape(&a.accent),
@@ -1400,6 +1460,7 @@ Tema|claro oscuro modo sistema|appearance
 Color de acento|color tinte acento|appearance
 Color del marco|marco fondo color|appearance
 Transparencia|opacidad transparente cristal|appearance
+Textura|granulado grano relieve puntos líneas cuadrícula|appearance
 Redondeo de esquinas|bordes radio esquinas|appearance
 Disposición|islas marco zen diseño layout|layout
 Pestañas horizontales|pestañas arriba horizontal vertical|layout
@@ -1418,7 +1479,8 @@ Archivo de pestañas|archivar archivo pestañas antiguas cerradas recuperar|arch
 Sincronización|sincronizar nube icloud onedrive google drive dropbox dispositivos|sync
 Bloqueador de anuncios|adblock anuncios rastreadores listas|privacy
 Sitios sin bloqueador|excepciones permitidos|sites
-Seguridad|descargas permisos certificados|security"#;
+Seguridad|descargas permisos certificados|security
+Actualizaciones|actualizar actualización versión nueva novedades update|about"#;
 
 /// Page used by the Spotlight to offer settings: `(title, keywords, section id)`.
 pub static SECTIONS: LazyLock<Vec<(&'static str, &'static str, &'static str)>> =
@@ -1447,7 +1509,7 @@ const CSS: &str = r#"
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54;--shadow:0 1px 2px rgba(0,0,0,.3)}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
+body{margin:0;font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
 .shell{display:grid;grid-template-columns:14.5rem minmax(0,44rem);justify-content:center;gap:3.5rem;padding:3.25rem 2rem 8rem}
 .nav{position:sticky;top:3rem;align-self:start;display:flex;flex-direction:column;gap:.15rem}
 .nav h1{font-size:1.65rem;font-weight:700;letter-spacing:-.03em;margin:0 0 1.1rem .8rem}
@@ -1523,7 +1585,7 @@ output{min-width:3.6rem;text-align:right;color:var(--muted);font-variant-numeric
 .pav{position:relative;display:block;border-radius:50%;cursor:pointer}.pav input{position:absolute;opacity:0;inset:0}
 .pav svg{display:block;width:2.3rem;height:2.3rem;border-radius:50%;outline:3px solid transparent;outline-offset:2px;transition:outline-color .15s}
 .pav input:checked+svg{outline-color:var(--accent)}.pav input:focus-visible+svg{outline-color:var(--fg)}
-.addrow{display:flex;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
+.addrow{display:flex;flex-wrap:wrap;gap:.6rem;width:100%}.addrow input{flex:1;min-width:0}
 .acct{display:flex;flex-direction:column;min-width:0}.acct small{color:var(--muted);font-size:.78rem}
 .status{color:var(--muted);font-size:.9rem;margin-right:.8rem;text-align:right;max-width:24rem}
 .note{margin:0;padding:1rem 1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
@@ -1632,6 +1694,11 @@ mod tests {
         let mut s = Settings::default();
         assert!(s.apply("theme", "dark").unwrap().appearance);
         assert_eq!(s.appearance.theme, Theme::Dark);
+        s.apply("texture", "grain").unwrap();
+        assert_eq!(s.appearance.texture, crate::settings::Texture::Grain);
+        assert!(s.apply("texture", "<script>").is_err());
+        s.apply("texture_amount", "999").unwrap();
+        assert_eq!(s.appearance.texture_amount, 100);
         s.apply("opacity", "5").unwrap();
         assert_eq!(s.appearance.opacity, 50);
         s.apply("sidebar_width", "9999").unwrap();

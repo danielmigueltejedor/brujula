@@ -111,7 +111,10 @@ impl Browser {
     pub(super) fn extras(&self) -> prefs::Extras {
         let home = home();
         let (history, history_total) = self.history_view();
+        let (update_status, update_version) = self.update_view();
         prefs::Extras {
+            update_status,
+            update_version,
             history,
             history_total,
             vault: self.vault_view(),

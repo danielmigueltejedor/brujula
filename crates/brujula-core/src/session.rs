@@ -49,7 +49,12 @@ fn restorable(url: &str) -> bool {
 
 impl Session {
     pub fn capture(model: &TabModel, spaces: &Spaces, folders: &Folders) -> Self {
-        let kept: Vec<_> = model.tabs().iter().filter(|t| restorable(&t.url)).collect();
+        // The pages of the essentials are not kept: the icon opens them again.
+        let kept: Vec<_> = model
+            .tabs()
+            .iter()
+            .filter(|t| t.essential.is_none() && restorable(&t.url))
+            .collect();
         let selected = model
             .selected()
             .and_then(|sel| kept.iter().position(|t| t.id == sel))

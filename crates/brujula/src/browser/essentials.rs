@@ -158,34 +158,16 @@ impl Browser {
         });
     }
 
-    /// The tab of this space that has the essential's site open, if any.
-    fn essential_tab(&self, e: &Essential) -> Option<TabId> {
-        let host = e.host();
-        let host = host.trim_start_matches("www.");
-        let m = self.model.borrow();
-        let front = m.selected();
-        let mut found = None;
-        for t in m.in_space(m.current_space()) {
-            if t.url.starts_with("http") && host_of(&t.url) == host {
-                // The one in front wins, else the first.
-                if Some(t.id) == front {
-                    return Some(t.id);
-                }
-                found.get_or_insert(t.id);
-            }
-        }
-        found
-    }
-
     pub(super) fn refresh_essentials(self: &Rc<Self>) {
         let list: Vec<Essential> = self.essentials.borrow().items().to_vec();
         let horizontal = self.settings.borrow().appearance.tabs == TabPosition::Horizontal;
-        let front = self
-            .model
-            .borrow()
-            .selected()
-            .and_then(|id| self.model.borrow().get(id).map(|t| t.url.clone()))
-            .map(|u| host_of(&u));
+        // The essential whose page is in front, if it is one.
+        let front = {
+            let m = self.model.borrow();
+            m.selected()
+                .and_then(|id| m.get(id))
+                .and_then(|t| t.essential)
+        };
 
         while let Some(child) = self.ess.grid.first_child() {
             self.ess.grid.remove(&child);
@@ -200,10 +182,8 @@ impl Browser {
                 e.id,
                 e.color()
             ));
-            let active = front
-                .as_deref()
-                .is_some_and(|h| h == e.host().trim_start_matches("www."));
-            let open = self.essential_tab(e).is_some();
+            let active = front == Some(e.id);
+            let open = self.model.borrow().essential_tab(e.id).is_some();
             self.ess.grid.append(&self.essential_tile(e, active, open));
             self.ess.rail.append(&self.essential_tile(e, active, open));
         }
@@ -273,21 +253,51 @@ impl Browser {
         button
     }
 
-    /// Goes to the tab that has the site, or opens it.
+    /// The essential's page is its own tab: it comes to the front, or opens the first time. It
+    /// is not in the list of tabs.
     pub(super) fn open_essential(self: &Rc<Self>, id: u32) {
         let Some(e) = self.essentials.borrow().get(id).cloned() else {
             return;
         };
-        match self.essential_tab(&e) {
+        let existing = self.model.borrow().essential_tab(id);
+        match existing {
             Some(tab) => {
+                // It lives in the space where it is wanted now.
+                let space = self.model.borrow().current_space();
+                self.model.borrow_mut().set_space(tab, space);
                 let c = self.model.borrow_mut().select(tab);
                 self.apply(c);
             }
             None => {
-                self.open_tab(&e.url, None, true);
+                let (tab, changes) = self.model.borrow_mut().open_essential(&e.url, id, true);
+                self.create_view(tab, &e.url, None);
+                self.apply(changes);
             }
         }
         self.schedule_essentials();
+    }
+
+    /// Whether `uri` is a place the essential of tab `id` should not be taken to: a link to
+    /// another site is shown in a card over the page (what Shift+click does for any page).
+    pub(super) fn leaves_essential(&self, id: TabId, uri: &str) -> bool {
+        let home = {
+            let m = self.model.borrow();
+            m.get(id)
+                .and_then(|t| t.essential)
+                .and_then(|e| self.essentials.borrow().get(e).map(|e| e.url.clone()))
+        };
+        home.is_some_and(|home| {
+            (uri.starts_with("https://") || uri.starts_with("http://"))
+                && !brujula_core::webapps::same_site(&home, uri)
+        })
+    }
+
+    /// Closes the essential's page (the icon stays).
+    fn close_essential_page(self: &Rc<Self>, id: u32) {
+        let tab = self.model.borrow().essential_tab(id);
+        if let Some(tab) = tab {
+            self.close_tab(tab);
+        }
     }
 
     /// Adds the site of the page in front (or of `url`) to the essentials.
@@ -373,6 +383,7 @@ impl Browser {
             }
             "remove" => {
                 if let Ok(id) = value.parse() {
+                    self.close_essential_page(id);
                     self.essentials.borrow_mut().remove(id);
                 }
             }
@@ -407,6 +418,12 @@ impl Browser {
                 }
             }),
         );
+        if self.model.borrow().essential_tab(id).is_some() {
+            entry(
+                "Cerrar la página",
+                Box::new(move |b| b.close_essential_page(id)),
+            );
+        }
         entry(
             "Mover antes",
             Box::new(move |b| b.change_essential("up", &id.to_string())),

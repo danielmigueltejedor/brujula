@@ -13,6 +13,7 @@ use brujula_core::edge::EdgeDetector;
 use brujula_core::folders::{Folders, NO_FOLDER};
 use brujula_core::history::History;
 use brujula_core::https;
+use brujula_core::news::NEWS_URI;
 use brujula_core::newtab;
 use brujula_core::omnibox;
 use brujula_core::prefs;
@@ -55,6 +56,7 @@ mod extras;
 mod float;
 mod folders;
 mod history;
+mod history_panel;
 mod notes;
 mod page_action;
 mod passwords;
@@ -63,6 +65,8 @@ mod profiles_ui;
 mod sleep;
 mod split;
 mod system_theme;
+mod tab_drag;
+mod updates;
 mod webapps;
 mod welcome;
 
@@ -118,6 +122,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-tab", &["<Ctrl>Tab", "<Ctrl>Page_Down"]);
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
+    app.set_accels_for_action("win.toggle-history", &["<Ctrl>h"]);
     app.set_accels_for_action("win.open-settings", &["<Ctrl>comma"]);
     app.set_accels_for_action("win.toggle-bookmark", &["<Ctrl>d"]);
     app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
@@ -297,6 +302,7 @@ pub struct Browser {
     ess: essentials::EssentialsUi,
     /// The downloads button and its panel.
     dl: downloads_panel::DownloadsUi,
+    hist: history_panel::HistoryUi,
     /// Opens the notepad of the space in front.
     notes_button: gtk::Button,
     notes: RefCell<brujula_core::notes::Notes>,
@@ -380,6 +386,8 @@ pub struct Browser {
     pending_reload: Cell<bool>,
     /// The address of the last page asked about its web manifest, and whether it has one.
     page_manifest: RefCell<(String, bool)>,
+    /// What the last look for a newer version found.
+    update: RefCell<updates::UpdateState>,
 }
 
 impl Browser {
@@ -392,6 +400,8 @@ impl Browser {
         // that has never been opened has not.
         if first_run && !private {
             settings.welcome_done = false;
+            // A new profile has nothing to be told that is new.
+            settings.seen_version = env!("CARGO_PKG_VERSION").to_owned();
         }
 
         let session = if private {
@@ -518,7 +528,10 @@ impl Browser {
         side.append(&side_chrome.url_button);
         let ess = essentials::EssentialsUi::new();
         side.append(&ess.grid);
-        side.append(&scroller);
+        let hist = history_panel::HistoryUi::new(&scroller);
+        side.append(&hist.stack);
+        // Next to the notes, in the top row.
+        side_header.pack_start(&hist.side_button);
         let folder_button = gtk::Button::builder()
             .icon_name("ndl-folder-plus-symbolic")
             .css_classes(["flat", "brujula-newfolder"])
@@ -615,6 +628,7 @@ impl Browser {
         top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
         top_nav.append(&dl.slot_top);
+        top_nav.append(&hist.top_button);
         top_nav.append(&top_chrome.menu);
         let top_header = ndl::HeaderBar::new();
         top_header.set_show_start_title_buttons(false);
@@ -712,6 +726,7 @@ impl Browser {
             essentials: RefCell::new(essentials::load()),
             ess,
             dl,
+            hist,
             notes_button,
             notes: RefCell::new(notes::load()),
             notes_save_queued: Cell::new(false),
@@ -774,6 +789,7 @@ impl Browser {
             syncing: Cell::new(false),
             pending_reload: Cell::new(false),
             page_manifest: RefCell::new((String::new(), false)),
+            update: RefCell::new(updates::UpdateState::default()),
         });
         *weak.borrow_mut() = Some(Rc::downgrade(&this));
         if let Some(display) = gdk::Display::default() {
@@ -788,6 +804,7 @@ impl Browser {
         this.apply_layout();
         this.wire();
         this.wire_downloads();
+        this.wire_history_panel();
         this.refresh_essentials();
         this
     }
@@ -891,7 +908,9 @@ impl Browser {
             }),
         );
         action("open-settings", Box::new(|b| b.open_settings(None)));
+        action("about", Box::new(|b| b.show_about()));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
+        action("toggle-history", Box::new(|b| b.toggle_history()));
         action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
             "open-extensions",
@@ -1409,6 +1428,9 @@ impl Browser {
         } else if self.model.borrow().is_empty() {
             self.open_tab(newtab::NEWTAB_URI, None, true);
         }
+        // After an update the first thing to see is what is new; then the check for the next.
+        self.show_news_once();
+        self.startup_updates();
     }
 
     /// Loads the page of the tab in front if it was restored but never opened.
@@ -1453,7 +1475,11 @@ impl Browser {
     pub fn open_tab(self: &Rc<Self>, url: &str, after: Option<TabId>, select: bool) -> TabId {
         let url = if url.trim().is_empty() {
             "about:blank".to_owned()
-        } else if url == newtab::NEWTAB_URI || url == prefs::SETTINGS_URI || url == WELCOME_URI {
+        } else if url == newtab::NEWTAB_URI
+            || url == prefs::SETTINGS_URI
+            || url == WELCOME_URI
+            || url == NEWS_URI
+        {
             url.to_owned()
         } else {
             let template = self.settings.borrow().search_template().to_owned();
@@ -1470,8 +1496,14 @@ impl Browser {
         // The last tab of a space gives way to a blank one: the user stays in the space.
         let alone = {
             let m = self.model.borrow();
-            m.get(id)
-                .is_some_and(|t| m.in_space(t.space).count() == 1 && m.len() > 1)
+            m.get(id).is_some_and(|t| {
+                if t.essential.is_some() {
+                    // An essential's page closing with nothing else listed leaves a blank tab.
+                    m.in_space(m.current_space()).count() == 0
+                } else {
+                    m.in_space(t.space).count() == 1 && m.len() > 1
+                }
+            })
         };
         if alone {
             if self
@@ -1628,9 +1660,25 @@ impl Browser {
         });
         // window.open / target=_blank: a new tab next to this one.
         let this = Rc::downgrade(self);
-        view.connect_create(move |v, _action| {
+        view.connect_create(move |v, action| {
             let b = this.upgrade()?;
             let opener = b.id_of(v);
+            // A link of an essential that leads to another site: a card over the page, no tab.
+            if let (Some(id), Some(uri)) = (
+                opener,
+                action
+                    .clone()
+                    .request()
+                    .and_then(|r| r.uri())
+                    .map(|u| u.to_string()),
+            ) {
+                if action.clone().navigation_type() == NavigationType::LinkClicked
+                    && b.leaves_essential(id, &uri)
+                {
+                    b.peek(&uri);
+                    return None;
+                }
+            }
             let (id, changes) = b.model.borrow_mut().open("", opener, true);
             let nv = b.create_view(id, "", Some(v));
             b.apply(changes);
@@ -1655,7 +1703,13 @@ impl Browser {
             if let Some(action) = nav.navigation_action() {
                 let shift = action.modifiers() & gdk::ModifierType::SHIFT_MASK.bits() != 0;
                 let web = uri.starts_with("https://") || uri.starts_with("http://");
-                if shift && web && action.navigation_type() == NavigationType::LinkClicked {
+                // From an essential's page, a link to another site is shown the same way
+                // without Shift: the essential stays on its own site.
+                let away = this
+                    .upgrade()
+                    .is_some_and(|b| b.id_of(v).is_some_and(|id| b.leaves_essential(id, &uri)));
+                if (shift || away) && web && action.navigation_type() == NavigationType::LinkClicked
+                {
                     decision.ignore();
                     if let Some(b) = this.upgrade() {
                         b.peek(&uri);
@@ -1703,6 +1757,7 @@ impl Browser {
                 || uri == newtab::NEWTAB_URI
                 || uri == prefs::SETTINGS_URI
                 || uri == WELCOME_URI
+                || uri == NEWS_URI
             {
                 return false;
             }
@@ -1750,6 +1805,8 @@ impl Browser {
             self.render_settings(&view);
         } else if url == WELCOME_URI {
             self.render_welcome(&view);
+        } else if url == NEWS_URI {
+            self.render_news(&view);
         } else if !url.is_empty() && url != "about:blank" {
             view.load_uri(url);
         }
@@ -1806,6 +1863,10 @@ impl Browser {
                             r.row.remove_css_class("brujula-current");
                         }
                     }
+                    if !self.rows.borrow().contains_key(&id) {
+                        // An essential's page: no row of the list is the current one.
+                        self.list.unselect_all();
+                    }
                     self.syncing.set(false);
                     self.load_if_lazy();
                     self.sync_chrome();
@@ -1829,6 +1890,15 @@ impl Browser {
     }
 
     fn add_row(self: &Rc<Self>, id: TabId) {
+        // The page of an essential has no row: its icon is its tab.
+        if self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.essential.is_some())
+        {
+            return;
+        }
         let favicon_icon = gtk::Image::from_icon_name("ndl-globe-symbolic");
         favicon_icon.set_pixel_size(16);
         let favicon_pic = gtk::Picture::new();
@@ -1899,6 +1969,7 @@ impl Browser {
             }
         });
         row.add_controller(click);
+        self.wire_tab_drag(&row, id);
 
         self.list.append(&row);
         self.rows.borrow_mut().insert(
@@ -1943,7 +2014,7 @@ impl Browser {
             let members: Vec<_> = model
                 .tabs()
                 .iter()
-                .filter(|t| folder_of(t) == Some(folder.id))
+                .filter(|t| t.essential.is_none() && folder_of(t) == Some(folder.id))
                 .collect();
             if let Some(fr) = folder_rows.get(&folder.id) {
                 fr.sync(folder, members.len());
@@ -2024,6 +2095,8 @@ impl Browser {
             "Preferencias".to_owned()
         } else if tab.url == WELCOME_URI {
             "Bienvenida".to_owned()
+        } else if tab.url == NEWS_URI {
+            "Novedades".to_owned()
         } else if tab.url.is_empty() || tab.url == "about:blank" || tab.url == newtab::NEWTAB_URI {
             "Nueva pestaña".to_owned()
         } else {
@@ -2064,8 +2137,16 @@ impl Browser {
             (URL_PLACEHOLDER.to_owned(), "ndl-search-symbolic")
         } else if tab.url == prefs::SETTINGS_URI {
             ("Preferencias".to_owned(), "ndl-lock-symbolic")
-        } else if tab.url == WELCOME_URI {
-            ("Bienvenida".to_owned(), "ndl-lock-symbolic")
+        } else if tab.url == WELCOME_URI || tab.url == NEWS_URI {
+            (
+                if tab.url == NEWS_URI {
+                    "Novedades"
+                } else {
+                    "Bienvenida"
+                }
+                .to_owned(),
+                "ndl-lock-symbolic",
+            )
         } else if tab.url.starts_with("https://") {
             (host_of(&tab.url), "ndl-lock-symbolic")
         } else {
@@ -2160,6 +2241,7 @@ impl Browser {
             Some(prefs::SETTINGS_URI) => self.render_settings(view),
             Some(newtab::NEWTAB_URI) => self.render_newtab(view, false),
             Some(WELCOME_URI) => self.render_welcome(view),
+            Some(NEWS_URI) => self.render_news(view),
             _ => view.reload(),
         }
     }
@@ -2263,6 +2345,10 @@ impl Browser {
             self.change_history(what, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("update.") {
+            self.change_update(what);
+            return;
+        }
         if let Some(what) = key.strip_prefix("webapp.") {
             self.change_webapp(what, value);
             return;
@@ -2353,6 +2439,7 @@ impl Browser {
         drop(s);
         self.set_action_enabled("toggle-sidebar", !horizontal);
         self.dl.place(horizontal);
+        self.place_history(horizontal);
         let has_essentials = !self.essentials.borrow().is_empty();
         self.ess.grid.set_visible(has_essentials && !horizontal);
         self.ess.rail.set_visible(has_essentials && horizontal);
@@ -2417,6 +2504,7 @@ impl Browser {
                 || url == newtab::NEWTAB_URI
                 || url == prefs::SETTINGS_URI
                 || url == WELCOME_URI
+                || url == NEWS_URI
         };
         // Tabs open in this space (newest first), then the ones closed lately.
         let mut recent: Vec<newtab::Link> = model
@@ -2503,7 +2591,10 @@ impl Browser {
             .tabs()
             .iter()
             .filter(|t| {
-                t.url != newtab::NEWTAB_URI && t.url != prefs::SETTINGS_URI && t.url != WELCOME_URI
+                t.url != newtab::NEWTAB_URI
+                    && t.url != prefs::SETTINGS_URI
+                    && t.url != WELCOME_URI
+                    && t.url != NEWS_URI
             })
             .cloned()
             .collect();
@@ -2840,6 +2931,9 @@ fn main_menu() -> gio::Menu {
     );
     opts.append(Some("Preferencias"), Some("win.open-settings"));
     m.append_section(None, &opts);
+    let about = gio::Menu::new();
+    about.append(Some("Acerca de Brújula"), Some("win.about"));
+    m.append_section(None, &about);
     m
 }
 

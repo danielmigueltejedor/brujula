@@ -25,6 +25,9 @@
 }
 .brujula-tab-close:hover { background: rgba(127, 127, 127, 0.25); }
 .brujula-row:hover .brujula-tab-close, .brujula-current .brujula-tab-close { opacity: 1; }
+.brujula-row.brujula-dragging { opacity: .5; }
+.brujula-row.brujula-drop-before { box-shadow: inset 0 2px 0 var(--ndl-color-accent-default); }
+.brujula-row.brujula-drop-after { box-shadow: inset 0 -2px 0 var(--ndl-color-accent-default); }
 .brujula-row.brujula-split { box-shadow: inset 3px 0 0 var(--ndl-color-accent-default); }
 .brujula-splitview > separator { min-width: 2px; background: rgba(127, 127, 127, 0.3); }
 .brujula-peek { background: rgba(0, 0, 0, 0.4); }

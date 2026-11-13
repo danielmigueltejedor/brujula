@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use webkit6::Download;
 
 use super::*;
+use crate::save_download::Decision;
 
 /// How many downloads the list keeps.
 const KEEP: usize = 30;
@@ -14,10 +15,14 @@ const KEEP: usize = 30;
 #[derive(Clone, PartialEq)]
 enum State {
     Running,
+    /// It has arrived and is being looked at.
+    Scanning,
     Done,
     Failed(String),
     Cancelled,
     Blocked,
+    /// Deleted after the check: why.
+    Removed(String),
 }
 
 struct Item {
@@ -107,7 +112,7 @@ impl DownloadsUi {
     fn forget_finished(&self) {
         let mut items = self.items.borrow_mut();
         items.retain(|i| {
-            let running = *i.state.borrow() == State::Running;
+            let running = matches!(*i.state.borrow(), State::Running | State::Scanning);
             if !running {
                 self.list.remove(&i.row);
             }
@@ -244,10 +249,12 @@ fn row_for(
                 format!("{} de {}", glib::format_size(got), glib::format_size(total))
             }
             State::Running => glib::format_size(got).to_string(),
+            State::Scanning => "Analizando…".to_owned(),
             State::Done => format!("Completada · {}", glib::format_size(got)),
+            State::Removed(why) => format!("Borrada: {why}"),
             State::Failed(why) => format!("No se pudo descargar: {why}"),
             State::Cancelled => "Cancelada".to_owned(),
-            State::Blocked => "Bloqueada: es un archivo que se puede ejecutar".to_owned(),
+            State::Blocked => "No descargada: es un programa o un script".to_owned(),
         });
         if running {
             row2.remove_css_class("brujula-download-done");
@@ -310,36 +317,36 @@ impl Browser {
             }
         }
         self.dl.sync_empty();
-        self.dl.button.popup();
 
         let this = Rc::downgrade(self);
         let (st, dest, rf) = (state.clone(), destination.clone(), refresh.clone());
         download.connect_decide_destination(move |d, suggested| {
-            let dir = glib::user_special_dir(glib::UserDirectory::Downloads)
-                .unwrap_or_else(glib::home_dir);
-            let name = brujula_core::downloads::safe_file_name(suggested);
-            if brujula_core::downloads::is_dangerous(&name) {
-                *st.borrow_mut() = State::Blocked;
-                *dest.borrow_mut() = Some(PathBuf::from(&name));
+            let Some(b) = this.upgrade() else {
                 d.cancel();
-                rf();
-                if let Some(b) = this.upgrade() {
-                    dialogs::notice(
-                        &b.window,
-                        "Descarga bloqueada",
-                        &format!(
-                            "«{name}» es un archivo que se puede ejecutar. Brújula no lo guarda \
-                             para que ningún sitio web pueda dejar un programa o script en tu \
-                             equipo."
-                        ),
-                    );
-                }
                 return true;
-            }
-            let path = brujula_core::downloads::available_path(&dir, &name);
-            d.set_destination(&path.to_string_lossy());
-            *dest.borrow_mut() = Some(path);
-            rf();
+            };
+            let (st, dest, rf) = (st.clone(), dest.clone(), rf.clone());
+            let shown = this.clone();
+            crate::save_download::decide(&b.window, d, suggested, move |decision| {
+                match decision {
+                    Decision::Saving(path) => {
+                        *dest.borrow_mut() = Some(path);
+                        // The list opens when the download starts, not while a question about it
+                        // is still open (its first click would only close the list).
+                        if let Some(b) = shown.upgrade() {
+                            b.dl.button.popup();
+                        }
+                    }
+                    Decision::Refused(name) => {
+                        *st.borrow_mut() = State::Blocked;
+                        *dest.borrow_mut() = Some(PathBuf::from(name));
+                    }
+                    Decision::Scanning => *st.borrow_mut() = State::Scanning,
+                    Decision::Finished => *st.borrow_mut() = State::Done,
+                    Decision::Removed(why) => *st.borrow_mut() = State::Removed(why),
+                }
+                rf();
+            });
             true
         });
         let rf = refresh.clone();
@@ -353,15 +360,6 @@ impl Browser {
                 } else {
                     State::Failed(error.message().to_string())
                 };
-            }
-            drop(s);
-            rf();
-        });
-        let (st, rf) = (state, refresh);
-        download.connect_finished(move |_| {
-            let mut s = st.borrow_mut();
-            if *s == State::Running {
-                *s = State::Done;
             }
             drop(s);
             rf();

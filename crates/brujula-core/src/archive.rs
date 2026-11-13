@@ -86,6 +86,7 @@ pub fn stale(model: &TabModel, folders: &Folders, now: u64, after_hours: u32) ->
         .iter()
         .filter(|t| {
             !t.pinned
+                && t.essential.is_none()
                 && Some(t.id) != model.selected()
                 && !t.audible
                 && !t.loading

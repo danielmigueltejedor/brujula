@@ -41,6 +41,7 @@ impl Browser {
         let Some(uri) = view.uri() else { return };
         let title = view.title().map(|t| t.to_string()).unwrap_or_default();
         if self.history.borrow_mut().record(&uri, &title, now_ms()) {
+            self.history_changed();
             self.schedule_history_save();
         }
     }
@@ -71,6 +72,7 @@ impl Browser {
             "remove" => self.history.borrow_mut().remove(value),
             _ => return,
         }
+        self.history_changed();
         self.save_history();
     }
 

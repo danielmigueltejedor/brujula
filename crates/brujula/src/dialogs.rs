@@ -15,6 +15,30 @@ pub fn notice(parent: &impl IsA<gtk::Widget>, heading: &str, body: &str) {
     dialog.present(Some(parent));
 }
 
+/// A page asked to save a program or a script. Nothing is saved until the person says so;
+/// `done` gets whether they did.
+pub fn ask_program_download(
+    parent: &impl IsA<gtk::Widget>,
+    name: &str,
+    done: impl Fn(bool) + 'static,
+) {
+    ask(
+        parent,
+        "¿Descargar este archivo?",
+        &format!(
+            "«{name}» es un programa o un script. Se guarda en Descargas sin permiso de \
+             ejecución y no se abre solo: dáselo tú solo si te fías de quien lo ofrece."
+        ),
+        &[
+            Choice::plain("no", "Cancelar"),
+            Choice::suggested("yes", "Descargar"),
+        ],
+        "no",
+        "no",
+        move |id| done(id == "yes"),
+    );
+}
+
 /// One answer of a question: its id, its label and how it looks.
 pub struct Choice {
     pub id: &'static str,
