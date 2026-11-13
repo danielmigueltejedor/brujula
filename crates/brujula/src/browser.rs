@@ -1010,7 +1010,7 @@ impl Browser {
                     b.filters.disable();
                 }
                 b.refresh_site_action();
-                if let Some(v) = b.current_view() {
+                if let Some(v) = b.current_view().filter(|v| !shows_own_page(v)) {
                     b.reload_view(&v);
                 }
             }
@@ -1104,10 +1104,12 @@ impl Browser {
                 hide_elements(&b.filters, v);
             }
             // Either a site switch is waiting for the new rules, or nothing was applied before
-            // and the page in front loaded unfiltered.
+            // and the page in front loaded unfiltered. The browser's own pages have no ads, and
+            // reloading one starts it over: on the first run that was the welcome, typing its
+            // greeting again a few seconds in, once the lists had been downloaded.
             let site_switch = b.pending_reload.take();
             if site_switch || first {
-                if let Some(v) = b.current_view() {
+                if let Some(v) = b.current_view().filter(|v| !shows_own_page(v)) {
                     b.reload_view(&v);
                 }
             }
@@ -3010,4 +3012,9 @@ fn has_open_popover(widget: &gtk::Widget) -> bool {
         child = c.next_sibling();
     }
     false
+}
+
+/// Whether a view shows one of the browser's own pages rather than a web page.
+fn shows_own_page(view: &WebView) -> bool {
+    view.uri().is_some_and(|u| brujula_core::is_own_page(&u))
 }

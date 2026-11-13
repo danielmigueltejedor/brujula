@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "brujula"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "brujula-core",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "brujula-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "adblock",
  "aes",
