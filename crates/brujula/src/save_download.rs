@@ -82,7 +82,7 @@ fn clam_scan(path: &Path) -> Option<Finding> {
                 }
             }
         };
-        let Some(status) = status else { return None };
+        let status = status?;
         let mut out = String::new();
         if let Some(mut stdout) = child.stdout.take() {
             use std::io::Read;
