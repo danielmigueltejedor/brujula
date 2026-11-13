@@ -52,8 +52,9 @@ impl Browser {
             return;
         }
         let Some(uri) = view.uri() else { return };
-        self.history.borrow_mut().set_title(&uri, title);
-        self.schedule_history_save();
+        if self.history.borrow_mut().set_title(&uri, title) {
+            self.schedule_history_save();
+        }
     }
 
     /// One of the `history.*` changes of the preferences page.

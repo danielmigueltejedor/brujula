@@ -133,13 +133,19 @@ impl History {
 
     /// Gives a title to a page that already has an entry (the title often arrives after the
     /// page does).
-    pub fn set_title(&mut self, url: &str, title: &str) {
+    /// Returns whether anything changed: pages that keep setting the same title (a video in a
+    /// tab at the back, a chat) do not ask for the history to be written again.
+    pub fn set_title(&mut self, url: &str, title: &str) -> bool {
         let title = clean_title(title);
         if title.is_empty() {
-            return;
+            return false;
         }
-        if let Some(i) = self.items.iter_mut().find(|i| key(&i.url) == key(url)) {
-            i.title = title;
+        match self.items.iter_mut().find(|i| key(&i.url) == key(url)) {
+            Some(i) if i.title != title => {
+                i.title = title;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -239,8 +245,20 @@ mod tests {
     fn titles_arrive_late_and_are_cleaned() {
         let mut h = History::default();
         h.record("https://a.example/", "", 1);
-        h.set_title("https://a.example", "Nuevo\ntítulo");
+        assert!(h.set_title("https://a.example", "Nuevo\ntítulo"));
         assert_eq!(h.items()[0].title, "Nuevotítulo");
+    }
+
+    #[test]
+    fn a_title_that_is_already_there_changes_nothing() {
+        let mut h = History::default();
+        h.record("https://a.example/", "A", 1);
+        // The same title again, an empty one and a page that was never visited.
+        assert!(!h.set_title("https://a.example/", "A"));
+        assert!(!h.set_title("https://a.example/", ""));
+        assert!(!h.set_title("https://nowhere.example/", "A"));
+        assert!(h.set_title("https://a.example/", "B"));
+        assert_eq!(h.items()[0].title, "B");
     }
 
     #[test]

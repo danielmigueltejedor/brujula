@@ -125,7 +125,7 @@ pub fn render(theme: &str, accent: &str) -> String {
         .unwrap_or_else(|| crate::settings::ACCENT_DEFAULT.to_owned());
     format!(
         r#"<!doctype html>
-<html lang="es" data-theme="{theme}"><head><meta charset="utf-8">
+<html lang="es" data-theme="{theme}"><head><meta charset="utf-8">{csp}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Novedades</title>
 <style>{faces}{css}</style></head>
@@ -135,6 +135,7 @@ pub fn render(theme: &str, accent: &str) -> String {
 {notes}
 </main></body></html>
 "#,
+        csp = crate::csp::meta(None),
         faces = crate::fonts::FACES,
         css = CSS,
         version = env!("CARGO_PKG_VERSION"),

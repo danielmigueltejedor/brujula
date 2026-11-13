@@ -395,9 +395,63 @@ impl Folders {
     }
 }
 
+/// What decides where each tab sits in the sidebar list: whether it is pinned, its space, its
+/// folder (which a smart folder may pick from its address or its title) and whether it is an
+/// essential's page. While this is the same, a title or a loading state that changes moves
+/// nothing, and the list need not be put in order again.
+pub fn layout_key(model: &crate::tabs::TabModel, folders: &Folders) -> String {
+    use std::fmt::Write;
+    let mut key = String::new();
+    for t in model.tabs() {
+        let _ = write!(
+            key,
+            "{}:{}:{}:{:?}:{};",
+            t.id.0,
+            t.pinned,
+            t.space,
+            folders.folder_of(t.folder, t.space, &t.url, &t.title),
+            t.essential.is_some()
+        );
+    }
+    key
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_layout_moves_with_pins_and_smart_folders_not_with_titles() {
+        use crate::tabs::TabModel;
+        let mut folders = Folders::default();
+        let mut model = TabModel::new();
+        let smart = folders
+            .add(model.current_space(), "Rust", Rule::Text("rust".into()))
+            .expect("folder");
+        let (a, _) = model.open("https://example.com/", None, true);
+        let before = layout_key(&model, &folders);
+
+        // Loading, sound and an ordinary title are no reason to move anything.
+        model.update(a, |t| t.loading = true);
+        model.update(a, |t| t.audible = true);
+        model.update(a, |t| t.title = "Un título cualquiera".into());
+        assert_eq!(layout_key(&model, &folders), before);
+
+        // A title the smart folder picks up sends the tab there, and back again.
+        model.update(a, |t| t.title = "Learning Rust".into());
+        let inside = layout_key(&model, &folders);
+        assert_ne!(inside, before);
+        assert!(inside.contains(&format!("Some({smart})")));
+        model.update(a, |t| t.title = "Otra cosa".into());
+        assert_eq!(layout_key(&model, &folders), before);
+
+        // Pinning moves it, and so does a tab arriving.
+        model.set_pinned(a, true);
+        assert_ne!(layout_key(&model, &folders), before);
+        model.set_pinned(a, false);
+        model.open("https://other.example/", None, false);
+        assert_ne!(layout_key(&model, &folders), before);
+    }
 
     #[test]
     fn site_rules_match_hosts_not_paths() {

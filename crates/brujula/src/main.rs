@@ -22,6 +22,7 @@ thread_local! {
 }
 
 fn main() -> gtk::glib::ExitCode {
+    paths::secure_dirs();
     // `brujula --webapp <id>` is a web app: a site in a window of its own, in its own process.
     let args: Vec<String> = std::env::args().collect();
     if let Some(at) = args.iter().position(|a| a == "--webapp") {

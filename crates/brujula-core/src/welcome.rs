@@ -526,9 +526,17 @@ pub fn render(page: &Page) -> String {
             // Nothing in a string may close the script it sits in.
             .replace('<', "\\u003c")
     };
+    // The only script of the page: its hash is what the policy lets run.
+    let script = format!(
+        "\nconst T={{welcome:{},next:{},skip:{},done:{}}};\n{JS}\n",
+        text(w.t(Text::Welcome)),
+        text(w.t(Text::Next)),
+        text(w.t(Text::Skip)),
+        text(w.t(Text::DoneButton)),
+    );
     format!(
         r##"<!doctype html>
-<html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">
+<html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">{csp}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>{faces}{css}</style></head>
@@ -545,10 +553,7 @@ pub fn render(page: &Page) -> String {
 </div>
 <footer><button type="button" class="ghost" id="back">{back}</button><span class="dots" id="dots"></span><button type="button" class="primary" id="next">{next}</button></footer>
 </main>
-<script>
-const T={{welcome:{welcome_js},next:{next_js},skip:{skip_js},done:{done_js}}};
-{js}
-</script></body></html>
+<script>{script}</script></body></html>
 "##,
         lang = escape(w.code),
         title = escape(w.t(Text::Welcome)),
@@ -570,11 +575,7 @@ const T={{welcome:{welcome_js},next:{next_js},skip:{skip_js},done:{done_js}}};
         done_hint = escape(w.t(Text::DoneHint)),
         back = escape(w.t(Text::Back)),
         next = escape(w.t(Text::Next)),
-        welcome_js = text(w.t(Text::Welcome)),
-        next_js = text(w.t(Text::Next)),
-        skip_js = text(w.t(Text::Skip)),
-        done_js = text(w.t(Text::DoneButton)),
-        js = JS,
+        csp = crate::csp::meta(Some(&script)),
     )
 }
 
