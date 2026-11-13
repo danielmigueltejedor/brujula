@@ -162,12 +162,22 @@ WebKitGTK no trae WebAuthn: `navigator.credentials` y `PublicKeyCredential` no e
 - **Requisitos**: un adaptador Bluetooth con BlueZ (`bluetoothd`) y acceso a internet para el servidor túnel; el teléfono, cerca. Cambiar el interruptor de Preferencias → Contraseñas → «Llaves de acceso con el teléfono» vale desde la próxima vez que se abra Brújula.
 - **Qué falta**: guardar llaves de acceso en la bóveda de Brújula (llaves propias, sin teléfono), llaves de seguridad USB (CTAP-HID, `libwebauthn` ya las trae) y las llaves en el desplegable de usuarios. **Sin verificar con un teléfono de verdad**: los tests automáticos cubren la validación del origen y de `rpId`, el QR, el tiempo de espera y la traducción de errores; la tubería página → navegador → página se probó a mano en una sesión X virtual (diálogo con QR, cancelar y volver a pedir, `rpId` ajeno rechazado con `SecurityError`, y el aviso de que no hay Bluetooth). El Bluetooth y el túnel hay que probarlos con un teléfono y un adaptador.
 
+## Notificaciones web
+
+- **Qué pasaba**: todas las pestañas rechazaban cualquier permiso, así que una web que pedía mostrar notificaciones (WhatsApp Web, un correo) recibía «bloqueado» sin que nadie viera una pregunta, y los avisos que WebKit entrega (`show-notification`) no se mostraban nunca.
+- **Cómo funciona ahora** (`crates/brujula/src/notify.rs`, `brujula-core/src/sitepermissions.rs`): cuando una página pide notificaciones, Brújula pregunta («Ahora no» / «Bloquear» / «Permitir»). «Permitir» y «Bloquear» se guardan por origen (`https://sitio.com`, sin ruta) en `site-permissions.json` del perfil; «Ahora no» no guarda nada. Al arrancar WebKit se le dice qué sitios estaban permitidos (`initialize-notification-permissions`) para que `Notification.permission` sea `granted` desde la primera página y nadie tenga que volver a aceptar. Los avisos de los sitios permitidos salen como notificaciones del escritorio (`GNotification`); al hacer clic, la pestaña pasa al frente y se avisa a la página (`notification.clicked()`, así WhatsApp abre el chat).
+- **Dónde se cambia**: Preferencias → Seguridad → «Notificaciones de sitios» lista lo respondido, con «Olvidar» para que el sitio vuelva a preguntar. Una respuesta olvidada deja de mostrar avisos al instante, aunque WebKit conserve el permiso hasta reiniciar.
+- **Ventanas privadas**: sin notificaciones. WebKit las rechaza solo en las sesiones efímeras y Brújula tampoco guarda nada ahí.
+- **Aplicaciones web**: igual, con las respuestas guardadas en el perfil de cada aplicación (`webapps/<id>/…/site-permissions.json`).
+- **Solo `https://`** (y `http://localhost`): una página sin conexión segura no puede notificar.
+- **Sin verificar**: el aviso en un GNOME real (aquí no hay servidor de notificaciones: se comprobó que se envía, no que se ve) ni WhatsApp Web con una cuenta; sí se probó contra WebKitGTK 2.52 real el ciclo completo (pregunta, permiso guardado y vuelto a leer tras reiniciar, bloqueo, «Ahora no», aviso, clic).
+
 ## Aplicaciones web
 
 - **Crear una** (`brujula-core/src/webapps.rs`, `browser/webapps.rs`, `webapp.rs`): menú ⋮ → «Instalar como aplicación web…» en la página abierta (pide el nombre y usa el favicon como icono), o Preferencias → Aplicaciones web (dirección y nombre opcional). Se apunta en `<datos>/webapps.json` y se escribe un lanzador `~/.local/share/applications/brujula-webapp-<id>.desktop`. El lanzador lleva solo el **id** (letras, minúsculas, cifras y guiones, validado también al leer el archivo): `Exec="brujula" --webapp <id>`; la dirección sale del registro, nunca de la línea de órdenes. Con el AppImage, `Exec` apunta al propio AppImage.
 - **La aplicación** (`brujula --webapp <id>`): un proceso aparte, con su identificador de aplicación (`dev.danielmiguelt.Brujula.WebApp.w<id>`, así el lanzador y el dock la distinguen del navegador) y **su propio perfil** (cookies, almacenamiento y caché en `<datos>/webapps/<id>`, aparte del navegador y de las demás). Ventana con atrás, adelante y recargar, sin pestañas ni barra de direcciones, y con el bloqueador (las reglas ya compiladas y las excepciones del navegador). Los enlaces del mismo sitio (mismo dominio base) se quedan en la ventana; los de otros sitios y los `mailto:`/`tel:` se abren fuera (navegador predeterminado). Las descargas siguen las mismas reglas que el navegador. Cámara y micrófono se piden con un diálogo; el resto de permisos se deniegan.
 - Quitar una aplicación (Preferencias) borra su lanzador, su perfil y su entrada. El primer favicon que carga la aplicación pasa a ser el icono del lanzador si no había uno.
-- **Sin verificar**: cámara y micrófono en una videollamada real, que cada lanzador agrupe bien en un escritorio real (solo se probó la ventana y la creación en un X virtual), y el inicio de sesión con ventanas emergentes (las aplicaciones no abren ventanas emergentes de la web: un «Iniciar sesión con…» que las use no funcionará). No hay contraseñas guardadas, extensiones ni notificaciones dentro de las aplicaciones.
+- **Sin verificar**: cámara y micrófono en una videollamada real, que cada lanzador agrupe bien en un escritorio real (solo se probó la ventana y la creación en un X virtual), y el inicio de sesión con ventanas emergentes (las aplicaciones no abren ventanas emergentes de la web: un «Iniciar sesión con…» que las use no funcionará). No hay contraseñas guardadas ni extensiones dentro de las aplicaciones. Las notificaciones sí (ver «Notificaciones web»).
 
 ## Esenciales, descargas y carpetas anidadas
 
@@ -201,7 +211,7 @@ WebKitGTK no trae WebAuthn: `navigator.credentials` y `PublicKeyCredential` no e
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
 - Importar contraseñas e historial de otros navegadores (los marcadores ya se importan; la sincronización cubre marcadores, espacios, carpetas y pestañas, no historial ni contraseñas).
-- Permisos (cámara, ubicación, notificaciones), pantalla completa, impresión, descargas con
+- Permisos de cámara y ubicación en las pestañas (las notificaciones ya se preguntan, ver abajo), pantalla completa, impresión, descargas con
   interfaz, buscador configurable.
 - Página de nueva pestaña, página de error, traducciones (hoy, textos en español).
 - Excepciones del bloqueador por sitio y contador de bloqueados.

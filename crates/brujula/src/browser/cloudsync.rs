@@ -122,6 +122,7 @@ impl Browser {
             import: self.import_view(),
             profiles: self.profile_rows(),
             profile: paths::profile().to_owned(),
+            notifications: self.notifier.rows(),
             essentials: self
                 .essentials
                 .borrow()
