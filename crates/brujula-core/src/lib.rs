@@ -12,6 +12,7 @@ pub mod downloads;
 pub mod edge;
 pub mod ext;
 pub mod folders;
+pub mod history;
 pub mod https;
 pub mod icons;
 pub mod newtab;

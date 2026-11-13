@@ -12,6 +12,7 @@ use brujula_core::bookmarks::Bookmarks;
 use brujula_core::downloads;
 use brujula_core::edge::EdgeDetector;
 use brujula_core::folders::{Folders, NO_FOLDER};
+use brujula_core::history::History;
 use brujula_core::https;
 use brujula_core::newtab;
 use brujula_core::omnibox;
@@ -50,6 +51,7 @@ mod ext_install;
 mod extras;
 mod float;
 mod folders;
+mod history;
 mod notes;
 mod peek;
 mod sleep;
@@ -88,6 +90,24 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
     app.set_accels_for_action("win.prev-space", &["<Alt>Up"]);
     app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
+    // A window that keeps nothing: no history, no cookies, no saved tabs.
+    let private = gio::SimpleAction::new("new-private-window", None);
+    let weak = app.downgrade();
+    private.connect_activate(move |_, _| {
+        if let Some(app) = weak.upgrade() {
+            present_private(&app, &[]);
+        }
+    });
+    app.add_action(&private);
+    app.set_accels_for_action("app.new-private-window", &["<Ctrl><Shift>n"]);
+}
+
+/// Opens a private window: its own session in memory, nothing of it written to disk.
+pub fn present_private(app: &gtk::Application, urls: &[String]) {
+    let browser = Browser::new(app, true);
+    PRIVATE.with(|p| p.borrow_mut().push(browser.clone()));
+    browser.start(urls);
+    browser.window.present();
 }
 
 pub fn present(app: &gtk::Application, urls: &[String]) {
@@ -99,13 +119,15 @@ pub fn present(app: &gtk::Application, urls: &[String]) {
         }
         return;
     }
-    let browser = Browser::new(app);
+    let browser = Browser::new(app, false);
     BROWSER.with(|b| *b.borrow_mut() = Some(browser.clone()));
     browser.start(urls);
     browser.window.present();
 }
 
 thread_local! {
+    /// The private windows that are open; each is forgotten when it closes.
+    static PRIVATE: RefCell<Vec<Rc<Browser>>> = const { RefCell::new(Vec::new()) };
     /// The one browser window. A second launch hands its URLs to it.
     static BROWSER: RefCell<Option<Rc<Browser>>> = const { RefCell::new(None) };
 }
@@ -296,6 +318,11 @@ pub struct Browser {
     /// Where the Spotlight sends its result: the current tab, or a new one.
     session: NetworkSession,
     ucm: UserContentManager,
+    /// A private window: nothing it does is written to disk, and it has its own session.
+    private: bool,
+    /// The pages visited.
+    history: RefCell<History>,
+    history_save_queued: Cell<bool>,
     /// The Chromium extensions installed and running.
     ext: RefCell<ext::ExtState>,
     filters: Rc<Filters>,
@@ -311,17 +338,24 @@ pub struct Browser {
 }
 
 impl Browser {
-    fn new(app: &gtk::Application) -> Rc<Self> {
+    fn new(app: &gtk::Application, private: bool) -> Rc<Self> {
         let settings = std::fs::read_to_string(paths::settings_file())
             .map(|t| Settings::from_json(&t))
             .unwrap_or_default();
 
-        let session = NetworkSession::new(
-            Some(&paths::data_dir().to_string_lossy()),
-            Some(&paths::cache_dir().to_string_lossy()),
-        );
-        if let Some(dm) = session.website_data_manager() {
-            dm.set_favicons_enabled(true);
+        let session = if private {
+            // Cookies, cache and storage live in memory and go with the window.
+            NetworkSession::new_ephemeral()
+        } else {
+            NetworkSession::new(
+                Some(&paths::data_dir().to_string_lossy()),
+                Some(&paths::cache_dir().to_string_lossy()),
+            )
+        };
+        if !private {
+            if let Some(dm) = session.website_data_manager() {
+                dm.set_favicons_enabled(true);
+            }
         }
         // A bad certificate is a failure, never a click-through; trackers get no free ride.
         session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
@@ -330,7 +364,14 @@ impl Browser {
         let filters = Filters::new(ucm.clone());
 
         let window = ndl::ApplicationWindow::new(app);
-        window.set_title(Some("Brújula"));
+        window.set_title(Some(if private {
+            "Brújula · Privado"
+        } else {
+            "Brújula"
+        }));
+        if private {
+            window.add_css_class("brujula-private");
+        }
         window.set_default_size(1280, 800);
         window.set_icon_name(Some(paths::APP_ID));
 
@@ -349,6 +390,14 @@ impl Browser {
             .tooltip_text("Notas de este espacio")
             .build();
         side_header.pack_start(&notes_button);
+        if private {
+            let badge = gtk::Label::new(Some("Privado"));
+            badge.add_css_class("brujula-privatebadge");
+            badge.set_tooltip_text(Some(
+                "Ventana privada: no guarda historial, cookies ni pestañas",
+            ));
+            side_header.pack_start(&badge);
+        }
         // The window's title says nothing the tab does not, and takes room the sidebar needs.
         side_header.set_title_widget(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
 
@@ -628,6 +677,15 @@ impl Browser {
             spotlight,
             session,
             ucm,
+            private,
+            history: RefCell::new(if private {
+                History::default()
+            } else {
+                std::fs::read_to_string(paths::history_file())
+                    .map(|t| History::from_json(&t))
+                    .unwrap_or_default()
+            }),
+            history_save_queued: Cell::new(false),
             ext: RefCell::new(ext::ExtState::default()),
             filters,
             settings: RefCell::new(settings),
@@ -990,7 +1048,12 @@ impl Browser {
             if let Some(b) = this.upgrade() {
                 b.save_session();
                 b.save_notes();
+                b.flush_history();
                 b.unfloat_all();
+                if b.private {
+                    // The window goes, and with it the session and everything it held.
+                    PRIVATE.with(|p| p.borrow_mut().retain(|x| !Rc::ptr_eq(x, &b)));
+                }
             }
             glib::Propagation::Proceed
         });
@@ -1171,12 +1234,18 @@ impl Browser {
             if this.settings.borrow().adblock_enabled && this.filters.load_compiled().await {
                 this.set_shield_tooltip();
             }
-            this.start_extensions();
+            if !this.private {
+                this.start_extensions();
+            }
             this.restore(&urls);
-            this.start_sync();
-            this.start_archiving();
+            if !this.private {
+                this.start_sync();
+                this.start_archiving();
+            }
             this.start_sleeping();
-            if this.settings.borrow().adblock_enabled {
+            // A private window reads the rules compiled before; the downloads and the cache are
+            // the normal window's.
+            if !this.private && this.settings.borrow().adblock_enabled {
                 let s = this.settings.borrow().clone();
                 this.filters.start(&s);
             }
@@ -1184,9 +1253,13 @@ impl Browser {
     }
 
     fn restore(self: &Rc<Self>, urls: &[String]) {
-        let session = std::fs::read_to_string(paths::session_file())
-            .map(|t| Session::from_json(&t))
-            .unwrap_or_default();
+        let session = if self.private {
+            Session::default()
+        } else {
+            std::fs::read_to_string(paths::session_file())
+                .map(|t| Session::from_json(&t))
+                .unwrap_or_default()
+        };
 
         *self.spaces.borrow_mut() = session.spaces.clone();
         *self.folders.borrow_mut() = session.folders.clone();
@@ -1254,10 +1327,16 @@ impl Browser {
     }
 
     fn save_settings(&self) {
+        if self.private {
+            return;
+        }
         let _ = paths::write_atomic(&paths::settings_file(), &self.settings.borrow().to_json());
     }
 
     fn save_session(&self) {
+        if self.private {
+            return;
+        }
         let s = Session::capture(
             &self.model.borrow(),
             &self.spaces.borrow(),
@@ -1331,6 +1410,7 @@ impl Browser {
             if let Some(b) = this.upgrade() {
                 if let Some(id) = b.id_of(v) {
                     let title = v.title().map(|t| t.to_string()).unwrap_or_default();
+                    b.note_title(v, &title);
                     let c = b.model.borrow_mut().update(id, |t| t.title = title);
                     b.apply(c);
                 }
@@ -1372,10 +1452,11 @@ impl Browser {
         });
         let this = Rc::downgrade(self);
         view.connect_favicon_notify(move |v| {
-            if let (Some(tex), Some(uri)) = (v.favicon(), v.uri()) {
-                favicons::remember(&uri, &tex);
-            }
             if let Some(b) = this.upgrade() {
+                // The icons are kept on disk by host: a private window leaves none.
+                if let (Some(tex), Some(uri), false) = (v.favicon(), v.uri(), b.private) {
+                    favicons::remember(&uri, &tex);
+                }
                 if let Some(id) = b.id_of(v) {
                     b.sync_row(id);
                 }
@@ -1409,6 +1490,7 @@ impl Browser {
                     }
                 }
                 if ev == LoadEvent::Finished {
+                    b.record_visit(v);
                     hide_elements(&b.filters, v);
                     b.scroll_settings(v);
                     b.push_sync_status(v);
@@ -1988,6 +2070,10 @@ impl Browser {
 
     /// The preferences page, in its own tab (one is enough: it is reused).
     fn open_settings(self: &Rc<Self>, section: Option<&str>) {
+        // The preferences belong to the normal window: a private one writes nothing.
+        if self.private {
+            return;
+        }
         let existing = self
             .model
             .borrow()
@@ -2067,6 +2153,10 @@ impl Browser {
         }
         if let Some(what) = key.strip_prefix("ext.") {
             self.change_extension(what, value);
+            return;
+        }
+        if let Some(what) = key.strip_prefix("history.") {
+            self.change_history(what, value);
             return;
         }
         let result = self.settings.borrow_mut().apply(key, value);
@@ -2300,47 +2390,58 @@ impl Browser {
             .collect();
         let marks = self.bookmarks.borrow();
         let views = self.views.borrow();
-        suggest::suggestions(text, &tabs, marks.items(), settings.search_template())
-            .into_iter()
-            .map(|s| {
-                let texture = match &s.action {
-                    Action::Go(url) => favicons::lookup(url),
-                    Action::SwitchTab(id) => views
-                        .get(id)
-                        .and_then(|v| v.favicon())
-                        .or_else(|| model.get(*id).and_then(|t| favicons::lookup(&t.url))),
-                    _ => None,
-                };
-                let icon = match (&s.kind, &s.action) {
-                    (Kind::Typed, Action::Search(_)) => "ndl-search-symbolic",
-                    (Kind::Bookmark, _) => "ndl-bookmark-symbolic",
-                    (Kind::Setting, _) => "ndl-settings-symbolic",
-                    _ => "ndl-globe-symbolic",
-                };
-                let title = match (&s.kind, &s.action) {
-                    (Kind::Typed, Action::Search(q)) => {
-                        format!("Buscar con {}: {q}", engine.name)
-                    }
-                    (Kind::Typed, _) => format!("Ir a {}", s.title),
-                    _ => s.title.clone(),
-                };
-                let detail = if s.kind == Kind::Typed {
-                    match &s.action {
-                        Action::Go(url) => url.clone(),
-                        _ => String::new(),
-                    }
-                } else {
-                    s.detail.clone()
-                };
-                Item {
-                    title,
-                    detail,
-                    icon,
-                    texture,
-                    action: s.action,
+        let history = self.history.borrow();
+        let visited = history.search(text, 8);
+        suggest::suggestions_with_history(
+            text,
+            &tabs,
+            marks.items(),
+            &visited,
+            settings.search_template(),
+        )
+        .into_iter()
+        .map(|s| {
+            let texture = match &s.action {
+                Action::Go(url) => favicons::lookup(url),
+                Action::SwitchTab(id) => views
+                    .get(id)
+                    .and_then(|v| v.favicon())
+                    .or_else(|| model.get(*id).and_then(|t| favicons::lookup(&t.url))),
+                _ => None,
+            };
+            let icon = match (&s.kind, &s.action) {
+                (Kind::Typed, Action::Search(_)) => "ndl-search-symbolic",
+                (Kind::Bookmark, _) => "ndl-bookmark-symbolic",
+                (Kind::History, _) if nodalia_gtk::has_icon("ndl-history-symbolic") => {
+                    "ndl-history-symbolic"
                 }
-            })
-            .collect()
+                (Kind::Setting, _) => "ndl-settings-symbolic",
+                _ => "ndl-globe-symbolic",
+            };
+            let title = match (&s.kind, &s.action) {
+                (Kind::Typed, Action::Search(q)) => {
+                    format!("Buscar con {}: {q}", engine.name)
+                }
+                (Kind::Typed, _) => format!("Ir a {}", s.title),
+                _ => s.title.clone(),
+            };
+            let detail = if s.kind == Kind::Typed {
+                match &s.action {
+                    Action::Go(url) => url.clone(),
+                    _ => String::new(),
+                }
+            } else {
+                s.detail.clone()
+            };
+            Item {
+                title,
+                detail,
+                icon,
+                texture,
+                action: s.action,
+            }
+        })
+        .collect()
     }
 
     /// Carries out what the user chose in the Spotlight, in the tab in front.
@@ -2591,6 +2692,10 @@ fn main_menu() -> gio::Menu {
     let tabs = gio::Menu::new();
     tabs.append(Some("Nueva pestaña"), Some("win.new-tab"));
     tabs.append(Some("Reabrir pestaña cerrada"), Some("win.reopen-tab"));
+    tabs.append(
+        Some("Nueva ventana privada"),
+        Some("app.new-private-window"),
+    );
     m.append_section(None, &tabs);
     let opts = gio::Menu::new();
     opts.append(Some("Barra lateral"), Some("win.toggle-sidebar"));

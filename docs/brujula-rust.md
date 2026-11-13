@@ -138,14 +138,18 @@ Código: núcleo sin interfaz en `crates/brujula-core/src/ext/` (manifiesto, paq
 - Descarga de listas: probada solo hasta el cliente HTTP; el entorno de pruebas no llegaba a los
   servidores de las listas, así que **la descarga real y el refresco están sin verificar**.
 
+## Historial y ventana privada
+
+- **Historial** (`brujula-core/src/history.rs`, `browser/history.rs`): las páginas web visitadas, de la más reciente a la más antigua, hasta 5000, en `<datos>/history.json`. Solo guarda direcciones `http(s)`, así que un archivo manipulado no puede hacer abrir otra cosa. Se escribe unos segundos después de la última página. Se apaga y se borra (última hora, 24 horas, todo, o una a una) desde Preferencias → Historial. El Spotlight lo ofrece como una fuente más, detrás de pestañas y marcadores, sin repetir lo que ya está en esas listas. El historial no se sincroniza.
+- **Ventana privada** (Ctrl+Mayús+N, el menú, o `brujula --private`): un `Browser` con `private = true`. Usa una `NetworkSession` efímera (cookies, caché y almacenamiento en memoria), parte de una sesión vacía y no escribe nada: ni la sesión, ni los ajustes, el historial, los marcadores, las notas, los Boosts, el archivo, los iconos de sitios ni las extensiones (todas las funciones `save_*` salen al principio). No arranca la sincronización, el archivo automático ni las extensiones, y las preferencias solo se abren en la ventana normal. Lo que sí hace: leer los marcadores y las reglas del bloqueador ya compiladas. Verificado a mano: abrir una página en una ventana privada no crea `history.json` ni toca `session.json`. **Sin verificar**: que WebKit no deje nada en disco fuera de lo que gestiona `NetworkSession` (el entorno de pruebas no tiene un perfil real para comparar) y que `brujula --private` con una instancia ya abierta reciba la dirección (hoy, ahí, solo abre la ventana).
+
 ## Pendiente
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
-- Historial, contraseñas (la sincronización cubre marcadores, espacios, carpetas y pestañas; no historial ni contraseñas): todo lo que daba Epiphany. Carpetas de
+- Contraseñas (la sincronización cubre marcadores, espacios, carpetas y pestañas; no historial ni contraseñas): todo lo que daba Epiphany. Carpetas de
   marcadores e importación.
 - Permisos (cámara, ubicación, notificaciones), pantalla completa, impresión, descargas con
-  interfaz, modo privado, buscador configurable.
+  interfaz, buscador configurable.
 - Página de nueva pestaña, página de error, traducciones (hoy, textos en español).
 - Excepciones del bloqueador por sitio y contador de bloqueados.
-- Historial en el Spotlight (hoy: pestañas abiertas, marcadores y ajustes).
 - Fijar `nodalia-gtk` a una versión estable cuando NDL la publique.

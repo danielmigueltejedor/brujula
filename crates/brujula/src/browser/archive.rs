@@ -9,6 +9,9 @@ const SWEEP_SECONDS: u32 = 300;
 
 impl Browser {
     pub(super) fn save_archive(&self) {
+        if self.private {
+            return;
+        }
         let _ = paths::write_atomic(&paths::archive_file(), &self.archive.borrow().to_json());
     }
 

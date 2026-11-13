@@ -13,9 +13,14 @@ StartupNotify=true
 StartupWMClass=dev.danielmiguelt.Brujula
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
-Actions=new-window;
+Actions=new-window;new-private-window;
 
 [Desktop Action new-window]
 Name=Nueva ventana
 Name[en]=New window
 Exec=brujula
+
+[Desktop Action new-private-window]
+Name=Nueva ventana privada
+Name[en]=New private window
+Exec=brujula --private

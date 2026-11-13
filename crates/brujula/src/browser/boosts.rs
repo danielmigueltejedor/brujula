@@ -14,6 +14,9 @@ pub(super) fn load() -> Boosts {
 
 impl Browser {
     fn save_boosts(&self) {
+        if self.private {
+            return;
+        }
         let _ = paths::write_atomic(&paths::boosts_file(), &self.boosts.borrow().to_json());
     }
 
