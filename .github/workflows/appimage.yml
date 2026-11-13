@@ -33,7 +33,7 @@ jobs:
       - name: Install the build dependencies
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust gtk4 webkitgtk-6.0 libsoup3 \
-            glib-networking librsvg patchelf file desktop-file-utils github-cli
+            glib-networking librsvg patchelf file desktop-file-utils github-cli dbus systemd-libs
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}

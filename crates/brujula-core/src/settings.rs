@@ -295,6 +295,8 @@ pub struct Settings {
     pub history_enabled: bool,
     /// Offer to save the passwords typed in pages, and fill them in (never in a private window).
     pub passwords_enabled: bool,
+    /// Answer the pages that ask for a passkey, with the phone as the authenticator (a QR code).
+    pub passkeys_enabled: bool,
     /// The welcome page has been gone through. True for settings saved before it existed; a
     /// first run starts it false.
     pub welcome_done: bool,
@@ -349,6 +351,7 @@ impl Default for Settings {
             https_first: true,
             history_enabled: true,
             passwords_enabled: true,
+            passkeys_enabled: true,
             welcome_done: true,
             update_check: true,
             update_checked_at: 0,

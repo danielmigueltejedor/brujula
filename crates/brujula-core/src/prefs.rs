@@ -233,6 +233,9 @@ impl Settings {
             "passwords_enabled" => {
                 self.passwords_enabled = flag(value)?;
             }
+            "passkeys_enabled" => {
+                self.passkeys_enabled = flag(value)?;
+            }
             "sleep_after" => {
                 let minutes = number(value)?;
                 if !crate::settings::SLEEP_CHOICES.contains(&minutes) {
@@ -695,6 +698,11 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "Brújula pregunta antes de guardar una y solo la rellena en el sitio exacto donde se guardó, cuando tú tocas el campo.",
         &switch("passwords_enabled", s.passwords_enabled),
     );
+    let passkeys_row = row(
+        "Llaves de acceso con el teléfono",
+        "Cuando un sitio te deja entrar con una llave de acceso, Brújula muestra un código QR: lo escaneas con el teléfono, que está cerca (hace falta Bluetooth), y confirmas allí. La llave no sale del teléfono.",
+        &switch("passkeys_enabled", s.passkeys_enabled),
+    );
     let state = if !v.exists {
         row(
             "Contraseña maestra",
@@ -754,7 +762,7 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
     };
     section(
         "passwords",
-        &format!("{switch_row}{state}{logins}{empty}{never}"),
+        &format!("{switch_row}{passkeys_row}{state}{logins}{empty}{never}"),
     )
 }
 
@@ -2484,6 +2492,25 @@ mod tests {
         let mut s = s;
         s.apply("passwords_enabled", "0").unwrap();
         assert!(!s.passwords_enabled);
+    }
+
+    #[test]
+    fn passkeys_are_on_by_default_and_the_page_has_a_switch() {
+        let mut s = Settings::default();
+        assert!(s.passkeys_enabled);
+        let page = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(page.contains(r#"data-k="passkeys_enabled""#));
+        s.apply("passkeys_enabled", "0").unwrap();
+        assert!(!s.passkeys_enabled);
+        assert!(s.apply("passkeys_enabled", "quizá").is_err());
+        // Settings saved before passkeys existed keep them on.
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(old.passkeys_enabled);
     }
 
     #[test]

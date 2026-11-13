@@ -1,0 +1,20 @@
+[package]
+name = "brujula-passkeys"
+description = "Passkeys for Brújula: the phone-as-authenticator flow (hybrid, shown as a QR code) and the checks that go with it, without a UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The hybrid (caBLE) transport, CTAP 2 and the WebAuthn JSON forms. LGPL-2.1-or-later.
+libwebauthn = { version = "0.10", default-features = false }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "sync", "time", "macros"] }
+futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false }
+serde_json = "1"
+# The public suffix list is built into this crate, so no system package is needed.
+psl = "2"
+# Draws the QR code; nothing else of it is used.
+qrcode = { version = "0.14", default-features = false }
+url = "2"

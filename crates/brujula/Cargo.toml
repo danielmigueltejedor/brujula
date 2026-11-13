@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 brujula-core = { path = "../brujula-core" }
+brujula-passkeys = { path = "../brujula-passkeys" }
 nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "a7c9c879d1f0bb5780f3db8fb029612121e9f505" }
 nodalia-update = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "a7c9c879d1f0bb5780f3db8fb029612121e9f505" }
 webkit6 = "0.6"

@@ -62,6 +62,7 @@ mod history_panel;
 mod import;
 mod notes;
 mod page_action;
+mod passkeys;
 mod passwords;
 mod peek;
 mod profiles_ui;
@@ -379,6 +380,7 @@ pub struct Browser {
     history_save_queued: Cell<bool>,
     /// The saved passwords, while the vault is open.
     pw: passwords::PwState,
+    pk: passkeys::PkState,
     /// The Chromium extensions installed and running.
     ext: RefCell<ext::ExtState>,
     filters: Rc<Filters>,
@@ -809,6 +811,7 @@ impl Browser {
             }),
             history_save_queued: Cell::new(false),
             pw: passwords::PwState::default(),
+            pk: passkeys::PkState::default(),
             ext: RefCell::new(ext::ExtState::default()),
             filters,
             settings: RefCell::new(settings),
@@ -1385,6 +1388,7 @@ impl Browser {
             if !this.private {
                 this.start_extensions();
                 this.start_passwords();
+                this.start_passkeys();
             }
             this.restore(&urls);
             if !this.private {
