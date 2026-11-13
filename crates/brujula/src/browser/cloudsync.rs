@@ -113,6 +113,7 @@ impl Browser {
         let (history, history_total) = self.history_view();
         let (update_status, update_version) = self.update_view();
         prefs::Extras {
+            ai: self.ai_view(),
             update_status,
             update_version,
             history,

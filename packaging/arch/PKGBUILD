@@ -1,6 +1,6 @@
 # Maintainer: Daniel Miguel Tejedor <danielmigueltejedor@icloud.com>
 pkgname=brujula
-pkgver=0.5.0
+pkgver=0.5.1
 pkgrel=1
 pkgdesc='Brújula, el navegador de Nodalix: WebKit, pestañas verticales, bloqueador de anuncios, contraseñas y extensiones de Chromium'
 arch=(x86_64)
@@ -8,6 +8,7 @@ url='https://github.com/danielmigueltejedor/brujula'
 license=(GPL-3.0-or-later)
 depends=(gtk4 webkitgtk-6.0 libsoup3 hicolor-icon-theme)
 makedepends=(cargo git)
+optdepends=('libsecret: guardar las claves del asistente de IA en el llavero')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 

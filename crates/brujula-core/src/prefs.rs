@@ -504,6 +504,18 @@ pub struct Extras {
     pub update_status: String,
     /// The newer version that is waiting, if any.
     pub update_version: String,
+    /// The AI assistant: what the user chose and whether the keyring holds a key.
+    pub ai: AiView,
+}
+
+/// What the preferences page shows of the AI assistant. Never a key.
+#[derive(Debug, Default, Clone)]
+pub struct AiView {
+    pub settings: crate::ai::AiSettings,
+    /// The keyring has a key for the provider chosen.
+    pub key_set: bool,
+    /// How the last connection test went, in words.
+    pub status: String,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -550,6 +562,7 @@ passwords|Contraseñas|Contraseñas|Se guardan cifradas con una contraseña maes
 import|Importar|Importar de otro navegador|Trae tus marcadores, historial, cookies y contraseñas de otro navegador de este equipo, o de un archivo. Lo que ya tienes no se borra.|archive
 webapps|Aplicaciones web|Aplicaciones web|Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».|globe
 boosts|Boosts|Boosts|Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.|sparkle
+ai|IA|Inteligencia artificial|Un asistente opcional que responde y puede ayudarte con tus pestañas, con tu propia clave. Está apagado hasta que lo actives.|sparkle
 extensions|Extensiones|Extensiones|Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.|blocks
 archive|Archivo|Archivo|Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.|clock
 sync|Sincronización|Sincronización|Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.|cloud
@@ -792,6 +805,177 @@ fn import_section(view: &Extras) -> String {
         r#"<button type="button" class="seg plain" data-k="import.file" data-v="1">Elegir archivo…</button>"#,
     );
     section("import", &format!("{browsers}{none}{file}"))
+}
+
+/// The AI assistant. Off by default; while off, this is one switch and what it means.
+fn ai_section(view: &AiView) -> String {
+    use crate::ai::{Autonomy, Provider};
+    let s = &view.settings;
+    let master = row(
+        "Usar un asistente de IA",
+        "Opcional y apagado por defecto. Apagado, Brújula no envía nada a ninguna IA, no enseña el botón y no toca el llavero.",
+        &switch("ai.enabled", s.enabled),
+    );
+    if !s.enabled {
+        return section("ai", &master);
+    }
+    let providers: String = Provider::ALL
+        .iter()
+        .map(|p| {
+            let on = if *p == s.provider { " on" } else { "" };
+            format!(
+                r#"<button type="button" class="seg{on}" data-k="ai.provider" data-v="{}">{}</button>"#,
+                p.id(),
+                escape(p.label())
+            )
+        })
+        .collect();
+    let provider = stacked(
+        "Proveedor",
+        "Tú eliges quién responde y con qué clave. «Otro servidor» vale para cualquiera que hable como OpenAI (LM Studio, OpenRouter, la pasarela de tu empresa…).",
+        &format!(r#"<div class="segs" role="group" style="flex-wrap:wrap">{providers}</div>"#),
+    );
+    let model = stacked(
+        "Modelo",
+        "El nombre exacto del modelo. Déjalo vacío para usar el habitual del proveedor.",
+        &format!(
+            r#"<div class="addrow"><input type="text" class="field wide" data-k="ai.model" value="{}" placeholder="{}" maxlength="80" spellcheck="false" aria-label="Modelo"></div>"#,
+            escape(&s.model),
+            escape(s.provider.default_model())
+        ),
+    );
+    let address = if s.provider.takes_address() {
+        stacked(
+            "Dirección del servidor",
+            "https, o http solo en este mismo equipo (por ejemplo http://localhost:11434/v1). Fuera del equipo la conversación no viaja sin cifrar.",
+            &format!(
+                r#"<div class="addrow"><input type="text" class="field wide" data-k="ai.base_url" value="{}" placeholder="{}" maxlength="200" spellcheck="false" aria-label="Dirección del servidor"></div>"#,
+                escape(&s.base_url),
+                escape(s.provider.default_base())
+            ),
+        )
+    } else {
+        String::new()
+    };
+    let key = if s.provider.can_have_key() {
+        let hint = if view.key_set {
+            "Guardada en el llavero del sistema. Brújula no la puede mostrar de nuevo."
+        } else if s.provider.needs_key() {
+            "Falta. Se guarda en el llavero del sistema (no en un archivo) y solo se envía a este proveedor."
+        } else {
+            "Opcional para este servidor. Si la pones, se guarda en el llavero del sistema."
+        };
+        let remove = if view.key_set {
+            r#"<button type="button" class="seg plain danger" data-k="ai.key.clear" data-v="1">Quitar</button>"#
+        } else {
+            ""
+        };
+        row(
+            "Clave de API",
+            hint,
+            &format!(
+                r#"<button type="button" class="seg plain" data-k="ai.key.set" data-v="1">{}</button>{remove}"#,
+                if view.key_set {
+                    "Cambiar…"
+                } else {
+                    "Poner clave…"
+                }
+            ),
+        )
+    } else {
+        String::new()
+    };
+    let test = row(
+        "Probar la conexión",
+        if view.status.is_empty() {
+            "Hace una pregunta mínima para ver que la clave y el modelo responden."
+        } else {
+            &view.status
+        },
+        r#"<button type="button" class="seg plain" data-k="ai.test" data-v="1">Probar</button>"#,
+    );
+    let open_modes = [("ask", "Preguntar siempre"), ("auto", "Sin preguntar")]
+        .iter()
+        .map(|(id, label)| {
+            let on = if (*id == "auto") == (s.open == Autonomy::Auto) {
+                " on"
+            } else {
+                ""
+            };
+            format!(r#"<button type="button" class="seg{on}" data-k="ai.open" data-v="{id}">{label}</button>"#)
+        })
+        .collect::<String>();
+    let permissions = [
+        row(
+            "Ver mis pestañas y leer páginas",
+            "Si lo apagas, la IA solo ve lo que le escribes. Nunca ve contraseñas, campos de pago, ventanas privadas ni las páginas del propio navegador.",
+            &switch("ai.read", s.read),
+        ),
+        row(
+            "Preguntar antes de leer cada sitio",
+            "La primera vez que la IA quiere leer un sitio en una conversación te lo pregunta. Las pestañas que abre ella misma para la tarea se leen sin preguntar.",
+            &switch("ai.confirm_reads", s.confirm_reads),
+        ),
+        row(
+            "Abrir pestañas",
+            "«Sin preguntar» deja que abra búsquedas y enlaces que ha visto; una dirección que no salía en lo que leyó se pregunta siempre. Nunca abre direcciones de la red local.",
+            &format!(r#"<div class="segs" role="group">{open_modes}</div>"#),
+        ),
+        row(
+            "Pulsar y escribir en las páginas",
+            "Apagado por defecto. Encendido, la IA puede proponer pulsar un botón o rellenar un campo, y cada vez te lo pregunta enseñándote qué va a hacer. Nunca escribe en campos de contraseña ni de pago.",
+            &switch("ai.interact", s.interact),
+        ),
+    ]
+    .concat();
+    let search = row(
+        "La barra de búsqueda la gestiona la IA",
+        "Lo que escribes en el Spotlight que no es una dirección va al asistente: si es una pregunta, responde; si es una tarea («búscame sitios baratos para viajar»), decide buscar y abrir pestañas. La búsqueda normal sigue debajo.",
+        &switch("ai.search", s.search),
+    );
+    let blocked: String = s
+        .blocked
+        .iter()
+        .map(|h| {
+            format!(
+                r#"<div class="row"><div class="what"><b>{h}</b><p>La IA no ve ni toca este sitio.</p></div><div class="ctl"><button type="button" class="seg plain danger" data-k="ai.blocked.remove" data-v="{h}" data-remove="1">Quitar</button></div></div>"#,
+                h = escape(h)
+            )
+        })
+        .collect();
+    let exclude = stacked(
+        "Sitios que la IA no puede ver",
+        "Escribe un sitio y pulsa Intro (por ejemplo, tu banco). Vale también para sus subdominios.",
+        r#"<div class="addrow"><input type="text" class="field wide" data-k="ai.blocked.add" placeholder="banco.com" maxlength="120" spellcheck="false" aria-label="Sitio excluido"></div>"#,
+    );
+    let sent = if s.is_remote() {
+        format!(
+            "Se envía a {}: lo que escribes y, si lo permites, los títulos y direcciones de tus pestañas y el texto de las páginas que apruebes. Cada página que lee queda anotada en el panel con los caracteres enviados.",
+            escape(s.provider.short())
+        )
+    } else {
+        "Todo se queda en este equipo: el servidor está aquí mismo.".to_owned()
+    };
+    let facts = format!(
+        r#"<ul class="facts"><li>{sent}</li><li>Nunca se envían: contraseñas guardadas, el valor de los campos de contraseña o de pago, cookies, ni nada de las ventanas privadas (allí no hay asistente) o de los sitios excluidos.</li><li>El texto de una página no son órdenes: si una página intenta darle instrucciones a la IA, se trata como texto, y abrir algo que no salía en lo leído se pregunta aunque hayas puesto «sin preguntar».</li><li>La IA puede equivocarse. Revisa lo que haga antes de fiarte de ello, sobre todo si hay dinero o datos personales de por medio.</li></ul>"#
+    );
+    section(
+        "ai",
+        &[
+            master,
+            provider,
+            model,
+            address,
+            key,
+            test,
+            permissions,
+            search,
+            exclude,
+            blocked,
+            facts,
+        ]
+        .concat(),
+    )
 }
 
 /// The essentials: the ones there are, a form for another, and the usual sites to pick from.
@@ -1434,6 +1618,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let webapps_section = webapps_section(sync);
     let essentials_section = essentials_section(sync);
     let profiles_section = profiles_section(sync);
+    let ai_section = ai_section(&sync.ai);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1508,7 +1693,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{import_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{import_section}{webapps_section}{boosts_section}{ai_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1540,6 +1725,7 @@ Esenciales|esenciales fijos iconos barra lateral atajos sitios rápidos|essentia
 Aplicaciones web|webapp webapps aplicaciones web instalar pwa ventana lanzador atajo|webapps
 Contraseñas|contraseñas claves login usuario guardar rellenar maestra bóveda cifrado|passwords
 Boosts|boost estilo css modo oscuro sitio aspecto personalizar|boosts
+Inteligencia artificial|ia ai inteligencia artificial asistente chatgpt openai claude anthropic gemini ollama gpt llm modelo clave api chat|ai
 Extensiones|extensiones chrome chromium complementos plugins addons instalar crx|extensions
 Archivo de pestañas|archivar archivo pestañas antiguas cerradas recuperar|archive
 Sincronización|sincronizar nube icloud onedrive google drive dropbox dispositivos|sync
@@ -2211,6 +2397,59 @@ mod tests {
             &Extras::default(),
         );
         assert!(none.contains("No se ha encontrado ningún navegador"));
+    }
+
+    #[test]
+    fn the_ai_section_is_one_switch_until_it_is_turned_on() {
+        let mut extras = Extras::default();
+        let off = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &extras,
+        );
+        assert!(off.contains(r#"data-k="ai.enabled""#));
+        assert!(!off.contains(r#"data-k="ai.provider""#));
+        assert!(!off.contains(r#"data-k="ai.key.set""#));
+
+        extras.ai.settings.enabled = true;
+        extras.ai.settings.blocked = vec!["<b>banco</b>.es".into()];
+        let on = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &extras,
+        );
+        for k in [
+            "ai.provider",
+            "ai.model",
+            "ai.key.set",
+            "ai.test",
+            "ai.read",
+            "ai.confirm_reads",
+            "ai.open",
+            "ai.interact",
+            "ai.search",
+            "ai.blocked.add",
+        ] {
+            assert!(on.contains(&format!(r#"data-k="{k}""#)), "{k}");
+        }
+        // Not asked for: the address of a cloud service, a key to remove.
+        assert!(!on.contains(r#"data-k="ai.base_url""#));
+        assert!(!on.contains(r#"data-k="ai.key.clear""#));
+        assert!(!on.contains("<b>banco</b>"));
+        assert!(on.contains("Se envía a OpenAI"));
+
+        extras.ai.key_set = true;
+        extras.ai.settings.provider = crate::ai::Provider::Ollama;
+        let local = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &extras,
+        );
+        assert!(local.contains(r#"data-k="ai.base_url""#));
+        assert!(local.contains("Todo se queda en este equipo"));
     }
 
     #[test]

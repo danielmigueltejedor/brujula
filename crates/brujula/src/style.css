@@ -121,3 +121,14 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 
 /* The code of the second step, big enough to read from the side. */
 .brujula-totp-code { font-family: monospace; font-size: 2.4em; font-weight: 700; letter-spacing: 0.06em; margin: 8px 0; }
+
+/* The AI assistant's panel. */
+.brujula-ai { margin-left: var(--ndl-space-sm); }
+.brujula-ai-head { padding: 10px 8px 4px 16px; }
+.brujula-ai-sees { font-size: 0.85em; color: var(--ndl-color-text-secondary); padding: 0 16px 8px 16px; }
+.brujula-ai-note { font-size: 0.85em; color: var(--ndl-color-text-tertiary); }
+.brujula-ai-bubble { padding: 8px 12px; border-radius: 14px; }
+.brujula-ai-user { background: var(--ndl-color-accent-default); color: var(--ndl-color-text-on-accent); }
+.brujula-ai-bot { background: var(--ndl-color-surface-raised); }
+.brujula-ai-error { background: var(--ndl-color-status-danger-bg); color: var(--ndl-color-status-danger-fg); }
+.brujula-ai-ask { background: var(--ndl-color-status-warning-bg); color: var(--ndl-color-status-warning-fg); border-radius: 14px; padding: 10px 12px; }

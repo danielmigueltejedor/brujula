@@ -74,6 +74,10 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+pub fn ai_file() -> PathBuf {
+    config_dir().join("ai.json")
+}
+
 pub fn bookmarks_file() -> PathBuf {
     data_dir().join("bookmarks.json")
 }
