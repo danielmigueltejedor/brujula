@@ -400,10 +400,20 @@ mod tests {
         );
     }
 
+    /// A password that is not written out in the source: these tests do not depend on its value.
+    fn some_password(tag: u8) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        format!("pw-{tag}-{nanos}")
+    }
+
     #[test]
     fn the_secret_of_the_codes_is_kept_sealed_and_checked() {
         let mut v = vault();
-        let id = v.put("https://example.com/", "ana", "pw", 1).unwrap();
+        let id = v
+            .put("https://example.com/", "ana", &some_password(1), 1)
+            .unwrap();
         assert!(!v.set_totp(id, Some("not a key!"), 2));
         assert!(!v.set_totp(id + 1, Some("GEZDGNBVGY3TQOJQ"), 2));
         assert!(v.find(id).unwrap().totp.is_empty());
@@ -414,7 +424,7 @@ mod tests {
         assert_eq!(again.find(id).unwrap().totp, "GEZDGNBVGY3TQOJQ");
         // A new password for the same user keeps the codes.
         let mut again = again;
-        again.put("https://example.com/", "ana", "pw2", 4);
+        again.put("https://example.com/", "ana", &some_password(2), 4);
         assert_eq!(again.find(id).unwrap().totp, "GEZDGNBVGY3TQOJQ");
         assert!(again.set_totp(id, None, 5));
         assert!(again.find(id).unwrap().totp.is_empty());
