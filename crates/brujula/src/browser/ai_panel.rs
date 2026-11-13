@@ -37,7 +37,7 @@ pub(super) struct AiUi {
     scroller: gtk::ScrolledWindow,
     sees: gtk::Label,
     who: gtk::Label,
-    empty: gtk::Label,
+    empty: gtk::Box,
     spinner: gtk::Spinner,
     waiting: Waiting,
     card: RefCell<Option<gtk::Box>>,
@@ -75,17 +75,24 @@ impl AiUi {
             .visible(false)
             .build();
 
+        let mark = gtk::Image::from_icon_name(icon());
+        mark.set_pixel_size(18);
+        let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        badge.add_css_class("brujula-ai-badge");
+        badge.set_valign(gtk::Align::Center);
+        badge.set_halign(gtk::Align::Center);
+        badge.append(&mark);
         let title = gtk::Label::builder()
             .label("Asistente")
             .xalign(0.0)
-            .css_classes(["heading"])
+            .css_classes(["brujula-ai-title"])
             .build();
         let who = gtk::Label::builder()
             .xalign(0.0)
-            .css_classes(["brujula-ai-note"])
+            .css_classes(["brujula-ai-who"])
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
-        let titles = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let titles = gtk::Box::new(gtk::Orientation::Vertical, 1);
         titles.set_hexpand(true);
         titles.set_valign(gtk::Align::Center);
         titles.append(&title);
@@ -93,35 +100,98 @@ impl AiUi {
         let new_chat = flat_button("ndl-plus-symbolic", "Conversación nueva");
         let prefs = flat_button("ndl-settings-symbolic", "Ajustes del asistente");
         let close = flat_button("ndl-close-symbolic", "Cerrar el asistente");
+        for b in [&new_chat, &prefs, &close] {
+            b.add_css_class("circular");
+        }
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         head.add_css_class("brujula-ai-head");
+        head.append(&badge);
         head.append(&titles);
         head.append(&new_chat);
         head.append(&prefs);
         head.append(&close);
 
+        // What the assistant can see, always in view but folded to two lines: a click opens it.
+        let sees_icon = gtk::Image::from_icon_name("ndl-shield-symbolic");
+        sees_icon.set_pixel_size(14);
+        sees_icon.set_valign(gtk::Align::Start);
         let sees = gtk::Label::builder()
             .xalign(0.0)
             .wrap(true)
             .wrap_mode(gtk::pango::WrapMode::WordChar)
-            .max_width_chars(42)
-            .css_classes(["brujula-ai-sees"])
+            .lines(2)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(40)
+            .hexpand(true)
+            .css_classes(["brujula-ai-sees-text"])
             .build();
+        let sees_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        sees_box.add_css_class("brujula-ai-sees");
+        sees_box.set_tooltip_text(Some("Pulsa para ver todo o resumir"));
+        sees_box.append(&sees_icon);
+        sees_box.append(&sees);
+        let fold = gtk::GestureClick::new();
+        let label = sees.clone();
+        fold.connect_released(move |_, _, _, _| {
+            let open = label.lines() < 0;
+            label.set_lines(if open { 2 } else { -1 });
+            label.set_ellipsize(if open {
+                gtk::pango::EllipsizeMode::End
+            } else {
+                gtk::pango::EllipsizeMode::None
+            });
+        });
+        sees_box.add_controller(fold);
 
-        let messages = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        messages.set_margin_start(12);
-        messages.set_margin_end(12);
-        messages.set_margin_top(4);
-        messages.set_margin_bottom(8);
-        let empty = gtk::Label::builder()
-            .label(
-                "Pregunta lo que quieras o pídele una tarea con tus pestañas: «resume esta página», «búscame sitios baratos para viajar a Lisboa».\n\nAntes de abrir, leer o pulsar algo, te lo pregunta.",
-            )
-            .wrap(true)
-            .xalign(0.0)
-            .max_width_chars(42)
-            .css_classes(["brujula-ai-note"])
+        let messages = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        messages.set_margin_start(14);
+        messages.set_margin_end(14);
+        messages.set_margin_top(6);
+        messages.set_margin_bottom(10);
+
+        // The empty state: what it is for, and three things to try.
+        let empty = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        empty.add_css_class("brujula-ai-empty");
+        let big = gtk::Image::from_icon_name(icon());
+        big.set_pixel_size(26);
+        let halo = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        halo.add_css_class("brujula-ai-halo");
+        halo.set_halign(gtk::Align::Center);
+        halo.append(&big);
+        let hello = gtk::Label::builder()
+            .label("¿En qué te ayudo?")
+            .css_classes(["brujula-ai-hello"])
             .build();
+        let hint = gtk::Label::builder()
+            .label("Pregunta, o pídele una tarea con tus pestañas. Antes de abrir, leer o pulsar algo, te pregunta.")
+            .wrap(true)
+            .justify(gtk::Justification::Center)
+            .max_width_chars(36)
+            .css_classes(["brujula-ai-hint"])
+            .build();
+        empty.append(&halo);
+        empty.append(&hello);
+        empty.append(&hint);
+        let try_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        try_box.set_margin_top(10);
+        let tries = Rc::new(RefCell::new(Vec::<gtk::Button>::new()));
+        for text in [
+            "Resume esta página",
+            "¿Qué pestañas tengo abiertas?",
+            "Búscame sitios baratos para viajar",
+        ] {
+            let b = gtk::Button::builder()
+                .label(text)
+                .css_classes(["brujula-ai-try"])
+                .build();
+            if let Some(l) = b.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
+                l.set_xalign(0.0);
+                l.set_wrap(true);
+            }
+            try_box.append(&b);
+            tries.borrow_mut().push(b);
+        }
+        empty.append(&try_box);
         messages.append(&empty);
         let scroller = gtk::ScrolledWindow::builder()
             .child(&messages)
@@ -130,26 +200,40 @@ impl AiUi {
             .propagate_natural_width(false)
             .build();
 
+        // The line to type in: one rounded box with the entry and the send button inside.
         let entry = gtk::Entry::builder()
             .placeholder_text("Escribe aquí…")
             .hexpand(true)
             .max_length(4000)
+            .css_classes(["brujula-ai-entry"])
             .build();
         let send = gtk::Button::builder()
             .icon_name("ndl-arrow-right-symbolic")
-            .css_classes(["suggested-action"])
+            .css_classes(["suggested-action", "circular", "brujula-ai-send"])
             .tooltip_text("Enviar")
+            .valign(gtk::Align::Center)
             .build();
         let spinner = gtk::Spinner::new();
         spinner.set_visible(false);
-        let foot = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let compose = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        compose.add_css_class("brujula-ai-compose");
+        compose.append(&spinner);
+        compose.append(&entry);
+        compose.append(&send);
+        let foot = gtk::Box::new(gtk::Orientation::Vertical, 0);
         foot.set_margin_start(12);
         foot.set_margin_end(12);
         foot.set_margin_bottom(12);
         foot.set_margin_top(4);
-        foot.append(&spinner);
-        foot.append(&entry);
-        foot.append(&send);
+        foot.append(&compose);
+        for b in tries.borrow().iter() {
+            let entry = entry.clone();
+            let send = send.clone();
+            b.connect_clicked(move |b| {
+                entry.set_text(&b.label().unwrap_or_default());
+                send.emit_clicked();
+            });
+        }
 
         let panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
         panel.add_css_class("ndl-island");
@@ -159,10 +243,23 @@ impl AiUi {
         panel.set_hexpand(false);
         panel.set_halign(gtk::Align::End);
         panel.set_visible(false);
-        panel.append(&head);
-        panel.append(&sees);
-        panel.append(&scroller);
-        panel.append(&foot);
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        column.append(&head);
+        column.append(&sees_box);
+        column.append(&scroller);
+        column.append(&foot);
+        // A scrolled window that never scrolls: it asks for no more than its width, so the
+        // text inside wraps instead of widening the panel.
+        let clamp = gtk::ScrolledWindow::builder()
+            .child(&column)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_width(false)
+            .propagate_natural_height(false)
+            .min_content_width(340)
+            .vexpand(true)
+            .build();
+        panel.append(&clamp);
 
         Self {
             panel,
@@ -253,15 +350,36 @@ impl AiUi {
 
     /// A line of what the assistant did or was shown: it keeps the user informed.
     pub fn add_note(&self, text: &str) {
+        let icon = if text.starts_with("Leyó") {
+            "ndl-file-text-symbolic"
+        } else if text.starts_with("Abrió una búsqueda") {
+            "ndl-search-symbolic"
+        } else if text.starts_with("Abrió")
+            || text.starts_with("Cambió")
+            || text.starts_with("Cerró")
+        {
+            "ndl-globe-symbolic"
+        } else {
+            "ndl-sparkle-symbolic"
+        };
+        let mark = gtk::Image::from_icon_name(icon);
+        mark.set_pixel_size(13);
+        mark.set_valign(gtk::Align::Start);
+        mark.add_css_class("brujula-ai-note-icon");
         let label = gtk::Label::builder()
             .label(text)
             .wrap(true)
             .wrap_mode(gtk::pango::WrapMode::WordChar)
             .xalign(0.0)
-            .max_width_chars(48)
+            .max_width_chars(44)
             .css_classes(["brujula-ai-note"])
             .build();
-        self.push(&label);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 7);
+        row.add_css_class("brujula-ai-noterow");
+        row.set_halign(gtk::Align::Start);
+        row.append(&mark);
+        row.append(&label);
+        self.push(&row);
     }
 
     pub fn add_error(&self, text: &str) {
@@ -291,14 +409,23 @@ impl AiUi {
         let (tx, rx) = oneshot::channel();
         *self.waiting.borrow_mut() = Some(tx);
 
-        let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
         card.add_css_class("brujula-ai-ask");
+        let shield = gtk::Image::from_icon_name("ndl-shield-symbolic");
+        shield.set_pixel_size(16);
+        shield.set_valign(gtk::Align::Start);
+        shield.add_css_class("brujula-ai-ask-icon");
         let head = gtk::Label::builder()
             .label(title)
             .wrap(true)
             .xalign(0.0)
-            .css_classes(["heading"])
+            .hexpand(true)
+            .max_width_chars(36)
+            .css_classes(["brujula-ai-ask-title"])
             .build();
+        let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        top.append(&shield);
+        top.append(&head);
         let body = gtk::Label::builder()
             .label(detail)
             .wrap(true)
@@ -306,19 +433,27 @@ impl AiUi {
             .xalign(0.0)
             .selectable(true)
             .max_width_chars(44)
+            .css_classes(["brujula-ai-ask-detail"])
             .build();
+        body.set_visible(!detail.trim().is_empty());
         let yes = gtk::Button::with_label("Permitir");
         yes.add_css_class("suggested-action");
+        yes.add_css_class("pill");
+        yes.set_hexpand(true);
         let no = gtk::Button::with_label("Denegar");
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        no.add_css_class("pill");
+        no.set_hexpand(true);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row.set_homogeneous(true);
         row.append(&no);
         row.append(&yes);
-        card.append(&head);
+        card.append(&top);
         card.append(&body);
         card.append(&row);
         let always = offer_always.then(|| {
             let b = gtk::Button::with_label("Permitirlo en toda esta conversación");
             b.add_css_class("flat");
+            b.add_css_class("brujula-ai-always");
             card.append(&b);
             b
         });
@@ -348,18 +483,35 @@ impl AiUi {
                 while let Some(child) = card.last_child() {
                     card.remove(&child);
                 }
-                let said = match a {
-                    Answer::Yes => "Permitido",
-                    Answer::Always => "Permitido para esta conversación",
-                    Answer::No => "Denegado",
+                card.set_spacing(0);
+                card.add_css_class("brujula-ai-ask-done");
+                let (said, icon, class) = match a {
+                    Answer::Yes => ("Permitido", "ndl-check-symbolic", "brujula-ai-yes"),
+                    Answer::Always => (
+                        "Permitido para esta conversación",
+                        "ndl-check-symbolic",
+                        "brujula-ai-yes",
+                    ),
+                    Answer::No => ("Denegado", "ndl-close-symbolic", "brujula-ai-no"),
                 };
+                card.add_css_class(class);
+                let mark = gtk::Image::from_icon_name(icon);
+                mark.set_pixel_size(14);
+                mark.set_valign(gtk::Align::Start);
                 let l = gtk::Label::builder()
-                    .label(format!("{said}: {title_text}"))
+                    .label(format!(
+                        "{said} · {}",
+                        title_text.trim_matches(|c| c == '¿' || c == '?')
+                    ))
                     .wrap(true)
                     .xalign(0.0)
-                    .css_classes(["heading"])
+                    .max_width_chars(40)
+                    .css_classes(["brujula-ai-ask-title"])
                     .build();
-                card.append(&l);
+                let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                line.append(&mark);
+                line.append(&l);
+                card.append(&line);
             }
             a
         }

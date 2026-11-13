@@ -122,13 +122,116 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* The code of the second step, big enough to read from the side. */
 .brujula-totp-code { font-family: monospace; font-size: 2.4em; font-weight: 700; letter-spacing: 0.06em; margin: 8px 0; }
 
-/* The AI assistant's panel. */
+
+/* The titles of the app are set in Sora, the display face of Nodalia Design, as in the other
+   Nodalia apps; the text stays in Inter. */
+.heading, .title-3, .title-4, .brujula-who-title, .brujula-who-name, .brujula-folder .brujula-folder-name {
+  font-family: var(--ndl-font-family-display);
+}
+
+/* The AI assistant's panel: an island with a header, a conversation that reads like a page, and a
+   rounded box to type in. */
 .brujula-ai { margin-left: var(--ndl-space-sm); }
-.brujula-ai-head { padding: 10px 8px 4px 16px; }
-.brujula-ai-sees { font-size: 0.85em; color: var(--ndl-color-text-secondary); padding: 0 16px 8px 16px; }
-.brujula-ai-note { font-size: 0.85em; color: var(--ndl-color-text-tertiary); }
-.brujula-ai-bubble { padding: 8px 12px; border-radius: 14px; }
-.brujula-ai-user { background: var(--ndl-color-accent-default); color: var(--ndl-color-text-on-accent); }
-.brujula-ai-bot { background: var(--ndl-color-surface-raised); }
-.brujula-ai-error { background: var(--ndl-color-status-danger-bg); color: var(--ndl-color-status-danger-fg); }
-.brujula-ai-ask { background: var(--ndl-color-status-warning-bg); color: var(--ndl-color-status-warning-fg); border-radius: 14px; padding: 10px 12px; }
+.brujula-ai-head { padding: 12px 8px 8px 14px; }
+.brujula-ai-badge {
+  min-width: 34px; min-height: 34px; margin-right: 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--ndl-color-accent-subtle), alpha(var(--ndl-color-accent-default), 0.28));
+  color: var(--ndl-color-accent-text);
+}
+.brujula-ai-title {
+  font-family: var(--ndl-font-family-display);
+  font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
+}
+.brujula-ai-who { font-size: 11.5px; color: var(--ndl-color-text-tertiary); }
+.brujula-ai-head button.circular { min-width: 28px; min-height: 28px; padding: 0; }
+
+.brujula-ai-sees {
+  margin: 0 12px 4px 12px; padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--ndl-color-surface-sunken);
+  color: var(--ndl-color-text-secondary);
+}
+.brujula-ai-sees-text { font-size: 11.5px; line-height: 1.35; }
+
+.brujula-ai-empty { margin-top: 30px; }
+.brujula-ai-halo {
+  min-width: 56px; min-height: 56px;
+  border-radius: 999px;
+  background: radial-gradient(circle, alpha(var(--ndl-color-accent-default), 0.28), alpha(var(--ndl-color-accent-default), 0.06));
+  color: var(--ndl-color-accent-text);
+}
+.brujula-ai-hello {
+  font-family: var(--ndl-font-family-display);
+  font-size: 19px; font-weight: 700; letter-spacing: -0.03em;
+  margin-top: 6px;
+}
+.brujula-ai-hint { font-size: 12.5px; color: var(--ndl-color-text-tertiary); }
+.brujula-ai-try {
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: transparent;
+  border: 1px solid var(--ndl-color-border-subtle);
+  color: var(--ndl-color-text-secondary);
+  font-weight: 500; font-size: 13px;
+  box-shadow: none;
+}
+.brujula-ai-try:hover {
+  background: var(--ndl-color-control-bg-hover);
+  border-color: var(--ndl-color-border-default);
+  color: var(--ndl-color-text-primary);
+}
+
+.brujula-ai-bubble { padding: 9px 14px; line-height: 1.45; }
+.brujula-ai-user {
+  background: var(--ndl-color-accent-default); color: var(--ndl-color-text-on-accent);
+  border-radius: 18px 18px 6px 18px;
+}
+/* The answers have no box: they read like text on the page. */
+.brujula-ai-bot { padding: 2px 4px; border-radius: 0; background: transparent; }
+.brujula-ai-error {
+  background: var(--ndl-color-status-danger-bg); color: var(--ndl-color-status-danger-fg);
+  border-radius: 14px;
+}
+
+.brujula-ai-noterow {
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--ndl-color-surface-sunken);
+  color: var(--ndl-color-text-tertiary);
+}
+.brujula-ai-note { font-size: 11.5px; color: var(--ndl-color-text-secondary); }
+.brujula-ai-note-icon { color: var(--ndl-color-accent-text); margin-top: 1px; }
+
+.brujula-ai-ask {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--ndl-color-surface-raised);
+  border: 1px solid var(--ndl-color-border-default);
+  box-shadow: inset 3px 0 0 var(--ndl-color-status-warning-fg);
+}
+.brujula-ai-ask-icon { color: var(--ndl-color-status-warning-fg); margin-top: 1px; }
+.brujula-ai-ask-title { font-family: var(--ndl-font-family-display); font-weight: 600; font-size: 13px; }
+.brujula-ai-ask-detail {
+  padding: 7px 10px; border-radius: 10px;
+  background: var(--ndl-color-surface-sunken);
+  color: var(--ndl-color-text-secondary);
+  font-size: 12px;
+}
+.brujula-ai-always { font-size: 12px; color: var(--ndl-color-text-secondary); min-height: 28px; }
+.brujula-ai-ask-done { padding: 6px 12px; box-shadow: none; background: transparent; border-color: var(--ndl-color-border-subtle); border-radius: 14px; }
+.brujula-ai-ask-done .brujula-ai-ask-title { font-family: var(--ndl-font-family-ui); font-weight: 500; font-size: 12px; color: var(--ndl-color-text-secondary); }
+.brujula-ai-yes image { color: var(--ndl-color-status-success-fg); }
+.brujula-ai-no image { color: var(--ndl-color-status-danger-fg); }
+
+.brujula-ai-compose {
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  background: var(--ndl-color-surface-sunken);
+  border: 1px solid var(--ndl-color-border-subtle);
+}
+.brujula-ai-compose:focus-within { border-color: var(--ndl-color-border-focus); }
+.brujula-ai-entry, .brujula-ai-entry:focus {
+  background: transparent; border: none; box-shadow: none; outline: none;
+  padding-left: 0; min-height: 32px;
+}
+.brujula-ai-send { min-width: 32px; min-height: 32px; padding: 0; }
