@@ -3,6 +3,15 @@
 
 use super::*;
 
+use std::cell::Cell;
+
+thread_local! {
+    /// A drop that was accepted and waits for its drag to end: the rows are reordered only
+    /// then. Moving rows while the drag is still going takes the dragged row out of its list
+    /// and the drag never ends cleanly, which leaves its picture floating over the window.
+    static PENDING: Cell<Option<(TabId, TabId, bool)>> = const { Cell::new(None) };
+}
+
 /// The half of a row the pointer is over decides whether the tab lands before or after it.
 fn after_half(y: f64, height: i32) -> bool {
     y > f64::from(height) / 2.0
@@ -36,7 +45,25 @@ impl Browser {
             dragged.add_css_class("brujula-dragging");
         });
         let dragged = row.clone();
-        source.connect_drag_end(move |_, _, _| dragged.remove_css_class("brujula-dragging"));
+        let this = Rc::downgrade(self);
+        source.connect_drag_end(move |_, _, _| {
+            dragged.remove_css_class("brujula-dragging");
+            // Whatever way the drag ended, the drop (if there was one) happens now.
+            if let Some((from, to, after)) = PENDING.take() {
+                let this = this.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(b) = this.upgrade() {
+                        b.drop_tab(from, to, after);
+                    }
+                });
+            }
+        });
+        // A drag that nobody accepts (dropped outside the list, Escape) must leave nothing
+        // behind.
+        source.connect_drag_cancel(move |_, _, _| {
+            PENDING.set(None);
+            false
+        });
         row.add_controller(source);
 
         let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
@@ -65,13 +92,13 @@ impl Browser {
         target.connect_drop(move |_, value, _, y| {
             over.remove_css_class("brujula-drop-before");
             over.remove_css_class("brujula-drop-after");
-            let (Some(b), Ok(text)) = (this.upgrade(), value.get::<String>()) else {
+            let (Some(_), Ok(text)) = (this.upgrade(), value.get::<String>()) else {
                 return false;
             };
             let Ok(from) = text.parse::<u64>() else {
                 return false;
             };
-            b.drop_tab(TabId(from), id, after_half(y, over.height()));
+            PENDING.set(Some((TabId(from), id, after_half(y, over.height()))));
             true
         });
         row.add_controller(target);

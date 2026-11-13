@@ -57,6 +57,7 @@ mod float;
 mod folders;
 mod history;
 mod history_panel;
+mod import;
 mod notes;
 mod page_action;
 mod passwords;
@@ -561,6 +562,9 @@ impl Browser {
         bar.set_show_start_title_buttons(false);
         bar.set_show_end_title_buttons(true);
         bar.pack_start(&slim_chrome.toggle);
+        // The bar covers the top of the sidebar while it is shown, and with it the page button
+        // that sits there: it has to be in the bar too.
+        bar.pack_start(&slim_chrome.page_action);
         let bar_revealer = gtk::Revealer::builder()
             .transition_type(gtk::RevealerTransitionType::SlideDown)
             .transition_duration(160)
@@ -1745,9 +1749,14 @@ impl Browser {
             let from_web = v
                 .uri()
                 .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"));
+            // An extension's page that its manifest lists as web accessible may be shown inside
+            // a web page (a panel in an iframe); nothing else of an extension is reachable.
             if from_web && uri.to_ascii_lowercase().starts_with("brujula-ext:") {
-                decision.ignore();
-                return true;
+                let open = this.upgrade().is_some_and(|b| b.ext_web_accessible(&uri));
+                if !open {
+                    decision.ignore();
+                    return true;
+                }
             }
             if from_web && uri.to_ascii_lowercase().starts_with("file:") {
                 decision.ignore();
@@ -2353,6 +2362,10 @@ impl Browser {
             self.change_webapp(what, value);
             return;
         }
+        if let Some(what) = key.strip_prefix("import.") {
+            self.change_import(what, value);
+            return;
+        }
         if let Some(what) = key.strip_prefix("pw.") {
             self.change_passwords(what, value);
             return;
@@ -2414,7 +2427,7 @@ impl Browser {
     /// Sidebar width, pinned or floating, and whether the edge wakes it.
     fn apply_layout(&self) {
         let s = self.settings.borrow();
-        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(232);
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(180);
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));

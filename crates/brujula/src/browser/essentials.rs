@@ -54,7 +54,7 @@ impl EssentialsUi {
             .selection_mode(gtk::SelectionMode::None)
             .homogeneous(true)
             .min_children_per_line(3)
-            .max_children_per_line(5)
+            .max_children_per_line(3)
             .row_spacing(6)
             .column_spacing(6)
             .margin_start(8)

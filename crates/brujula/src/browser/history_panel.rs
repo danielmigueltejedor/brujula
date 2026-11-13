@@ -103,6 +103,8 @@ impl HistoryUi {
         let empty = gtk::Label::builder()
             .label("No hay nada en el historial.")
             .css_classes(["dim-label"])
+            .wrap(true)
+            .max_width_chars(1)
             .margin_top(18)
             .margin_bottom(18)
             .build();

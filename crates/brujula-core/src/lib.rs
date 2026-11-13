@@ -9,6 +9,7 @@ pub mod avatars;
 pub mod bookmark_import;
 pub mod bookmarks;
 pub mod boosts;
+pub mod browser_data;
 pub mod cloud;
 pub mod downloads;
 pub mod edge;

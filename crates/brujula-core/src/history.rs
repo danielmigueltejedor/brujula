@@ -86,6 +86,45 @@ impl History {
         true
     }
 
+    /// Adds the pages visited in another browser. A page that is already here keeps its entry
+    /// (the visits add up, the later time wins); the rest are put in by date. Returns how many
+    /// pages were new. What does not fit in the history is the oldest.
+    pub fn import(&mut self, visits: impl IntoIterator<Item = Visit>) -> usize {
+        let mut at: std::collections::HashMap<String, usize> = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (key(&v.url).to_owned(), i))
+            .collect();
+        let mut added = 0;
+        for v in visits {
+            if !is_web(&v.url) || v.url.len() > MAX_URL {
+                continue;
+            }
+            match at.get(key(&v.url)) {
+                Some(&i) => {
+                    let mine = &mut self.items[i];
+                    mine.visits = mine.visits.saturating_add(v.visits);
+                    mine.last = mine.last.max(v.last);
+                    if mine.title.is_empty() {
+                        mine.title = clean_title(&v.title);
+                    }
+                }
+                None => {
+                    at.insert(key(&v.url).to_owned(), self.items.len());
+                    self.items.push(Visit {
+                        title: clean_title(&v.title),
+                        ..v
+                    });
+                    added += 1;
+                }
+            }
+        }
+        self.items.sort_by_key(|i| std::cmp::Reverse(i.last));
+        self.items.truncate(MAX_ENTRIES);
+        added
+    }
+
     /// Gives a title to a page that already has an entry (the title often arrives after the
     /// page does).
     pub fn set_title(&mut self, url: &str, title: &str) {
@@ -222,5 +261,52 @@ mod tests {
         assert_eq!(h.len(), MAX_ENTRIES);
         let again = History::from_json(&h.to_json());
         assert_eq!(again, h);
+    }
+
+    #[test]
+    fn imported_pages_merge_with_what_is_here_and_stay_in_order() {
+        let mut h = History::default();
+        h.record("https://a.example/", "A", 5_000);
+        let visit = |url: &str, title: &str, visits: u32, last: u64| Visit {
+            url: url.into(),
+            title: title.into(),
+            visits,
+            last,
+        };
+        let added = h.import(vec![
+            visit("https://a.example", "", 4, 9_000),
+            visit("https://b.example/", "B\u{7}", 2, 7_000),
+            visit("javascript:alert(1)", "x", 1, 8_000),
+            visit("https://old.example/", "Old", 1, 1_000),
+        ]);
+        assert_eq!(added, 2);
+        let urls: Vec<&str> = h.items().iter().map(|v| v.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://a.example/",
+                "https://b.example/",
+                "https://old.example/"
+            ]
+        );
+        // The existing entry gained the visits and the later time, and kept its title.
+        assert_eq!((h.items()[0].visits, h.items()[0].last), (5, 9_000));
+        assert_eq!(h.items()[0].title, "A");
+        assert_eq!(h.items()[1].title, "B");
+    }
+
+    #[test]
+    fn importing_never_grows_the_history_past_its_limit() {
+        let mut h = History::default();
+        let many = (0..MAX_ENTRIES as u64 + 100).map(|n| Visit {
+            url: format!("https://s{n}.example/"),
+            title: String::new(),
+            visits: 1,
+            last: n,
+        });
+        h.import(many);
+        assert_eq!(h.len(), MAX_ENTRIES);
+        // The newest are the ones kept.
+        assert_eq!(h.items()[0].last, MAX_ENTRIES as u64 + 99);
     }
 }

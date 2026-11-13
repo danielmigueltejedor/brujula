@@ -144,6 +144,12 @@ impl Browser {
             // The typefaces of Nodalia Design for the browser's own pages.
             context.register_uri_scheme(crate::fonts::SCHEME, crate::fonts::serve);
             let this = Rc::downgrade(self);
+            if let Some(security) = context.security_manager() {
+                // Web pages embed an extension's pages (a panel in an iframe), so the scheme must
+                // count as an ordinary, secure, CORS-enabled origin to them.
+                security.register_uri_scheme_as_secure("brujula-ext");
+                security.register_uri_scheme_as_cors_enabled("brujula-ext");
+            }
             context.register_uri_scheme("brujula-ext", move |req| match this.upgrade() {
                 Some(b) => b.serve_ext(req),
                 None => req.finish_error(&mut glib::Error::new(
@@ -189,6 +195,25 @@ impl Browser {
     }
 
     // ---- the pages of an extension, at brujula-ext://<id>/<path>
+
+    /// Whether a web page may show `uri`: the extension is on and its manifest lists the path as
+    /// web accessible.
+    pub(super) fn ext_web_accessible(&self, uri: &str) -> bool {
+        let Ok(url) = url::Url::parse(uri) else {
+            return false;
+        };
+        let path = percent_decode(url.path())
+            .trim_start_matches('/')
+            .to_owned();
+        self.ext
+            .borrow()
+            .loaded
+            .get(url.host_str().unwrap_or(""))
+            .is_some_and(|l| {
+                brujula_core::ext::manifest::safe_path(&path).is_some()
+                    && l.manifest.is_web_accessible(&path)
+            })
+    }
 
     fn serve_ext(self: &Rc<Self>, req: &webkit6::URISchemeRequest) {
         let fail = |code: gio::IOErrorEnum, why: &str| {

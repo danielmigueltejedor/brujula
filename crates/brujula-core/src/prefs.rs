@@ -488,6 +488,9 @@ pub struct Extras {
     pub history_total: usize,
     /// The password vault: whether it exists, whether it is open, and what it holds.
     pub vault: VaultView,
+    /// The browsers found on this computer to import from: name, and whether their passwords
+    /// can be read (Firefox's only come in an exported file).
+    pub import: Vec<(String, bool)>,
     /// The web apps: id, name and address.
     pub webapps: Vec<(String, String, String)>,
     /// The essentials: id, name and address.
@@ -542,6 +545,7 @@ essentials|Esenciales|Esenciales|Los sitios que abres a todas horas, como iconos
 bookmarks|Marcadores|Marcadores|Las páginas que guardaste con la estrella.|bookmark
 history|Historial|Historial|Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.|history
 passwords|Contraseñas|Contraseñas|Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.|lock
+import|Importar|Importar de otro navegador|Trae tus marcadores, historial, cookies y contraseñas de otro navegador de este equipo, o de un archivo. Lo que ya tienes no se borra.|archive
 webapps|Aplicaciones web|Aplicaciones web|Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».|globe
 boosts|Boosts|Boosts|Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.|sparkle
 extensions|Extensiones|Extensiones|Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.|blocks
@@ -727,6 +731,55 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "passwords",
         &format!("{switch_row}{state}{logins}{empty}{never}"),
     )
+}
+
+/// Bringing data from other browsers: one row for each one found, and a file.
+fn import_section(view: &Extras) -> String {
+    let browsers: String = view
+        .import
+        .iter()
+        .enumerate()
+        .map(|(n, (name, passwords))| {
+            let button = |kind: &str, label: &str| {
+                format!(
+                    r#"<button type="button" class="seg plain" data-k="import.run" data-v="{n}:{kind}">{label}</button>"#
+                )
+            };
+            let pw = if *passwords {
+                button("passwords", "Contraseñas")
+            } else {
+                String::new()
+            };
+            let hint = if *passwords {
+                "Las contraseñas piden tu contraseña maestra; si el escritorio guarda la clave de este navegador, puede pedirte permiso."
+            } else {
+                "Sus contraseñas no se pueden leer directamente: expórtalas a un archivo CSV desde ese navegador y elígelo abajo."
+            };
+            row(
+                name,
+                hint,
+                &format!(
+                    "{}{}{}{}{}",
+                    button("all", "Todo"),
+                    button("bookmarks", "Marcadores"),
+                    button("history", "Historial"),
+                    button("cookies", "Cookies"),
+                    pw
+                ),
+            )
+        })
+        .collect();
+    let none = if view.import.is_empty() {
+        r#"<p class="empty">No se ha encontrado ningún navegador en este equipo.</p>"#
+    } else {
+        ""
+    };
+    let file = row(
+        "Desde un archivo",
+        "Marcadores (HTML o JSON) o contraseñas exportadas (CSV) de cualquier navegador o gestor.",
+        r#"<button type="button" class="seg plain" data-k="import.file" data-v="1">Elegir archivo…</button>"#,
+    );
+    section("import", &format!("{browsers}{none}{file}"))
 }
 
 /// The essentials: the ones there are, a form for another, and the usual sites to pick from.
@@ -1365,6 +1418,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let boosts_section = boosts_section(sync);
     let history_section = history_section(s, sync);
     let passwords_section = passwords_section(s, sync);
+    let import_section = import_section(sync);
     let webapps_section = webapps_section(sync);
     let essentials_section = essentials_section(sync);
     let profiles_section = profiles_section(sync);
@@ -1442,7 +1496,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{profiles_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{import_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -2113,6 +2167,38 @@ mod tests {
         for (_, _, id) in SECTIONS.iter() {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
         }
+    }
+
+    #[test]
+    fn the_import_page_offers_each_browser_found_and_a_file() {
+        let view = Extras {
+            import: vec![("Chrome".into(), true), ("Fire<fox>".into(), false)],
+            ..Extras::default()
+        };
+        let html = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &view,
+        );
+        assert!(html.contains(r#"id="import""#));
+        for kind in ["all", "bookmarks", "history", "cookies"] {
+            for n in [0, 1] {
+                assert!(html.contains(&format!(r#"data-k="import.run" data-v="{n}:{kind}""#)));
+            }
+        }
+        // Chromium's passwords can be read; Firefox's come in an exported file.
+        assert!(html.contains(r#"data-v="0:passwords""#));
+        assert!(!html.contains(r#"data-v="1:passwords""#));
+        assert!(html.contains(r#"data-k="import.file""#));
+        assert!(html.contains("Fire&lt;fox&gt;") && !html.contains("Fire<fox>"));
+        let none = render(
+            &Settings::default(),
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(none.contains("No se ha encontrado ningún navegador"));
     }
 
     #[test]
