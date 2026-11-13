@@ -2983,6 +2983,8 @@ pub(crate) fn harden_settings(view: &WebView) {
         s.set_allow_universal_access_from_file_urls(false);
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
+        // Linux, always: WebKitGTK would say Macintosh to some sites.
+        s.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
     }
 }
 

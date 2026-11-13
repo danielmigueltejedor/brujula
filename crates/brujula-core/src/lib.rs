@@ -38,6 +38,7 @@ pub mod suggest;
 pub mod sync;
 pub mod tabs;
 pub mod totp;
+pub mod useragent;
 pub mod vault;
 pub mod webapps;
 pub mod welcome;

@@ -143,6 +143,7 @@ impl Browser {
         // Only the page's head is needed: no scripts, no media.
         settings.set_enable_javascript(false);
         settings.set_enable_media(false);
+        settings.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
         let view = WebView::builder()
             .network_session(&self.session)
             .settings(&settings)
