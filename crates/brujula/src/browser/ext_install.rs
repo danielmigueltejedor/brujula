@@ -28,6 +28,11 @@ struct Staged {
     source: &'static str,
 }
 
+/// Throws away an unpacked extension that was not installed.
+fn discard(dir: &Path) {
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 fn copy_tree(from: &Path, to: &Path, files: &mut usize, bytes: &mut u64) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
     for entry in std::fs::read_dir(from)
@@ -228,11 +233,11 @@ impl Browser {
             match result {
                 Ok(Ok(staged)) => this.confirm(staged),
                 Ok(Err(why)) => {
-                    let _ = std::fs::remove_dir_all(&staging);
+                    discard(&staging);
                     this.alert("No se pudo instalar la extensión", &why);
                 }
                 Err(_) => {
-                    let _ = std::fs::remove_dir_all(&staging);
+                    discard(&staging);
                     this.alert("No se pudo instalar la extensión", "Falló al leerla.");
                 }
             }
@@ -267,7 +272,7 @@ impl Browser {
                 if res.ok() == Some(1) {
                     this.commit(&staged);
                 } else {
-                    let _ = std::fs::remove_dir_all(&staged.dir);
+                    discard(&staged.dir);
                 }
             });
     }

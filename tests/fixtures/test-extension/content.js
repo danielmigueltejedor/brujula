@@ -1,5 +1,7 @@
 (async () => {
-  const log = (k, v) => fetch('http://127.0.0.1:8765/log?' + k + '=' + encodeURIComponent(v)).catch(() => {});
+  const log = (k, v) => {
+    fetch('http://127.0.0.1:8765/log?' + k + '=' + encodeURIComponent(v)).catch(() => {});
+  };
   document.title = document.title + ' [ext:' + chrome.i18n.getMessage('hello', ['mundo']) + ']';
   try {
     const r = await chrome.runtime.sendMessage({ kind: 'hi', from: 'content' });
@@ -16,4 +18,4 @@
   log('content_css', getComputedStyle(document.body).borderTopWidth + ' h1=' + getComputedStyle(document.querySelector('h1')).color + ' sheets=' + document.styleSheets.length);
   const s = await chrome.storage.local.get({ n: 0 });
   log('content_storage', JSON.stringify(s));
-})();
+})().catch((e) => console.error(e));

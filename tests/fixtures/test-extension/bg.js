@@ -1,4 +1,6 @@
-const log = (k, v) => fetch('http://127.0.0.1:8765/log?' + k + '=' + encodeURIComponent(v)).catch(() => {});
+const log = (k, v) => {
+  fetch('http://127.0.0.1:8765/log?' + k + '=' + encodeURIComponent(v)).catch(() => {});
+};
 log('bg_started', chrome.runtime.getManifest().name);
 chrome.runtime.onInstalled.addListener((d) => log('bg_installed', d.reason));
 chrome.runtime.onMessage.addListener((m, sender, send) => {
@@ -16,7 +18,7 @@ chrome.runtime.onMessage.addListener((m, sender, send) => {
         const x = await chrome.scripting.executeScript({ target: { tabId: sender.tab.id }, func: (a) => document.title + a, args: ['!'] });
         log('bg_script', JSON.stringify(x));
       }
-    });
+    }).catch((e) => log('bg_error', String(e)));
     return true;
   }
   if (m && m.kind === 'popup') { send({ fromBg: 'bien' }); }
