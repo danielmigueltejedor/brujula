@@ -36,6 +36,12 @@ pub struct PwState {
     busy: Cell<bool>,
     /// Sites already asked to unlock for, until the vault opens.
     asked: RefCell<HashSet<String>>,
+    /// The key is being read from the system keyring.
+    opening: Cell<bool>,
+    /// Who waits for that: told whether the vault opened.
+    waiting: RefCell<Vec<Done>>,
+    /// The user locked the vault by hand: the keyring does not open it again until the user asks.
+    hold: Cell<bool>,
 }
 
 type Done = Box<dyn FnOnce(bool)>;
@@ -81,6 +87,127 @@ impl Browser {
             &[],
             &[],
         ));
+        // With the key in the system keyring the vault is open soon after the browser starts.
+        let this = Rc::downgrade(self);
+        glib::timeout_add_seconds_local_once(1, move || {
+            if let Some(b) = this.upgrade() {
+                if Self::vault_exists() && b.pw.vault.borrow().is_none() {
+                    b.pw_auto_open(Box::new(|_| {}));
+                }
+            }
+        });
+    }
+
+    /// Whether the key of the vault is kept in (and read from) the system keyring.
+    fn keyring_on(&self) -> bool {
+        !self.private && self.settings.borrow().passwords_keyring
+    }
+
+    /// Opens the vault with the key in the system keyring, if there is one, with no question.
+    /// `done` hears whether it is open. Not tried when the user turned the keyring off, locked
+    /// the vault by hand or has no vault; the master password is the way in then.
+    fn pw_auto_open(self: &Rc<Self>, done: Done) {
+        if self.pw.vault.borrow().is_some() {
+            return done(true);
+        }
+        if !self.keyring_on() || self.pw.hold.get() || !Self::vault_exists() {
+            return done(false);
+        }
+        self.pw.waiting.borrow_mut().push(done);
+        if self.pw.opening.replace(true) {
+            return;
+        }
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let key = crate::keyring::lookup_vault_key().await;
+            this.pw.opening.set(false);
+            let opened = match key {
+                Some(key) => this.pw_open_with_key(&key).await,
+                None => false,
+            };
+            let waiting: Vec<Done> = this.pw.waiting.borrow_mut().drain(..).collect();
+            if opened {
+                this.redraw_settings();
+            }
+            for w in waiting {
+                w(opened);
+            }
+        });
+    }
+
+    /// Opens the vault file with `key`. A key that no longer fits (the master password was
+    /// changed elsewhere, the file was replaced) is forgotten, so the master password is asked
+    /// for once and a new key kept.
+    async fn pw_open_with_key(self: &Rc<Self>, key: &str) -> bool {
+        if self.pw.vault.borrow().is_some() {
+            return true;
+        }
+        // Read without blocking the window; the file is not changed by this.
+        let file = gio::File::for_path(paths::vault_file());
+        let Ok((bytes, _)) = file.load_contents_future().await else {
+            return false;
+        };
+        let Ok(text) = String::from_utf8(bytes.to_vec()) else {
+            return false;
+        };
+        match Vault::open_with_key(&text, key) {
+            Ok(v) => {
+                *self.pw.vault.borrow_mut() = Some(v);
+                self.pw.asked.borrow_mut().clear();
+                self.pw_touch();
+                true
+            }
+            Err(VaultError::Unlock) => {
+                let _ = crate::keyring::clear_vault_key().await;
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Keeps the key of the open vault in the system keyring (when the user wants that), so the
+    /// next start opens it without the master password.
+    fn pw_remember_key(self: &Rc<Self>) {
+        if !self.keyring_on() {
+            return;
+        }
+        let Some(key) = self.pw.vault.borrow().as_ref().map(|v| v.export_key()) else {
+            return;
+        };
+        glib::spawn_future_local(async move {
+            if let Err(why) = crate::keyring::store_vault_key(&key).await {
+                eprintln!("brujula: the password key was not kept in the keyring: {why}");
+            }
+        });
+    }
+
+    /// The user turned "unlock with the login" on or off: the key goes into the keyring (if the
+    /// vault is open), or out of it.
+    pub(super) fn pw_keyring_changed(self: &Rc<Self>) {
+        if self.private {
+            return;
+        }
+        if self.keyring_on() {
+            self.pw_remember_key();
+        } else {
+            glib::spawn_future_local(async {
+                let _ = crate::keyring::clear_vault_key().await;
+            });
+        }
+    }
+
+    /// Opens the vault without a question if the keyring can, and asks for the master password
+    /// if it cannot.
+    fn pw_unlock_any(self: &Rc<Self>, done: Done) {
+        let this = self.clone();
+        self.pw_auto_open(Box::new(move |opened| {
+            if opened {
+                this.pw_touch();
+                done(true);
+            } else {
+                this.pw_unlock(done);
+            }
+        }));
     }
 
     fn vault_exists() -> bool {
@@ -151,8 +278,8 @@ impl Browser {
     }
 
     /// The saved users for a page (only those with one-time codes when `only_totp`), never their
-    /// passwords. A closed vault is asked to open once
-    /// per site, when the user touches a login field.
+    /// passwords. A closed vault is opened with the key of the system keyring; if that cannot,
+    /// it is asked to open once per site, when the user touches a login field.
     fn pw_list(
         self: &Rc<Self>,
         href: &str,
@@ -160,26 +287,50 @@ impl Browser {
         only_totp: bool,
         done: Box<dyn FnOnce(Value)>,
     ) {
-        let list = move |b: &Browser, href: &str| {
-            let g = b.pw.vault.borrow();
-            let logins: Vec<Value> = g
-                .as_ref()
-                .map(|v| {
-                    v.for_page(href)
-                        .iter()
-                        .filter(|l| !only_totp || !l.totp.is_empty())
-                        .map(|l| json!({"id": l.id, "u": l.username}))
-                        .collect()
-                })
-                .unwrap_or_default();
-            json!({ "logins": logins })
-        };
         if self.pw.vault.borrow().is_some() {
             self.pw_touch();
-            return done(list(self, href));
+            return done(self.login_list(href, only_totp));
         }
-        if !Self::vault_exists() || self.pw.busy.get() || !self.pw.asked.borrow_mut().insert(origin)
-        {
+        if !Self::vault_exists() {
+            return done(json!({}));
+        }
+        let this = self.clone();
+        let href = href.to_owned();
+        self.pw_auto_open(Box::new(move |opened| {
+            if opened {
+                this.pw_touch();
+                done(this.login_list(&href, only_totp));
+            } else {
+                this.pw_list_ask(&href, origin, only_totp, done);
+            }
+        }));
+    }
+
+    /// The users saved for `href`, as the page script takes them.
+    fn login_list(&self, href: &str, only_totp: bool) -> Value {
+        let g = self.pw.vault.borrow();
+        let logins: Vec<Value> = g
+            .as_ref()
+            .map(|v| {
+                v.for_page(href)
+                    .iter()
+                    .filter(|l| !only_totp || !l.totp.is_empty())
+                    .map(|l| json!({"id": l.id, "u": l.username}))
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({ "logins": logins })
+    }
+
+    /// The vault could not open by itself: ask for the master password, once per site.
+    fn pw_list_ask(
+        self: &Rc<Self>,
+        href: &str,
+        origin: String,
+        only_totp: bool,
+        done: Box<dyn FnOnce(Value)>,
+    ) {
+        if self.pw.busy.get() || !self.pw.asked.borrow_mut().insert(origin) {
             return done(json!({}));
         }
         self.pw.busy.set(true);
@@ -187,7 +338,11 @@ impl Browser {
         let href = href.to_owned();
         self.pw_unlock(Box::new(move |ok| {
             this.pw.busy.set(false);
-            done(if ok { list(&this, &href) } else { json!({}) });
+            done(if ok {
+                this.login_list(&href, only_totp)
+            } else {
+                json!({})
+            });
         }));
     }
 
@@ -221,7 +376,11 @@ impl Browser {
             host_of(href)
         );
         let detail = if Self::vault_exists() {
-            "Se guarda cifrada con tu contraseña maestra."
+            if self.keyring_on() {
+                "Se guarda cifrada; Brújula la desbloquea con el llavero del sistema."
+            } else {
+                "Se guarda cifrada con tu contraseña maestra."
+            }
         } else {
             "Se guarda cifrada con una contraseña maestra que vas a crear ahora."
         };
@@ -310,7 +469,7 @@ impl Browser {
             self.pw_touch();
             then(true);
         } else if Self::vault_exists() {
-            self.pw_unlock(then);
+            self.pw_unlock_any(then);
         } else {
             self.pw_create(then);
         }
@@ -331,7 +490,11 @@ impl Browser {
     fn pw_create(self: &Rc<Self>, done: Done) {
         self.ask_master(
             "Crea la contraseña maestra",
-            "Protege todas tus contraseñas guardadas. Si la olvidas no se puede recuperar. Mínimo 8 caracteres.",
+            if self.keyring_on() {
+                "Cifra todas tus contraseñas guardadas. Brújula guarda la clave en el llavero del sistema y las desbloquea sola al iniciar sesión; la maestra solo hace falta si el llavero no tiene la clave. Si la olvidas no se puede recuperar. Mínimo 8 caracteres."
+            } else {
+                "Protege todas tus contraseñas guardadas. Si la olvidas no se puede recuperar. Mínimo 8 caracteres."
+            },
             true,
             Box::new(|b, master| {
                 let vault = Vault::create(master).map_err(|e| e.to_string())?;
@@ -340,7 +503,9 @@ impl Browser {
                 }
                 *b.pw.vault.borrow_mut() = Some(vault);
                 b.pw.asked.borrow_mut().clear();
+                b.pw.hold.set(false);
                 b.pw_touch();
+                b.pw_remember_key();
                 Ok(())
             }),
             done,
@@ -359,7 +524,9 @@ impl Browser {
                     Ok(v) => {
                         *b.pw.vault.borrow_mut() = Some(v);
                         b.pw.asked.borrow_mut().clear();
+                        b.pw.hold.set(false);
                         b.pw_touch();
+                        b.pw_remember_key();
                         Ok(())
                     }
                     Err(VaultError::Unlock) => Err("Contraseña incorrecta.".to_owned()),
@@ -387,7 +554,10 @@ impl Browser {
                     v.seal()
                 };
                 paths::write_private(&paths::vault_file(), &text)
-                    .map_err(|_| "No se pudo guardar el archivo.".to_owned())
+                    .map_err(|_| "No se pudo guardar el archivo.".to_owned())?;
+                // The key changed with the password: the keyring gets the new one.
+                b.pw_remember_key();
+                Ok(())
             }),
             Box::new(move |_| this.pw.busy.set(false)),
         );
@@ -572,9 +742,14 @@ impl Browser {
                     && self.pw.vault.borrow().is_none()
                     && !self.pw.busy.replace(true) =>
             {
-                self.pw_unlock(redraw(self));
+                self.pw.hold.set(false);
+                self.pw_unlock_any(redraw(self));
             }
-            "lock" => self.pw_lock(),
+            "lock" => {
+                // Locked by hand: it stays locked until the user opens it again.
+                self.pw.hold.set(true);
+                self.pw_lock();
+            }
             "change" => self.pw_change_master(),
             "wipe" => self.pw_wipe(),
             "copy" => self.pw_copy(value),
@@ -629,6 +804,9 @@ impl Browser {
                 if choice == "wipe" {
                     let _ = std::fs::remove_file(paths::vault_file());
                     this.pw_lock();
+                    glib::spawn_future_local(async {
+                        let _ = crate::keyring::clear_vault_key().await;
+                    });
                     this.redraw_settings();
                 }
             },

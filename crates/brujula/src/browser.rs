@@ -2495,6 +2495,9 @@ impl Browser {
         if effect.sync || effect.sync_now {
             self.sync_round();
         }
+        if key == "passwords_keyring" {
+            self.pw_keyring_changed();
+        }
         if key == "engine" || effect.appearance {
             // The new-tab pages still open show the old engine, theme or accent.
             self.refresh_newtabs();

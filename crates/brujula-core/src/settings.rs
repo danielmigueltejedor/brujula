@@ -295,6 +295,9 @@ pub struct Settings {
     pub history_enabled: bool,
     /// Offer to save the passwords typed in pages, and fill them in (never in a private window).
     pub passwords_enabled: bool,
+    /// Keep the key of the password vault in the system keyring, so it opens at login without
+    /// asking for the master password. The file stays encrypted on disk.
+    pub passwords_keyring: bool,
     /// Answer the pages that ask for a passkey, with the phone as the authenticator (a QR code).
     pub passkeys_enabled: bool,
     /// The welcome page has been gone through. True for settings saved before it existed; a
@@ -351,6 +354,7 @@ impl Default for Settings {
             https_first: true,
             history_enabled: true,
             passwords_enabled: true,
+            passwords_keyring: true,
             passkeys_enabled: true,
             welcome_done: true,
             update_check: true,
