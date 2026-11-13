@@ -115,6 +115,13 @@ impl Browser {
             history,
             history_total,
             vault: self.vault_view(),
+            essentials: self
+                .essentials
+                .borrow()
+                .items()
+                .iter()
+                .map(|e| (e.id, e.name.clone(), e.url.clone()))
+                .collect(),
             webapps: crate::webapp::registry()
                 .items()
                 .iter()

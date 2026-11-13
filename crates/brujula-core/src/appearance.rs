@@ -87,10 +87,14 @@ pub fn css(a: &Appearance) -> String {
         // (or part of the frame) and the page is another one under it.
         css.push_str(&format!(
             "ndl-overlay-split-view.collapsed.brujula-horizontal > .ndl-content-pane {{ margin: 0; border-radius: 0; background-color: transparent; box-shadow: none; }}\n\
-             .brujula-horizontal .brujula-page {{ margin: 0 {g}px {g}px {g}px; border-radius: {r}px; overflow: hidden; background-color: var(--ndl-color-surface-panel); }}\n",
+             .brujula-horizontal .brujula-page {{ margin: 0 {g}px {g}px {g}px; border-radius: {r}px; overflow: hidden; background-color: var(--ndl-color-surface-panel); }}\n\
+             .brujula-horizontal .brujula-rail {{ margin: 0 0 {g}px {g}px; border-radius: {r}px; background-color: alpha(var(--ndl-color-surface-panel), {opacity:.2}); }}\n",
             g = a.gap,
             r = a.radius,
         ));
+        if a.layout == Layout::Frame {
+            css.push_str("window.brujula-frame .brujula-rail { background-color: transparent; }\n");
+        }
     }
     css
 }

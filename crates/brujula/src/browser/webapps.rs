@@ -39,12 +39,7 @@ impl Browser {
     }
 
     fn webapp_alert(&self, message: &str, detail: &str) {
-        gtk::AlertDialog::builder()
-            .message(message)
-            .detail(detail)
-            .buttons(["Entendido"])
-            .build()
-            .show(Some(&self.window));
+        dialogs::notice(&self.window, message, detail);
     }
 
     /// Adds the app to the list, writes its launcher, and offers to open it.
@@ -73,18 +68,22 @@ impl Browser {
         }
         self.redraw_settings();
         let id = app.id.clone();
-        gtk::AlertDialog::builder()
-            .message(format!("«{}» está lista", app.name))
-            .detail("Búscala por su nombre en el lanzador de aplicaciones.")
-            .buttons(["Cerrar", "Abrir ahora"])
-            .cancel_button(0)
-            .default_button(1)
-            .build()
-            .choose(Some(&self.window), gio::Cancellable::NONE, move |res| {
-                if res.ok() == Some(1) {
+        dialogs::ask(
+            &self.window,
+            &format!("«{}» está lista", app.name),
+            "Búscala por su nombre en el lanzador de aplicaciones.",
+            &[
+                dialogs::Choice::plain("close", "Cerrar"),
+                dialogs::Choice::suggested("open", "Abrir ahora"),
+            ],
+            "open",
+            "close",
+            move |choice| {
+                if choice == "open" {
                     webapp::launch(&id);
                 }
-            });
+            },
+        );
     }
 
     /// One of the `webapp.*` changes of the preferences page.
@@ -109,7 +108,7 @@ impl Browser {
         }
     }
 
-    /// A small window that asks for a line of text.
+    /// A dialog that asks for a line of text.
     fn ask_text(
         self: &Rc<Self>,
         title: &str,
@@ -118,75 +117,19 @@ impl Browser {
         ok_label: &str,
         done: Box<dyn FnOnce(String)>,
     ) {
-        let win = gtk::Window::builder()
-            .transient_for(&self.window)
-            .modal(true)
-            .resizable(false)
-            .default_width(420)
-            .title(title)
-            .build();
-        let col = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        for set in [
-            gtk::Widget::set_margin_top,
-            gtk::Widget::set_margin_bottom,
-            gtk::Widget::set_margin_start,
-            gtk::Widget::set_margin_end,
-        ] {
-            set(col.upcast_ref(), 20);
-        }
-        col.append(
-            &gtk::Label::builder()
-                .label(title)
-                .css_classes(["title-3"])
-                .xalign(0.0)
-                .build(),
-        );
-        col.append(
-            &gtk::Label::builder()
-                .label(detail)
-                .wrap(true)
-                .xalign(0.0)
-                .build(),
-        );
-        let entry = gtk::Entry::builder().text(initial).max_length(40).build();
-        col.append(&entry);
-        let cancel = gtk::Button::with_label("Cancelar");
-        let ok = gtk::Button::builder()
-            .label(ok_label)
-            .css_classes(["suggested-action"])
-            .build();
-        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        buttons.set_halign(gtk::Align::End);
-        buttons.append(&cancel);
-        buttons.append(&ok);
-        col.append(&buttons);
-        win.set_child(Some(&col));
-
-        let done = Rc::new(RefCell::new(Some(done)));
-        let accept = {
-            let (win, entry, done) = (win.clone(), entry.clone(), done.clone());
-            Rc::new(move || {
-                let text = entry.text().to_string();
-                let d = done.borrow_mut().take();
-                win.close();
-                if let Some(d) = d {
+        let done = RefCell::new(Some(done));
+        dialogs::ask_text(
+            &self.window,
+            title,
+            detail,
+            initial,
+            ok_label,
+            40,
+            move |text| {
+                if let Some(d) = done.borrow_mut().take() {
                     d(text);
                 }
-            })
-        };
-        {
-            let accept = accept.clone();
-            ok.connect_clicked(move |_| accept());
-        }
-        {
-            let accept = accept.clone();
-            entry.connect_activate(move |_| accept());
-        }
-        {
-            let win = win.clone();
-            cancel.connect_clicked(move |_| win.close());
-        }
-        win.present();
-        entry.grab_focus();
+            },
+        );
     }
 }

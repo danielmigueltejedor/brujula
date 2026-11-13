@@ -10,6 +10,7 @@ pub mod boosts;
 pub mod cloud;
 pub mod downloads;
 pub mod edge;
+pub mod essentials;
 pub mod ext;
 pub mod folders;
 pub mod history;

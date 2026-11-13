@@ -288,11 +288,12 @@ pub fn render(page: &Page) -> String {
 <title>{title}</title>
 <style>{css}</style></head>
 <body style="--accent:{accent}"><main>
-<header><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="3"/><path d="M32 12l8 20-8 20-8-20z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M32 12l8 20h-16z" fill="currentColor"/></svg>
+<header>{mascot}
 <h1>{greeting}</h1></header>
 {body}
 </main></body></html>
 "#,
+        mascot = MASCOT,
         lang = escape(if page.lang.is_empty() {
             "en"
         } else {
@@ -359,6 +360,9 @@ pub fn parse_set_engine(uri: &str) -> Option<&'static Engine> {
     search::by_id(uri.strip_prefix(SET_ENGINE_PREFIX)?.trim_end_matches('/'))
 }
 
+/// The browser's mascot, a navigator in a cap with a compass on it (see `mascot.svg`).
+const MASCOT: &str = include_str!("mascot.svg");
+
 const CSS: &str = r#"
 :root{color-scheme:light dark;--bg:#f5f6f8;--fg:#12161a;--muted:#617079;--card:#fff;--line:#e3e7ec;--chip:#edf0f3;--shadow:0 1px 2px rgba(16,24,40,.05),0 12px 32px -14px rgba(16,24,40,.18)}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6)}}
@@ -369,7 +373,13 @@ html,body{min-height:100%;margin:0}
 body{font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 15%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 main{width:min(40rem,calc(100% - 3rem));margin:0 auto;padding:15vh 0 4rem}
 header{text-align:center;margin-bottom:2rem}
-.mark{width:2.6rem;height:2.6rem;color:var(--accent)}
+header h1{margin-top:.4rem}
+.mascot{width:6.4rem;height:6.4rem;overflow:visible}
+.mascot .bob{animation:bob 5s ease-in-out infinite;transform-origin:60px 120px}
+.mascot .eyes{animation:blink 6s infinite;transform-origin:60px 63px;transform-box:view-box}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}96.5%{transform:scaleY(.1)}}
+@media (prefers-reduced-motion:reduce){.mascot .bob,.mascot .eyes{animation:none}}
 h1{font-size:1.9rem;font-weight:500;letter-spacing:-.03em;margin:.6rem 0 0;color:var(--fg)}
 h2{font-size:.75rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 .8rem;text-align:center}
 section{margin-top:2.6rem}

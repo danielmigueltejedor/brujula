@@ -476,6 +476,8 @@ pub struct Extras {
     pub vault: VaultView,
     /// The web apps: id, name and address.
     pub webapps: Vec<(String, String, String)>,
+    /// The essentials: id, name and address.
+    pub essentials: Vec<(u32, String, String)>,
 }
 
 /// What the preferences page shows of the password vault. Never a password.
@@ -534,6 +536,13 @@ const PAGES: &[(&str, &str, &str, &str, &str)] = &[
         "Espacios",
         "Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.",
         "workspace",
+    ),
+    (
+        "essentials",
+        "Esenciales",
+        "Esenciales",
+        "Los sitios que abres a todas horas, como iconos en la barra lateral y en todos los espacios. Un clic los abre o vuelve a su pestaña.",
+        "pin",
     ),
     (
         "bookmarks",
@@ -777,6 +786,56 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "passwords",
         &format!("{switch_row}{state}{logins}{empty}{never}"),
     )
+}
+
+/// The essentials: the ones there are, a form for another, and the usual sites to pick from.
+fn essentials_section(view: &Extras) -> String {
+    use crate::essentials::{MAX_ESSENTIALS, SUGGESTED};
+    let have: Vec<String> = view.essentials.iter().map(|(_, _, u)| u.clone()).collect();
+    let items: String = view
+        .essentials
+        .iter()
+        .map(|(id, name, url)| {
+            format!(
+                r#"<div class="row"><div class="what"><b>{}</b><p>{}</p></div><div class="ctl"><button type="button" class="seg plain" data-k="essential.up" data-v="{id}" data-redraw="1">Subir</button><button type="button" class="seg plain" data-k="essential.down" data-v="{id}" data-redraw="1">Bajar</button><button type="button" class="seg plain danger" data-k="essential.remove" data-v="{id}" data-remove="1">Quitar</button></div></div>"#,
+                escape(name),
+                escape(url),
+            )
+        })
+        .collect();
+    let empty = if view.essentials.is_empty() {
+        r#"<p class="empty">Todavía no hay esenciales.</p>"#
+    } else {
+        ""
+    };
+    let full = view.essentials.len() >= MAX_ESSENTIALS;
+    let add = if full {
+        stacked(
+            "Añadir un esencial",
+            &format!("Ya hay {MAX_ESSENTIALS}, el máximo. Quita alguno para añadir otro."),
+            "",
+        )
+    } else {
+        let picks: String = SUGGESTED
+            .iter()
+            .filter(|s| !have.iter().any(|u| u.trim_end_matches('/') == s.url.trim_end_matches('/')))
+            .map(|s| {
+                format!(
+                    r#"<button type="button" class="seg plain" data-k="essential.suggest" data-v="{}" data-redraw="1">{}</button>"#,
+                    escape(s.url),
+                    escape(s.name),
+                )
+            })
+            .collect();
+        stacked(
+            "Añadir un esencial",
+            "Elige uno de los habituales o escribe la dirección de cualquier sitio. También desde el menú de una pestaña, con «Añadir a esenciales».",
+            &format!(
+                r#"<div class="addrow">{picks}</div><div class="addrow"><input type="text" id="essential-name" class="field" placeholder="Nombre (opcional)" maxlength="24" aria-label="Nombre"><input type="text" id="essential-url" class="field wide" placeholder="https://…" maxlength="2048" aria-label="Dirección"><button type="button" class="seg plain" data-addessential="1">Añadir</button></div>"#
+            ),
+        )
+    };
+    section("essentials", &format!("{items}{empty}{add}"))
 }
 
 /// The web apps: a form to make one, and the ones that exist.
@@ -1272,6 +1331,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     let history_section = history_section(s, sync);
     let passwords_section = passwords_section(s, sync);
     let webapps_section = webapps_section(sync);
+    let essentials_section = essentials_section(sync);
     let extensions_section = extensions_section(sync);
     let security = section(
         "security",
@@ -1323,7 +1383,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
-<main>{general}{appearance}{layout_section}{spaces_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
+<main>{general}{appearance}{layout_section}{spaces_section}{essentials_section}{bookmarks_section}{history_section}{passwords_section}{webapps_section}{boosts_section}{extensions_section}{archive_section}{sync_section}{privacy}{sites}{security}{about}</main>
 </div>
 <script>{js}</script>
 </body></html>
@@ -1381,6 +1441,11 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
         "Ventana privada",
         "privado privada incógnito incognito sin rastro navegación",
         "history",
+    ),
+    (
+        "Esenciales",
+        "esenciales fijos iconos barra lateral atajos sitios rápidos",
+        "essentials",
     ),
     (
         "Aplicaciones web",
@@ -1546,6 +1611,8 @@ document.addEventListener('click',e=>{
   if(nav){e.preventDefault();const t=document.querySelector(nav.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});return}
   const add=e.target.closest('[data-addboost]');
   if(add){const h=document.getElementById('boost-host');if(h&&h.value.trim())send('boost.add',h.value.trim());return}
+  const es=e.target.closest('[data-addessential]');
+  if(es){const u=document.getElementById('essential-url'),n=document.getElementById('essential-name');if(u&&u.value.trim()){send('essential.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const wa=e.target.closest('[data-addwebapp]');
   if(wa){const u=document.getElementById('webapp-url'),n=document.getElementById('webapp-name');if(u&&u.value.trim()){send('webapp.add',u.value.trim()+'\n'+(n?n.value.trim():''));u.value='';if(n)n.value=''}return}
   const ext=e.target.closest('[data-addext]');
@@ -2066,5 +2133,22 @@ mod tests {
         let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
         assert!(html.contains(r#"data-k="webapp.open" data-v="mi-correo""#));
         assert!(html.contains("Mi &lt;correo&gt;"));
+    }
+
+    #[test]
+    fn the_essentials_page_lists_them_and_offers_the_usual_sites() {
+        let s = Settings::default();
+        let mut extras = Extras::default();
+        let empty = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(empty.contains(r#"data-addessential="1""#));
+        assert!(empty.contains(r#"data-k="essential.suggest" data-v="https://www.youtube.com/""#));
+        extras.essentials = vec![(3, "Tu <vídeo>".into(), "https://www.youtube.com/".into())];
+        let html = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(html.contains(r#"data-k="essential.remove" data-v="3""#));
+        assert!(html.contains("Tu &lt;vídeo&gt;"));
+        assert!(
+            !html.contains(r#"data-k="essential.suggest" data-v="https://www.youtube.com/""#),
+            "a site that is an essential is not offered again"
+        );
     }
 }

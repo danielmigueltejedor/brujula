@@ -122,12 +122,7 @@ impl Browser {
     }
 
     fn alert(&self, message: &str, detail: &str) {
-        gtk::AlertDialog::builder()
-            .message(message)
-            .detail(detail)
-            .buttons(["Entendido"])
-            .build()
-            .show(Some(&self.window));
+        dialogs::notice(&self.window, message, detail);
     }
 
     fn show_extensions_page(self: &Rc<Self>) {
@@ -259,22 +254,26 @@ impl Browser {
             staged.version
         );
         let this = self.clone();
-        gtk::AlertDialog::builder()
-            .message(message)
-            .detail(format!(
+        dialogs::ask(
+            &self.window,
+            &message,
+            &format!(
                 "{can}\n\nInstala solo extensiones en las que confíes: pueden ver lo que haces en las páginas a las que tienen acceso."
-            ))
-            .buttons(["Cancelar", "Instalar"])
-            .cancel_button(0)
-            .default_button(0)
-            .build()
-            .choose(Some(&self.window), gio::Cancellable::NONE, move |res| {
-                if res.ok() == Some(1) {
+            ),
+            &[
+                dialogs::Choice::plain("cancel", "Cancelar"),
+                dialogs::Choice::suggested("install", "Instalar"),
+            ],
+            "cancel",
+            "cancel",
+            move |choice| {
+                if choice == "install" {
                     this.commit(&staged);
                 } else {
                     discard(&staged.dir);
                 }
-            });
+            },
+        );
     }
 
     fn commit(self: &Rc<Self>, staged: &Staged) {

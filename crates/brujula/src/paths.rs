@@ -40,6 +40,10 @@ pub fn vault_file() -> PathBuf {
     data_dir().join("passwords.vault")
 }
 
+pub fn essentials_file() -> PathBuf {
+    data_dir().join("essentials.json")
+}
+
 pub fn webapps_file() -> PathBuf {
     data_dir().join("webapps.json")
 }

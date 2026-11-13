@@ -1,9 +1,11 @@
 mod browser;
+mod dialogs;
 mod favicons;
 mod filters;
 mod icons;
 mod paths;
 mod spotlight;
+mod tile;
 mod webapp;
 
 use gtk::prelude::*;
