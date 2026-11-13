@@ -1,5 +1,5 @@
-//! The assistant's API keys, kept in the system keyring (GNOME Keyring, KWallet or any other
-//! Secret Service) through `secret-tool`. A key is never written to a file of Brújula, never
+//! The assistant's API keys and the key of the password vault, kept in the system keyring (GNOME
+//! Keyring, KWallet or any other Secret Service) through `secret-tool`. A key is never written to a file of Brújula, never
 //! put in an address and never printed: it goes to the keyring through the standard input of
 //! `secret-tool`, so it is not in the process list either, and is read back only for the moment
 //! a request needs it.
@@ -18,6 +18,18 @@ fn attributes(provider: &str) -> Vec<String> {
         "ai-key".to_owned(),
         "provider".to_owned(),
         provider.to_owned(),
+        "profile".to_owned(),
+        crate::paths::profile().to_owned(),
+    ]
+}
+
+/// What the vault key is filed under: this profile's, never the file's contents.
+fn vault_attributes() -> Vec<String> {
+    vec![
+        "service".to_owned(),
+        "brujula".to_owned(),
+        "kind".to_owned(),
+        "vault-key".to_owned(),
         "profile".to_owned(),
         crate::paths::profile().to_owned(),
     ]
@@ -57,10 +69,9 @@ async fn run(args: Vec<String>, input: Option<&str>) -> Result<(bool, Zeroizing<
     ))
 }
 
-/// Keeps `key` for `provider`, replacing the one there was.
-pub async fn store(provider: &str, label: &str, key: &str) -> Result<(), String> {
+async fn store_with(attrs: Vec<String>, label: &str, key: &str) -> Result<(), String> {
     let mut args = vec!["store".to_owned(), format!("--label={label}")];
-    args.extend(attributes(provider));
+    args.extend(attrs);
     let (ok, _) = run(args, Some(key)).await?;
     if ok {
         Ok(())
@@ -69,10 +80,9 @@ pub async fn store(provider: &str, label: &str, key: &str) -> Result<(), String>
     }
 }
 
-/// The key of `provider`, if there is one.
-pub async fn lookup(provider: &str) -> Option<Zeroizing<String>> {
+async fn lookup_with(attrs: Vec<String>) -> Option<Zeroizing<String>> {
     let mut args = vec!["lookup".to_owned()];
-    args.extend(attributes(provider));
+    args.extend(attrs);
     let (ok, out) = run(args, None).await.ok()?;
     if !ok {
         return None;
@@ -81,11 +91,40 @@ pub async fn lookup(provider: &str) -> Option<Zeroizing<String>> {
     clean_key(key)
 }
 
+async fn clear_with(attrs: Vec<String>) -> Result<(), String> {
+    let mut args = vec!["clear".to_owned()];
+    args.extend(attrs);
+    run(args, None).await.map(|_| ())
+}
+
+/// Keeps `key` for `provider`, replacing the one there was.
+pub async fn store(provider: &str, label: &str, key: &str) -> Result<(), String> {
+    store_with(attributes(provider), label, key).await
+}
+
+/// The key of `provider`, if there is one.
+pub async fn lookup(provider: &str) -> Option<Zeroizing<String>> {
+    lookup_with(attributes(provider)).await
+}
+
 /// Forgets the key of `provider`.
 pub async fn clear(provider: &str) -> Result<(), String> {
-    let mut args = vec!["clear".to_owned()];
-    args.extend(attributes(provider));
-    run(args, None).await.map(|_| ())
+    clear_with(attributes(provider)).await
+}
+
+/// Keeps the key of the password vault of this profile, replacing the one there was.
+pub async fn store_vault_key(key: &str) -> Result<(), String> {
+    store_with(vault_attributes(), "Brújula: clave de las contraseñas", key).await
+}
+
+/// The key of the password vault of this profile, if the keyring has one.
+pub async fn lookup_vault_key() -> Option<Zeroizing<String>> {
+    lookup_with(vault_attributes()).await
+}
+
+/// Forgets the key of the password vault of this profile.
+pub async fn clear_vault_key() -> Result<(), String> {
+    clear_with(vault_attributes()).await
 }
 
 #[cfg(test)]
@@ -101,6 +140,17 @@ mod tests {
         assert!(clean_key("clave\u{7}").is_none());
         assert!(clean_key("clavé").is_none());
         assert!(clean_key(&"k".repeat(MAX_KEY + 1)).is_none());
+    }
+
+    #[test]
+    fn the_vault_key_is_filed_by_profile_and_is_not_an_ai_key() {
+        let a = vault_attributes();
+        assert_eq!(a.len() % 2, 0);
+        assert!(a.contains(&"vault-key".to_owned()) && a.contains(&"profile".to_owned()));
+        assert!(!a.contains(&"ai-key".to_owned()));
+        // What the vault gives as its key is one printable word, as the keyring needs.
+        let k = brujula_core::vault::Vault::create("correct horse").unwrap();
+        assert!(clean_key(&k.export_key()).is_some());
     }
 
     #[test]

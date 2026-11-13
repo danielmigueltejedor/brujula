@@ -233,6 +233,9 @@ impl Settings {
             "passwords_enabled" => {
                 self.passwords_enabled = flag(value)?;
             }
+            "passwords_keyring" => {
+                self.passwords_keyring = flag(value)?;
+            }
             "passkeys_enabled" => {
                 self.passkeys_enabled = flag(value)?;
             }
@@ -698,6 +701,11 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
         "Brújula pregunta antes de guardar una y solo la rellena en el sitio exacto donde se guardó, cuando tú tocas el campo.",
         &switch("passwords_enabled", s.passwords_enabled),
     );
+    let keyring_row = row(
+        "Desbloquear con el inicio de sesión",
+        "La clave de cifrado se guarda en el llavero del sistema, que se abre al iniciar sesión en el equipo: Brújula rellena las contraseñas sin pedirte la maestra. El archivo sigue cifrado en el disco, así que quien lo copie no puede leerlo. Desactívalo para escribir la maestra cada vez.",
+        &switch("passwords_keyring", s.passwords_keyring),
+    );
     let passkeys_row = row(
         "Llaves de acceso con el teléfono",
         "Cuando un sitio te deja entrar con una llave de acceso, Brújula muestra un código QR: lo escaneas con el teléfono, que está cerca (hace falta Bluetooth), y confirmas allí. La llave no sale del teléfono.",
@@ -712,13 +720,21 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
     } else if !v.open {
         row(
             "Bloqueadas",
-            "Se piden la contraseña maestra para verlas o rellenarlas.",
+            if s.passwords_keyring {
+                "Brújula las desbloquea con el llavero del sistema; si no puede, te pide la contraseña maestra."
+            } else {
+                "Se pide la contraseña maestra para verlas o rellenarlas."
+            },
             r#"<button type="button" class="seg plain" data-k="pw.unlock" data-v="1">Desbloquear…</button><button type="button" class="seg plain danger" data-k="pw.wipe" data-v="1">Borrar…</button>"#,
         )
     } else {
         row(
             "Desbloqueadas",
-            "Se bloquean solas tras unos minutos sin usarlas y al cerrar la ventana.",
+            if s.passwords_keyring {
+                "Se bloquean tras unos minutos sin usarlas y al cerrar la ventana, y se vuelven a abrir solas con el llavero del sistema."
+            } else {
+                "Se bloquean solas tras unos minutos sin usarlas y al cerrar la ventana."
+            },
             r#"<button type="button" class="seg plain" data-k="pw.lock" data-v="1" data-redraw="1">Bloquear</button><button type="button" class="seg plain" data-k="pw.change" data-v="1">Cambiar maestra…</button><button type="button" class="seg plain danger" data-k="pw.wipe" data-v="1">Borrar…</button>"#,
         )
     };
@@ -762,7 +778,7 @@ fn passwords_section(s: &Settings, view: &Extras) -> String {
     };
     section(
         "passwords",
-        &format!("{switch_row}{passkeys_row}{state}{logins}{empty}{never}"),
+        &format!("{switch_row}{keyring_row}{passkeys_row}{state}{logins}{empty}{never}"),
     )
 }
 
@@ -2492,6 +2508,25 @@ mod tests {
         let mut s = s;
         s.apply("passwords_enabled", "0").unwrap();
         assert!(!s.passwords_enabled);
+    }
+
+    #[test]
+    fn the_vault_opens_with_the_keyring_unless_the_user_turns_it_off() {
+        let mut s = Settings::default();
+        assert!(s.passwords_keyring);
+        let page = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(page.contains(r#"data-k="passwords_keyring""#));
+        s.apply("passwords_keyring", "0").unwrap();
+        assert!(!s.passwords_keyring);
+        assert!(s.apply("passwords_keyring", "quizá").is_err());
+        // Settings saved before the keyring existed get it on.
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(old.passwords_keyring);
     }
 
     #[test]

@@ -5,6 +5,9 @@
 //! - The text is sealed with XChaCha20-Poly1305 under a fresh random nonce each time it is
 //!   written, so a file never repeats a nonce and a changed byte fails the open.
 //! - Key, master password and every password are wiped from memory when they are dropped.
+//! - The key can also be kept by the system keyring (see [`Vault::export_key`]): the browser then
+//!   opens the file at login without asking for the master password. The file stays sealed on
+//!   disk either way; the master password remains the way in when the keyring has no key.
 //! - A login is saved and filled only for one origin: `https://host` (or `http://` for a local
 //!   address), never for a sibling subdomain or another scheme.
 
@@ -91,6 +94,16 @@ struct File {
     data: String,
 }
 
+/// A vault file read and checked, not yet decrypted.
+struct Parsed {
+    memory: u32,
+    passes: u32,
+    lanes: u32,
+    salt: [u8; 16],
+    nonce: Vec<u8>,
+    data: Vec<u8>,
+}
+
 /// An unlocked vault: the logins, and the key to write them back.
 pub struct Vault {
     contents: Contents,
@@ -166,6 +179,31 @@ impl Vault {
 
     /// Opens a vault file with its master password.
     pub fn open(text: &str, master: &str) -> Result<Self, VaultError> {
+        let file = Self::parse(text)?;
+        let key = derive(master, &file.salt, file.memory, file.passes, file.lanes)?;
+        Self::unseal(file, key)
+    }
+
+    /// Opens a vault file with the key [`Vault::export_key`] gave, without the master password.
+    /// A key that is not this file's (the password was changed, the file was replaced) is
+    /// `Unlock`, as a wrong master password is.
+    pub fn open_with_key(text: &str, key: &str) -> Result<Self, VaultError> {
+        let file = Self::parse(text)?;
+        let bytes = B64
+            .decode(key.trim())
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok())
+            .ok_or(VaultError::Unlock)?;
+        Self::unseal(file, Zeroizing::new(bytes))
+    }
+
+    /// The key that seals this vault, as text for the system keyring. It opens this file as it is
+    /// now; it stops working when the master password is changed (a new key is made then).
+    pub fn export_key(&self) -> Zeroizing<String> {
+        Zeroizing::new(B64.encode(*self.key))
+    }
+
+    fn parse(text: &str) -> Result<Parsed, VaultError> {
         let file: File = serde_json::from_str(text).map_err(|_| VaultError::Format)?;
         if file.v != FORMAT {
             return Err(VaultError::Format);
@@ -180,11 +218,21 @@ impl Vault {
             return Err(VaultError::Format);
         }
         let data = B64.decode(&file.data).map_err(|_| VaultError::Format)?;
-        let key = derive(master, &salt, file.memory, file.passes, file.lanes)?;
+        Ok(Parsed {
+            memory: file.memory,
+            passes: file.passes,
+            lanes: file.lanes,
+            salt,
+            nonce,
+            data,
+        })
+    }
+
+    fn unseal(file: Parsed, key: Zeroizing<[u8; 32]>) -> Result<Self, VaultError> {
         let cipher = XChaCha20Poly1305::new((&*key).into());
         let plain = Zeroizing::new(
             cipher
-                .decrypt(XNonce::from_slice(&nonce), data.as_ref())
+                .decrypt(XNonce::from_slice(&file.nonce), file.data.as_ref())
                 .map_err(|_| VaultError::Unlock)?,
         );
         let mut contents: Contents =
@@ -199,7 +247,7 @@ impl Vault {
             memory: file.memory,
             passes: file.passes,
             lanes: file.lanes,
-            salt,
+            salt: file.salt,
         })
     }
 
@@ -398,6 +446,48 @@ mod tests {
             Vault::open(&text, "wrong horse").err(),
             Some(VaultError::Unlock)
         );
+    }
+
+    #[test]
+    fn the_key_opens_the_file_without_the_master_password() {
+        let mut v = vault();
+        v.put("https://example.com/", "ana", "pw", 1);
+        let key = v.export_key();
+        let text = v.seal();
+        let again = Vault::open_with_key(&text, &key).unwrap();
+        assert_eq!(again.logins().len(), 1);
+        // Garbage, a short key or another vault's key do not open it.
+        assert_eq!(
+            Vault::open_with_key(&text, "no es una clave").err(),
+            Some(VaultError::Unlock)
+        );
+        assert_eq!(
+            Vault::open_with_key(&text, "AAAA").err(),
+            Some(VaultError::Unlock)
+        );
+        let other = Vault::create_with("another long one", 64, 1, 1).unwrap();
+        assert_eq!(
+            Vault::open_with_key(&text, &other.export_key()).err(),
+            Some(VaultError::Unlock)
+        );
+        assert_eq!(
+            Vault::open_with_key("not json", &key).err(),
+            Some(VaultError::Format)
+        );
+    }
+
+    #[test]
+    fn changing_the_master_makes_the_old_key_stale() {
+        let mut v = vault();
+        v.put("https://a.example/", "ana", "pw", 1);
+        let old = v.export_key();
+        v.change_master("another long one").unwrap();
+        let text = v.seal();
+        assert_eq!(
+            Vault::open_with_key(&text, &old).err(),
+            Some(VaultError::Unlock)
+        );
+        assert!(Vault::open_with_key(&text, &v.export_key()).is_ok());
     }
 
     /// A password that is not written out in the source: these tests do not depend on its value.
