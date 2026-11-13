@@ -2,6 +2,8 @@
 //! the sidebar, in every space, like in Arc and Zen. One click opens the site, or goes to the
 //! tab that already has it.
 
+use std::sync::LazyLock;
+
 use serde::{Deserialize, Serialize};
 
 /// How many essentials there can be: more would not fit in the sidebar anyway.
@@ -51,79 +53,36 @@ pub struct Suggestion {
     pub color: &'static str,
 }
 
+/// The usual ones, in the order they are offered: name, address and brand colour, one per line.
+const SUGGESTED_TABLE: &str = "YouTube|https://www.youtube.com/|#FF0033\n\
+        Discord|https://discord.com/app|#5865F2\n\
+        WhatsApp|https://web.whatsapp.com/|#25D366\n\
+        Gmail|https://mail.google.com/|#EA4335\n\
+        GitHub|https://github.com/|#24292F\n\
+        X|https://x.com/|#14171A\n\
+        Reddit|https://www.reddit.com/|#FF4500\n\
+        Spotify|https://open.spotify.com/|#1DB954\n\
+        Netflix|https://www.netflix.com/|#E50914\n\
+        Twitch|https://www.twitch.tv/|#9146FF\n\
+        Instagram|https://www.instagram.com/|#E4405F\n\
+        Telegram|https://web.telegram.org/|#26A5E4\n\
+        ChatGPT|https://chatgpt.com/|#10A37F\n\
+        Calendar|https://calendar.google.com/|#4285F4";
+
 /// The usual ones, in the order they are offered.
-pub const SUGGESTED: &[Suggestion] = &[
-    Suggestion {
-        name: "YouTube",
-        url: "https://www.youtube.com/",
-        color: "#FF0033",
-    },
-    Suggestion {
-        name: "Discord",
-        url: "https://discord.com/app",
-        color: "#5865F2",
-    },
-    Suggestion {
-        name: "WhatsApp",
-        url: "https://web.whatsapp.com/",
-        color: "#25D366",
-    },
-    Suggestion {
-        name: "Gmail",
-        url: "https://mail.google.com/",
-        color: "#EA4335",
-    },
-    Suggestion {
-        name: "GitHub",
-        url: "https://github.com/",
-        color: "#24292F",
-    },
-    Suggestion {
-        name: "X",
-        url: "https://x.com/",
-        color: "#14171A",
-    },
-    Suggestion {
-        name: "Reddit",
-        url: "https://www.reddit.com/",
-        color: "#FF4500",
-    },
-    Suggestion {
-        name: "Spotify",
-        url: "https://open.spotify.com/",
-        color: "#1DB954",
-    },
-    Suggestion {
-        name: "Netflix",
-        url: "https://www.netflix.com/",
-        color: "#E50914",
-    },
-    Suggestion {
-        name: "Twitch",
-        url: "https://www.twitch.tv/",
-        color: "#9146FF",
-    },
-    Suggestion {
-        name: "Instagram",
-        url: "https://www.instagram.com/",
-        color: "#E4405F",
-    },
-    Suggestion {
-        name: "Telegram",
-        url: "https://web.telegram.org/",
-        color: "#26A5E4",
-    },
-    Suggestion {
-        name: "ChatGPT",
-        url: "https://chatgpt.com/",
-        color: "#10A37F",
-    },
-    Suggestion {
-        name: "Calendar",
-        url: "https://calendar.google.com/",
-        color: "#4285F4",
-    },
-];
+pub static SUGGESTED: LazyLock<Vec<Suggestion>> = LazyLock::new(|| {
+    SUGGESTED_TABLE
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('|');
+            Some(Suggestion {
+                name: parts.next()?,
+                url: parts.next()?,
+                color: parts.next()?,
+            })
+        })
+        .collect()
+});
 
 const PALETTE: &[&str] = &[
     "#6C7AE0", "#E0766C", "#4FA67F", "#C78B3C", "#8A6CE0", "#3C9CC7", "#C7487A", "#5E6B7A",
@@ -132,7 +91,7 @@ const PALETTE: &[&str] = &[
 /// The brand colour of a suggested host, or a stable one for any other.
 pub fn color_for(host: &str) -> &'static str {
     let host = host.trim_start_matches("www.");
-    for s in SUGGESTED {
+    for s in SUGGESTED.iter() {
         if host_of(s.url).is_some_and(|h| h.trim_start_matches("www.") == host) {
             return s.color;
         }
@@ -330,7 +289,7 @@ mod tests {
         assert_eq!(e.initial(), "H");
         assert_eq!(e.color(), "#FF0033");
         assert_eq!(color_for("zzz.example"), color_for("zzz.example"));
-        for s in SUGGESTED {
+        for s in SUGGESTED.iter() {
             assert!(normalize(s.url).is_some(), "{}", s.name);
         }
     }

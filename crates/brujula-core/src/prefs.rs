@@ -6,6 +6,8 @@
 //! [`Settings::apply`], so the page, a hand-typed address or a crafted link can only ever set
 //! something inside the allowed range.
 
+use std::sync::LazyLock;
+
 use crate::adblock::DEFAULT_LISTS;
 use crate::bookmarks::Bookmarks;
 use crate::icons;
@@ -513,134 +515,45 @@ pub struct ExtItem {
 }
 
 /// The sections of the page, in order: id, nav label, heading, one line under the heading, icon.
-const PAGES: &[(&str, &str, &str, &str, &str)] = &[
-    (
-        "general",
-        "General",
-        "General",
-        "El buscador que usa Brújula en todas partes.",
-        "settings",
-    ),
-    (
-        "appearance",
-        "Apariencia",
-        "Apariencia",
-        "Tema, colores y formas. Los cambios se ven al momento.",
-        "palette",
-    ),
-    (
-        "layout",
-        "Diseño",
-        "Diseño",
-        "Cómo se reparten la barra lateral, las pestañas y la web.",
-        "layout",
-    ),
-    (
-        "spaces",
-        "Espacios",
-        "Espacios",
-        "Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.",
-        "workspace",
-    ),
-    (
-        "profiles",
-        "Perfiles",
-        "Perfiles",
-        "Una persona por perfil, con sus propios marcadores, pestañas, contraseñas y ajustes. Se elige al abrir el navegador.",
-        "user",
-    ),
-    (
-        "essentials",
-        "Esenciales",
-        "Esenciales",
-        "Los sitios que abres a todas horas, como iconos en la barra lateral y en todos los espacios. Un clic los abre o vuelve a su pestaña.",
-        "pin",
-    ),
-    (
-        "bookmarks",
-        "Marcadores",
-        "Marcadores",
-        "Las páginas que guardaste con la estrella.",
-        "bookmark",
-    ),
-    (
-        "history",
-        "Historial",
-        "Historial",
-        "Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.",
-        "history",
-    ),
-    (
-        "passwords",
-        "Contraseñas",
-        "Contraseñas",
-        "Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.",
-        "lock",
-    ),
-    (
-        "webapps",
-        "Aplicaciones web",
-        "Aplicaciones web",
-        "Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».",
-        "globe",
-    ),
-    (
-        "boosts",
-        "Boosts",
-        "Boosts",
-        "Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.",
-        "sparkle",
-    ),
-    (
-        "extensions",
-        "Extensiones",
-        "Extensiones",
-        "Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.",
-        "blocks",
-    ),
-    (
-        "archive",
-        "Archivo",
-        "Archivo",
-        "Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.",
-        "clock",
-    ),
-    (
-        "sync",
-        "Sincronización",
-        "Sincronización",
-        "Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.",
-        "cloud",
-    ),
-    (
-        "privacy",
-        "Privacidad",
-        "Privacidad",
-        "Bloqueador de anuncios y rastreadores.",
-        "shield-check",
-    ),
-    (
-        "sites",
-        "Sitios",
-        "Sitios sin bloqueador",
-        "Páginas donde el bloqueador está apagado.",
-        "globe",
-    ),
-    (
-        "security",
-        "Seguridad",
-        "Seguridad",
-        "Lo que Brújula hace por ti sin preguntar.",
-        "lock",
-    ),
-    (
-        "about",
-        "Acerca de",
-        "Acerca de",
-        "",
-        "info",
-    ),
-];
+/// The sections of the page, one per line: id, name in the list, title, hint and icon, separated
+/// by `|`.
+const PAGES_TABLE: &str = r#"general|General|General|El buscador que usa Brújula en todas partes.|settings
+appearance|Apariencia|Apariencia|Tema, colores y formas. Los cambios se ven al momento.|palette
+layout|Diseño|Diseño|Cómo se reparten la barra lateral, las pestañas y la web.|layout
+spaces|Espacios|Espacios|Grupos de pestañas, cada uno con su icono. Se crean desde el selector de la barra lateral.|workspace
+profiles|Perfiles|Perfiles|Una persona por perfil, con sus propios marcadores, pestañas, contraseñas y ajustes. Se elige al abrir el navegador.|user
+essentials|Esenciales|Esenciales|Los sitios que abres a todas horas, como iconos en la barra lateral y en todos los espacios. Un clic los abre o vuelve a su pestaña.|pin
+bookmarks|Marcadores|Marcadores|Las páginas que guardaste con la estrella.|bookmark
+history|Historial|Historial|Las páginas que visitas, guardadas solo en este equipo. Una ventana privada no deja rastro.|history
+passwords|Contraseñas|Contraseñas|Se guardan cifradas con una contraseña maestra, solo en este equipo. No se sincronizan ni se usan en ventanas privadas.|lock
+webapps|Aplicaciones web|Aplicaciones web|Un sitio en su propia ventana, con su icono en el lanzador y su propio perfil. También desde el menú, con «Instalar como aplicación web…».|globe
+boosts|Boosts|Boosts|Cambia el aspecto de un sitio: modo oscuro y tu propio CSS. Solo estilo, nunca scripts. Para ganar al CSS de la web, termina cada regla con !important.|sparkle
+extensions|Extensiones|Extensiones|Extensiones de Chromium: instálalas desde una carpeta, un archivo .crx o la Chrome Web Store. Funcionan con scripts de página, ventanas emergentes, segundo plano y reglas de bloqueo; no todas funcionarán.|blocks
+archive|Archivo|Archivo|Las pestañas que llevan tiempo sin usarse se cierran solas y quedan guardadas aquí.|clock
+sync|Sincronización|Sincronización|Lleva marcadores, espacios y pestañas a tus otros dispositivos con tu nube.|cloud
+privacy|Privacidad|Privacidad|Bloqueador de anuncios y rastreadores.|shield-check
+sites|Sitios|Sitios sin bloqueador|Páginas donde el bloqueador está apagado.|globe
+security|Seguridad|Seguridad|Lo que Brújula hace por ti sin preguntar.|lock
+about|Acerca de|Acerca de||info"#;
+
+/// A section of the page: id, name in the list, title, hint and icon.
+type Page = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
+
+static PAGES: LazyLock<Vec<Page>> = LazyLock::new(|| {
+    PAGES_TABLE
+        .lines()
+        .filter_map(|line| {
+            let mut p = line.splitn(5, '|');
+            Some((p.next()?, p.next()?, p.next()?, p.next()?, p.next()?))
+        })
+        .collect()
+});
 
 fn section(id: &str, body: &str) -> String {
     let (_, _, title, hint, icon) = PAGES
@@ -1482,101 +1395,42 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
     )
 }
 
+const SECTIONS_TABLE: &str = r#"Buscador|motor google duckduckgo bing buscar|general
+Tema|claro oscuro modo sistema|appearance
+Color de acento|color tinte acento|appearance
+Color del marco|marco fondo color|appearance
+Transparencia|opacidad transparente cristal|appearance
+Redondeo de esquinas|bordes radio esquinas|appearance
+Disposición|islas marco zen diseño layout|layout
+Pestañas horizontales|pestañas arriba horizontal vertical|layout
+Ancho de la barra lateral|sidebar tamaño ancho|layout
+Espacios|espacio espacios grupos perfiles workspaces iconos|spaces
+Marcadores|favoritos marcadores guardados estrella|bookmarks
+Historial|historial visitadas recientes borrar navegación pasado|history
+Ventana privada|privado privada incógnito incognito sin rastro navegación|history
+Perfiles|perfil perfiles usuario usuarios personas contraseña selector cuenta avatar|profiles
+Esenciales|esenciales fijos iconos barra lateral atajos sitios rápidos|essentials
+Aplicaciones web|webapp webapps aplicaciones web instalar pwa ventana lanzador atajo|webapps
+Contraseñas|contraseñas claves login usuario guardar rellenar maestra bóveda cifrado|passwords
+Boosts|boost estilo css modo oscuro sitio aspecto personalizar|boosts
+Extensiones|extensiones chrome chromium complementos plugins addons instalar crx|extensions
+Archivo de pestañas|archivar archivo pestañas antiguas cerradas recuperar|archive
+Sincronización|sincronizar nube icloud onedrive google drive dropbox dispositivos|sync
+Bloqueador de anuncios|adblock anuncios rastreadores listas|privacy
+Sitios sin bloqueador|excepciones permitidos|sites
+Seguridad|descargas permisos certificados|security"#;
+
 /// Page used by the Spotlight to offer settings: `(title, keywords, section id)`.
-pub const SECTIONS: &[(&str, &str, &str)] = &[
-    ("Buscador", "motor google duckduckgo bing buscar", "general"),
-    ("Tema", "claro oscuro modo sistema", "appearance"),
-    ("Color de acento", "color tinte acento", "appearance"),
-    ("Color del marco", "marco fondo color", "appearance"),
-    (
-        "Transparencia",
-        "opacidad transparente cristal",
-        "appearance",
-    ),
-    (
-        "Redondeo de esquinas",
-        "bordes radio esquinas",
-        "appearance",
-    ),
-    ("Disposición", "islas marco zen diseño layout", "layout"),
-    (
-        "Pestañas horizontales",
-        "pestañas arriba horizontal vertical",
-        "layout",
-    ),
-    (
-        "Ancho de la barra lateral",
-        "sidebar tamaño ancho",
-        "layout",
-    ),
-    (
-        "Espacios",
-        "espacio espacios grupos perfiles workspaces iconos",
-        "spaces",
-    ),
-    (
-        "Marcadores",
-        "favoritos marcadores guardados estrella",
-        "bookmarks",
-    ),
-    (
-        "Historial",
-        "historial visitadas recientes borrar navegación pasado",
-        "history",
-    ),
-    (
-        "Ventana privada",
-        "privado privada incógnito incognito sin rastro navegación",
-        "history",
-    ),
-    (
-        "Perfiles",
-        "perfil perfiles usuario usuarios personas contraseña selector cuenta avatar",
-        "profiles",
-    ),
-    (
-        "Esenciales",
-        "esenciales fijos iconos barra lateral atajos sitios rápidos",
-        "essentials",
-    ),
-    (
-        "Aplicaciones web",
-        "webapp webapps aplicaciones web instalar pwa ventana lanzador atajo",
-        "webapps",
-    ),
-    (
-        "Contraseñas",
-        "contraseñas claves login usuario guardar rellenar maestra bóveda cifrado",
-        "passwords",
-    ),
-    (
-        "Boosts",
-        "boost estilo css modo oscuro sitio aspecto personalizar",
-        "boosts",
-    ),
-    (
-        "Extensiones",
-        "extensiones chrome chromium complementos plugins addons instalar crx",
-        "extensions",
-    ),
-    (
-        "Archivo de pestañas",
-        "archivar archivo pestañas antiguas cerradas recuperar",
-        "archive",
-    ),
-    (
-        "Sincronización",
-        "sincronizar nube icloud onedrive google drive dropbox dispositivos",
-        "sync",
-    ),
-    (
-        "Bloqueador de anuncios",
-        "adblock anuncios rastreadores listas",
-        "privacy",
-    ),
-    ("Sitios sin bloqueador", "excepciones permitidos", "sites"),
-    ("Seguridad", "descargas permisos certificados", "security"),
-];
+pub static SECTIONS: LazyLock<Vec<(&'static str, &'static str, &'static str)>> =
+    LazyLock::new(|| {
+        SECTIONS_TABLE
+            .lines()
+            .filter_map(|line| {
+                let mut p = line.splitn(3, '|');
+                Some((p.next()?, p.next()?, p.next()?))
+            })
+            .collect()
+    });
 
 /// The heading of a section, as the page shows it.
 pub fn section_title(id: &str) -> &'static str {
@@ -2159,7 +2013,7 @@ mod tests {
             &Spaces::default(),
             &Extras::default(),
         );
-        for (id, ..) in PAGES {
+        for (id, ..) in PAGES.iter() {
             assert!(html.contains(&format!(r##"href="#{id}""##)), "{id}");
             assert!(html.contains(&format!(r#"<section id="{id}""#)), "{id}");
         }
@@ -2188,7 +2042,7 @@ mod tests {
             &Spaces::default(),
             &Extras::default(),
         );
-        for (_, _, id) in SECTIONS {
+        for (_, _, id) in SECTIONS.iter() {
             assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
         }
     }

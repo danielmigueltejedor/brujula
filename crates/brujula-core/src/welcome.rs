@@ -3,6 +3,8 @@
 //! first profile. The page keeps its steps on its own; what needs the browser (reading files,
 //! setting the default, saving) goes out as `brujula://welcome?key=value` addresses.
 
+use std::sync::LazyLock;
+
 use serde::Deserialize;
 
 use crate::essentials::SUGGESTED;
@@ -74,189 +76,204 @@ pub fn parse_action(uri: &str) -> Option<Action> {
     }
 }
 
-struct Words {
-    code: &'static str,
-    welcome: &'static str,
-    tagline: &'static str,
-    next: &'static str,
-    back: &'static str,
-    skip: &'static str,
-    import_title: &'static str,
-    import_hint: &'static str,
-    import_none: &'static str,
-    import_file: &'static str,
-    import_from: &'static str,
-    default_title: &'static str,
-    default_hint: &'static str,
-    default_button: &'static str,
-    ess_title: &'static str,
-    ess_hint: &'static str,
-    user_title: &'static str,
-    user_hint: &'static str,
-    name: &'static str,
-    name_ph: &'static str,
-    avatar: &'static str,
-    password: &'static str,
-    password_ph: &'static str,
-    password_note: &'static str,
-    password_short: &'static str,
-    done_title: &'static str,
-    done_hint: &'static str,
-    done_button: &'static str,
+/// The texts of the page, in the order each language lists them.
+#[derive(Clone, Copy)]
+enum Text {
+    Welcome,
+    Tagline,
+    Next,
+    Back,
+    Skip,
+    ImportTitle,
+    ImportHint,
+    ImportNone,
+    ImportFile,
+    ImportFrom,
+    DefaultTitle,
+    DefaultHint,
+    DefaultButton,
+    EssTitle,
+    EssHint,
+    UserTitle,
+    UserHint,
+    Name,
+    NamePh,
+    Avatar,
+    Password,
+    PasswordPh,
+    PasswordNote,
+    PasswordShort,
+    DoneTitle,
+    DoneHint,
+    DoneButton,
 }
 
-const WORDS: &[Words] = &[
-    Words {
-        code: "es",
-        welcome: "Bienvenido a Brújula",
-        tagline: "Un navegador rápido, seguro y a tu medida. Vamos a dejarlo a tu gusto en un momento.",
-        next: "Siguiente",
-        back: "Atrás",
-        skip: "Omitir",
-        import_title: "Trae tus marcadores",
-        import_hint: "Importa los de otro navegador para no empezar de cero. Solo se leen los marcadores, nada más.",
-        import_none: "No se ha encontrado ningún navegador. Puedes elegir un archivo de marcadores.",
-        import_file: "Elegir un archivo…",
-        import_from: "Importar de",
-        default_title: "Tu navegador de siempre",
-        default_hint: "Haz que los enlaces de otras aplicaciones se abran en Brújula.",
-        default_button: "Usar Brújula como navegador predeterminado",
-        ess_title: "Tus esenciales",
-        ess_hint: "Los sitios que abres todo el día, a un clic en la barra lateral. Elige los que quieras.",
-        user_title: "¿Quién eres?",
-        user_hint: "Cada persona del equipo puede tener su perfil, con sus marcadores y pestañas.",
-        name: "Nombre",
-        name_ph: "Tu nombre",
-        avatar: "Imagen",
-        password: "Contraseña (opcional)",
-        password_ph: "Déjala vacía si no quieres",
-        password_note: "Se pedirá al elegir tu perfil. No cifra tus archivos: quien tenga acceso a esta cuenta del equipo podría leerlos.",
-        password_short: "La contraseña necesita al menos 4 caracteres.",
-        done_title: "Todo listo",
-        done_hint: "Puedes cambiar cualquiera de estas cosas en Preferencias cuando quieras.",
-        done_button: "Empezar a navegar",
-    },
-    Words {
-        code: "en",
-        welcome: "Welcome to Brújula",
-        tagline: "A fast, safe browser that is yours to shape. Let's set it up in a moment.",
-        next: "Next",
-        back: "Back",
-        skip: "Skip",
-        import_title: "Bring your bookmarks",
-        import_hint: "Import them from another browser so you do not start from scratch. Only bookmarks are read, nothing else.",
-        import_none: "No browser was found. You can pick a bookmarks file.",
-        import_file: "Choose a file…",
-        import_from: "Import from",
-        default_title: "Your everyday browser",
-        default_hint: "Open the links from other apps in Brújula.",
-        default_button: "Make Brújula the default browser",
-        ess_title: "Your essentials",
-        ess_hint: "The sites you open all day, one click away in the sidebar. Pick the ones you want.",
-        user_title: "Who are you?",
-        user_hint: "Everyone who shares this computer can have a profile with their own bookmarks and tabs.",
-        name: "Name",
-        name_ph: "Your name",
-        avatar: "Picture",
-        password: "Password (optional)",
-        password_ph: "Leave empty for none",
-        password_note: "It is asked when you pick your profile. It does not encrypt your files: anyone with access to this computer account could read them.",
-        password_short: "The password needs at least 4 characters.",
-        done_title: "All set",
-        done_hint: "You can change any of this in Preferences whenever you like.",
-        done_button: "Start browsing",
-    },
-    Words {
-        code: "fr",
-        welcome: "Bienvenue sur Brújula",
-        tagline: "Un navigateur rapide, sûr et à votre mesure. Réglons-le en un instant.",
-        next: "Suivant",
-        back: "Retour",
-        skip: "Passer",
-        import_title: "Récupérez vos favoris",
-        import_hint: "Importez ceux d'un autre navigateur pour ne pas repartir de zéro. Seuls les favoris sont lus.",
-        import_none: "Aucun navigateur trouvé. Vous pouvez choisir un fichier de favoris.",
-        import_file: "Choisir un fichier…",
-        import_from: "Importer depuis",
-        default_title: "Votre navigateur de tous les jours",
-        default_hint: "Ouvrez dans Brújula les liens des autres applications.",
-        default_button: "Définir Brújula comme navigateur par défaut",
-        ess_title: "Vos essentiels",
-        ess_hint: "Les sites que vous ouvrez toute la journée, à un clic dans la barre latérale.",
-        user_title: "Qui êtes-vous ?",
-        user_hint: "Chaque personne de l'ordinateur peut avoir son profil, avec ses favoris et ses onglets.",
-        name: "Nom",
-        name_ph: "Votre nom",
-        avatar: "Image",
-        password: "Mot de passe (facultatif)",
-        password_ph: "Laissez vide pour aucun",
-        password_note: "Il est demandé au choix du profil. Il ne chiffre pas vos fichiers : quiconque accède à ce compte pourrait les lire.",
-        password_short: "Le mot de passe doit faire au moins 4 caractères.",
-        done_title: "Tout est prêt",
-        done_hint: "Vous pourrez tout modifier dans les Préférences.",
-        done_button: "Commencer à naviguer",
-    },
-    Words {
-        code: "de",
-        welcome: "Willkommen bei Brújula",
-        tagline: "Ein schneller, sicherer Browser nach deinem Geschmack. Richten wir ihn kurz ein.",
-        next: "Weiter",
-        back: "Zurück",
-        skip: "Überspringen",
-        import_title: "Lesezeichen mitbringen",
-        import_hint: "Importiere sie aus einem anderen Browser. Es werden nur Lesezeichen gelesen.",
-        import_none: "Kein Browser gefunden. Du kannst eine Lesezeichen-Datei wählen.",
-        import_file: "Datei wählen …",
-        import_from: "Importieren aus",
-        default_title: "Dein Alltags-Browser",
-        default_hint: "Links aus anderen Apps in Brújula öffnen.",
-        default_button: "Brújula als Standardbrowser festlegen",
-        ess_title: "Deine Favoriten-Seiten",
-        ess_hint: "Die Seiten, die du ständig öffnest, mit einem Klick in der Seitenleiste.",
-        user_title: "Wer bist du?",
-        user_hint: "Jede Person am Computer kann ein eigenes Profil mit Lesezeichen und Tabs haben.",
-        name: "Name",
-        name_ph: "Dein Name",
-        avatar: "Bild",
-        password: "Passwort (optional)",
-        password_ph: "Leer lassen für keins",
-        password_note: "Es wird bei der Profilwahl gefragt. Es verschlüsselt deine Dateien nicht: Wer Zugriff auf dieses Konto hat, könnte sie lesen.",
-        password_short: "Das Passwort braucht mindestens 4 Zeichen.",
-        done_title: "Alles bereit",
-        done_hint: "Du kannst alles später in den Einstellungen ändern.",
-        done_button: "Los geht's",
-    },
-    Words {
-        code: "pt",
-        welcome: "Bem-vindo ao Brújula",
-        tagline: "Um navegador rápido, seguro e à sua medida. Vamos configurá-lo num instante.",
-        next: "Seguinte",
-        back: "Voltar",
-        skip: "Saltar",
-        import_title: "Traga os seus favoritos",
-        import_hint: "Importe-os de outro navegador. Só os favoritos são lidos.",
-        import_none: "Nenhum navegador encontrado. Pode escolher um ficheiro de favoritos.",
-        import_file: "Escolher um ficheiro…",
-        import_from: "Importar de",
-        default_title: "O seu navegador de sempre",
-        default_hint: "Abra no Brújula os links das outras aplicações.",
-        default_button: "Usar o Brújula como navegador predefinido",
-        ess_title: "Os seus essenciais",
-        ess_hint: "Os sites que abre o dia todo, a um clique na barra lateral.",
-        user_title: "Quem é você?",
-        user_hint: "Cada pessoa do computador pode ter o seu perfil, com favoritos e separadores.",
-        name: "Nome",
-        name_ph: "O seu nome",
-        avatar: "Imagem",
-        password: "Palavra-passe (opcional)",
-        password_ph: "Deixe vazio para nenhuma",
-        password_note: "É pedida ao escolher o perfil. Não cifra os seus ficheiros: quem tiver acesso a esta conta poderia lê-los.",
-        password_short: "A palavra-passe precisa de pelo menos 4 caracteres.",
-        done_title: "Tudo pronto",
-        done_hint: "Pode alterar tudo isto nas Preferências.",
-        done_button: "Começar a navegar",
-    },
-];
+/// One language: its code and its texts.
+struct Words {
+    code: &'static str,
+    lines: Vec<&'static str>,
+}
+
+impl Words {
+    fn t(&self, text: Text) -> &'static str {
+        self.lines[text as usize]
+    }
+}
+
+/// Texts in the language `es`, one per line.
+const ES: &str = "Bienvenido a Brújula\n\
+Un navegador rápido, seguro y a tu medida. Vamos a dejarlo a tu gusto en un momento.\n\
+Siguiente\n\
+Atrás\n\
+Omitir\n\
+Trae tus marcadores\n\
+Importa los de otro navegador para no empezar de cero. Solo se leen los marcadores, nada más.\n\
+No se ha encontrado ningún navegador. Puedes elegir un archivo de marcadores.\n\
+Elegir un archivo…\n\
+Importar de\n\
+Tu navegador de siempre\n\
+Haz que los enlaces de otras aplicaciones se abran en Brújula.\n\
+Usar Brújula como navegador predeterminado\n\
+Tus esenciales\n\
+Los sitios que abres todo el día, a un clic en la barra lateral. Elige los que quieras.\n\
+¿Quién eres?\n\
+Cada persona del equipo puede tener su perfil, con sus marcadores y pestañas.\n\
+Nombre\n\
+Tu nombre\n\
+Imagen\n\
+Contraseña (opcional)\n\
+Déjala vacía si no quieres\n\
+Se pedirá al elegir tu perfil. No cifra tus archivos: quien tenga acceso a esta cuenta del equipo podría leerlos.\n\
+La contraseña necesita al menos 4 caracteres.\n\
+Todo listo\n\
+Puedes cambiar cualquiera de estas cosas en Preferencias cuando quieras.\n\
+Empezar a navegar";
+
+/// Texts in the language `en`, one per line.
+const EN: &str = "Welcome to Brújula\n\
+A fast, safe browser that is yours to shape. Let's set it up in a moment.\n\
+Next\n\
+Back\n\
+Skip\n\
+Bring your bookmarks\n\
+Import them from another browser so you do not start from scratch. Only bookmarks are read, nothing else.\n\
+No browser was found. You can pick a bookmarks file.\n\
+Choose a file…\n\
+Import from\n\
+Your everyday browser\n\
+Open the links from other apps in Brújula.\n\
+Make Brújula the default browser\n\
+Your essentials\n\
+The sites you open all day, one click away in the sidebar. Pick the ones you want.\n\
+Who are you?\n\
+Everyone who shares this computer can have a profile with their own bookmarks and tabs.\n\
+Name\n\
+Your name\n\
+Picture\n\
+Password (optional)\n\
+Leave empty for none\n\
+It is asked when you pick your profile. It does not encrypt your files: anyone with access to this computer account could read them.\n\
+The password needs at least 4 characters.\n\
+All set\n\
+You can change any of this in Preferences whenever you like.\n\
+Start browsing";
+
+/// Texts in the language `fr`, one per line.
+const FR: &str = "Bienvenue sur Brújula\n\
+Un navigateur rapide, sûr et à votre mesure. Réglons-le en un instant.\n\
+Suivant\n\
+Retour\n\
+Passer\n\
+Récupérez vos favoris\n\
+Importez ceux d'un autre navigateur pour ne pas repartir de zéro. Seuls les favoris sont lus.\n\
+Aucun navigateur trouvé. Vous pouvez choisir un fichier de favoris.\n\
+Choisir un fichier…\n\
+Importer depuis\n\
+Votre navigateur de tous les jours\n\
+Ouvrez dans Brújula les liens des autres applications.\n\
+Définir Brújula comme navigateur par défaut\n\
+Vos essentiels\n\
+Les sites que vous ouvrez toute la journée, à un clic dans la barre latérale.\n\
+Qui êtes-vous ?\n\
+Chaque personne de l'ordinateur peut avoir son profil, avec ses favoris et ses onglets.\n\
+Nom\n\
+Votre nom\n\
+Image\n\
+Mot de passe (facultatif)\n\
+Laissez vide pour aucun\n\
+Il est demandé au choix du profil. Il ne chiffre pas vos fichiers : quiconque accède à ce compte pourrait les lire.\n\
+Le mot de passe doit faire au moins 4 caractères.\n\
+Tout est prêt\n\
+Vous pourrez tout modifier dans les Préférences.\n\
+Commencer à naviguer";
+
+/// Texts in the language `de`, one per line.
+const DE: &str = "Willkommen bei Brújula\n\
+Ein schneller, sicherer Browser nach deinem Geschmack. Richten wir ihn kurz ein.\n\
+Weiter\n\
+Zurück\n\
+Überspringen\n\
+Lesezeichen mitbringen\n\
+Importiere sie aus einem anderen Browser. Es werden nur Lesezeichen gelesen.\n\
+Kein Browser gefunden. Du kannst eine Lesezeichen-Datei wählen.\n\
+Datei wählen …\n\
+Importieren aus\n\
+Dein Alltags-Browser\n\
+Links aus anderen Apps in Brújula öffnen.\n\
+Brújula als Standardbrowser festlegen\n\
+Deine Favoriten-Seiten\n\
+Die Seiten, die du ständig öffnest, mit einem Klick in der Seitenleiste.\n\
+Wer bist du?\n\
+Jede Person am Computer kann ein eigenes Profil mit Lesezeichen und Tabs haben.\n\
+Name\n\
+Dein Name\n\
+Bild\n\
+Passwort (optional)\n\
+Leer lassen für keins\n\
+Es wird bei der Profilwahl gefragt. Es verschlüsselt deine Dateien nicht: Wer Zugriff auf dieses Konto hat, könnte sie lesen.\n\
+Das Passwort braucht mindestens 4 Zeichen.\n\
+Alles bereit\n\
+Du kannst alles später in den Einstellungen ändern.\n\
+Los geht's";
+
+/// Texts in the language `pt`, one per line.
+const PT: &str = "Bem-vindo ao Brújula\n\
+Um navegador rápido, seguro e à sua medida. Vamos configurá-lo num instante.\n\
+Seguinte\n\
+Voltar\n\
+Saltar\n\
+Traga os seus favoritos\n\
+Importe-os de outro navegador. Só os favoritos são lidos.\n\
+Nenhum navegador encontrado. Pode escolher um ficheiro de favoritos.\n\
+Escolher um ficheiro…\n\
+Importar de\n\
+O seu navegador de sempre\n\
+Abra no Brújula os links das outras aplicações.\n\
+Usar o Brújula como navegador predefinido\n\
+Os seus essenciais\n\
+Os sites que abre o dia todo, a um clique na barra lateral.\n\
+Quem é você?\n\
+Cada pessoa do computador pode ter o seu perfil, com favoritos e separadores.\n\
+Nome\n\
+O seu nome\n\
+Imagem\n\
+Palavra-passe (opcional)\n\
+Deixe vazio para nenhuma\n\
+É pedida ao escolher o perfil. Não cifra os seus ficheiros: quem tiver acesso a esta conta poderia lê-los.\n\
+A palavra-passe precisa de pelo menos 4 caracteres.\n\
+Tudo pronto\n\
+Pode alterar tudo isto nas Preferências.\n\
+Começar a navegar";
+
+static WORDS: LazyLock<Vec<Words>> = LazyLock::new(|| {
+    [("es", ES), ("en", EN), ("fr", FR), ("de", DE), ("pt", PT)]
+        .into_iter()
+        .map(|(code, text)| Words {
+            code,
+            lines: text.lines().collect(),
+        })
+        .collect()
+});
 
 /// The words for a language tag such as `es_ES.UTF-8` or `pt-BR`; English for the rest.
 fn words(lang: &str) -> &'static Words {
@@ -276,7 +293,7 @@ pub fn languages() -> Vec<&'static str> {
 
 /// The greeting, as typed on the first screen.
 pub fn greeting(lang: &str) -> &'static str {
-    words(lang).welcome
+    words(lang).t(Text::Welcome)
 }
 
 /// What the browser tells the page after it did something.
@@ -359,7 +376,7 @@ fn avatar_picker(w: &Words) -> String {
         .collect();
     format!(
         r#"<fieldset class="avatars"><legend>{}</legend>{discs}</fieldset>"#,
-        escape(w.avatar)
+        escape(w.t(Text::Avatar))
     )
 }
 
@@ -380,7 +397,7 @@ fn essentials_grid() -> String {
 
 fn sources_list(sources: &[Source], w: &Words) -> String {
     if sources.is_empty() {
-        return format!(r#"<p class="hint">{}</p>"#, escape(w.import_none));
+        return format!(r#"<p class="hint">{}</p>"#, escape(w.t(Text::ImportNone)));
     }
     let rows: String = sources
         .iter()
@@ -388,7 +405,7 @@ fn sources_list(sources: &[Source], w: &Words) -> String {
         .map(|(i, s)| {
             format!(
                 r#"<button type="button" class="src" data-source="{i}"><b>{from} {name}</b><small id="src-{i}"></small></button>"#,
-                from = escape(w.import_from),
+                from = escape(w.t(Text::ImportFrom)),
                 name = escape(&s.name),
             )
         })
@@ -411,15 +428,15 @@ pub fn render(page: &Page) -> String {
 {avatars}
 <label class="field"><span>{password}</span><input id="password" type="password" maxlength="200" placeholder="{password_ph}" autocomplete="new-password"></label>
 <p class="note">{note}</p><p class="error" id="pw-error" hidden>{short}</p></section>"#,
-            title = escape(w.user_title),
-            hint = escape(w.user_hint),
-            name = escape(w.name),
-            name_ph = escape(w.name_ph),
+            title = escape(w.t(Text::UserTitle)),
+            hint = escape(w.t(Text::UserHint)),
+            name = escape(w.t(Text::Name)),
+            name_ph = escape(w.t(Text::NamePh)),
             avatars = avatar_picker(w),
-            password = escape(w.password),
-            password_ph = escape(w.password_ph),
-            note = escape(w.password_note),
-            short = escape(w.password_short),
+            password = escape(w.t(Text::Password)),
+            password_ph = escape(w.t(Text::PasswordPh)),
+            note = escape(w.t(Text::PasswordNote)),
+            short = escape(w.t(Text::PasswordShort)),
         )
     } else {
         String::new()
@@ -455,28 +472,28 @@ const T={{welcome:{welcome_js},next:{next_js},skip:{skip_js},done:{done_js}}};
 </script></body></html>
 "##,
         lang = escape(w.code),
-        title = escape(w.welcome),
+        title = escape(w.t(Text::Welcome)),
         css = CSS,
         mascot = crate::newtab::MASCOT,
-        tagline = escape(w.tagline),
-        import_title = escape(w.import_title),
-        import_hint = escape(w.import_hint),
+        tagline = escape(w.t(Text::Tagline)),
+        import_title = escape(w.t(Text::ImportTitle)),
+        import_hint = escape(w.t(Text::ImportHint)),
         sources = sources_list(page.sources, w),
-        import_file = escape(w.import_file),
-        default_title = escape(w.default_title),
-        default_hint = escape(w.default_hint),
-        default_button = escape(w.default_button),
-        ess_title = escape(w.ess_title),
-        ess_hint = escape(w.ess_hint),
+        import_file = escape(w.t(Text::ImportFile)),
+        default_title = escape(w.t(Text::DefaultTitle)),
+        default_hint = escape(w.t(Text::DefaultHint)),
+        default_button = escape(w.t(Text::DefaultButton)),
+        ess_title = escape(w.t(Text::EssTitle)),
+        ess_hint = escape(w.t(Text::EssHint)),
         essentials = essentials_grid(),
-        done_title = escape(w.done_title),
-        done_hint = escape(w.done_hint),
-        back = escape(w.back),
-        next = escape(w.next),
-        welcome_js = text(w.welcome),
-        next_js = text(w.next),
-        skip_js = text(w.skip),
-        done_js = text(w.done_button),
+        done_title = escape(w.t(Text::DoneTitle)),
+        done_hint = escape(w.t(Text::DoneHint)),
+        back = escape(w.t(Text::Back)),
+        next = escape(w.t(Text::Next)),
+        welcome_js = text(w.t(Text::Welcome)),
+        next_js = text(w.t(Text::Next)),
+        skip_js = text(w.t(Text::Skip)),
+        done_js = text(w.t(Text::DoneButton)),
         js = JS,
     )
 }
@@ -648,40 +665,13 @@ mod tests {
 
     #[test]
     fn every_language_fills_every_text() {
-        for w in WORDS {
-            for t in [
-                w.welcome,
-                w.tagline,
-                w.next,
-                w.back,
-                w.skip,
-                w.import_title,
-                w.import_hint,
-                w.import_none,
-                w.import_file,
-                w.import_from,
-                w.default_title,
-                w.default_hint,
-                w.default_button,
-                w.ess_title,
-                w.ess_hint,
-                w.user_title,
-                w.user_hint,
-                w.name,
-                w.name_ph,
-                w.avatar,
-                w.password,
-                w.password_ph,
-                w.password_note,
-                w.password_short,
-                w.done_title,
-                w.done_hint,
-                w.done_button,
-            ] {
+        for w in WORDS.iter() {
+            assert_eq!(w.lines.len(), Text::DoneButton as usize + 1, "{}", w.code);
+            for t in &w.lines {
                 assert!(!t.trim().is_empty(), "{}", w.code);
             }
             // The password warning has to say the files are not encrypted, in every language.
-            assert!(w.password_note.len() > 40, "{}", w.code);
+            assert!(w.t(Text::PasswordNote).len() > 40, "{}", w.code);
         }
     }
 
@@ -697,7 +687,7 @@ mod tests {
             html.matches(r#"name="avatar""#).count(),
             crate::avatars::AVATARS.len()
         );
-        for s in SUGGESTED {
+        for s in SUGGESTED.iter() {
             assert!(html.contains(s.url), "{}", s.name);
         }
         // Nothing in the typed text can close the script early: there is one script, one end.
