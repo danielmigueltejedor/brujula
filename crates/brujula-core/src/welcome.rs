@@ -521,11 +521,9 @@ main{height:100%;width:min(38rem,calc(100% - 3rem));margin:0 auto;display:flex;f
 .step.on{display:block}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .intro{text-align:center}
-.mascot{width:8rem;height:8rem;overflow:visible}
+.mascot{width:10rem;height:10rem;overflow:visible}
 .mascot .bob{animation:bob 5s ease-in-out infinite;transform-origin:60px 120px}
-.mascot .eyes{animation:blink 6s infinite;transform-origin:60px 63px;transform-box:view-box}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-@keyframes blink{0%,94%,100%{transform:scaleY(1)}96.5%{transform:scaleY(.1)}}
 h1{font-size:2.3rem;font-weight:500;letter-spacing:-.035em;margin:.8rem 0 .4rem;min-height:2.9rem}
 h1.typing::after{content:"";display:inline-block;width:.12em;height:1em;margin-left:.08em;vertical-align:-.12em;background:var(--accent);animation:caret .9s steps(1) infinite}
 @keyframes caret{50%{opacity:0}}
@@ -575,7 +573,7 @@ footer .ghost{justify-self:start}footer .primary{justify-self:end}footer .ghost[
 .dots{display:flex;gap:.4rem}
 .dots i{width:.45rem;height:.45rem;border-radius:50%;background:var(--line);transition:background .2s,width .2s}
 .dots i.on{background:var(--accent);width:1.2rem;border-radius:999px}
-@media (prefers-reduced-motion:reduce){.step,.tagline,footer{animation:none;transition:none}.mascot .bob,.mascot .eyes{animation:none}h1.typing::after{animation:none}}
+@media (prefers-reduced-motion:reduce){.step,.tagline,footer{animation:none;transition:none}.mascot .bob{animation:none}h1.typing::after{animation:none}}
 "#;
 
 const JS: &str = r#"

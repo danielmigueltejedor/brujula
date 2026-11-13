@@ -360,7 +360,7 @@ pub fn parse_set_engine(uri: &str) -> Option<&'static Engine> {
     search::by_id(uri.strip_prefix(SET_ENGINE_PREFIX)?.trim_end_matches('/'))
 }
 
-/// The browser's mascot, a navigator in a cap with a compass on it (see `mascot.svg`).
+/// The browser's mascot, Elcano, the navigator of the app icon, in a compass dial (see `mascot.svg`).
 pub(crate) const MASCOT: &str = include_str!("mascot.svg");
 
 const CSS: &str = r#"
@@ -374,12 +374,10 @@ body{font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:radial-gra
 main{width:min(40rem,calc(100% - 3rem));margin:0 auto;padding:15vh 0 4rem}
 header{text-align:center;margin-bottom:2rem}
 header h1{margin-top:.4rem}
-.mascot{width:6.4rem;height:6.4rem;overflow:visible}
+.mascot{width:8.6rem;height:8.6rem;overflow:visible}
 .mascot .bob{animation:bob 5s ease-in-out infinite;transform-origin:60px 120px}
-.mascot .eyes{animation:blink 6s infinite;transform-origin:60px 63px;transform-box:view-box}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-@keyframes blink{0%,94%,100%{transform:scaleY(1)}96.5%{transform:scaleY(.1)}}
-@media (prefers-reduced-motion:reduce){.mascot .bob,.mascot .eyes{animation:none}}
+@media (prefers-reduced-motion:reduce){.mascot .bob{animation:none}}
 h1{font-size:1.9rem;font-weight:500;letter-spacing:-.03em;margin:.6rem 0 0;color:var(--fg)}
 h2{font-size:.75rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 .8rem;text-align:center}
 section{margin-top:2.6rem}
