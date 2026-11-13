@@ -2414,7 +2414,7 @@ impl Browser {
     /// Sidebar width, pinned or floating, and whether the edge wakes it.
     fn apply_layout(&self) {
         let s = self.settings.borrow();
-        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(232);
+        let width = i32::try_from(s.appearance.sidebar_width).unwrap_or(180);
         self.side.set_size_request(width, -1);
         self.split.set_min_sidebar_width(f64::from(width));
         self.split.set_max_sidebar_width(f64::from(width));

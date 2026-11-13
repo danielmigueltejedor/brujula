@@ -33,7 +33,7 @@
 .brujula-peek { background: rgba(0, 0, 0, 0.4); }
 .brujula-peek-card { background: var(--ndl-color-surface-panel); border-radius: 16px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-peek-header { padding: 6px 8px 6px 16px; }
-.brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-sm); }
+.brujula-newtab { min-height: 36px; margin: 0 var(--ndl-space-xs); }
 
 /* Spotlight */
 .brujula-scrim { background: rgba(0, 0, 0, 0.35); }
@@ -69,6 +69,7 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 /* The navigation row is as narrow as the sidebar can get: compact buttons (min-width counts
    the content only, so 16px of icon plus the padding and the border is 26px). */
 .brujula-side .brujula-nav button, .brujula-side .brujula-nav menubutton > button { min-width: 16px; min-height: 20px; padding: 4px; }
+.brujula-side headerbar button, .brujula-side headerbar menubutton > button { min-width: 16px; min-height: 20px; padding: 4px; }
 
 /* The icon grid of the space editor */
 .brujula-icon-choice { min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
@@ -78,7 +79,8 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 .brujula-folder .brujula-folder-name { font-weight: 600; }
 .brujula-folder-count { font-size: var(--ndl-font-size-small); }
 .brujula-in-folder .brujula-tab { padding-left: calc(var(--ndl-space-md) + 14px); }
-.brujula-newfolder { min-width: 28px; min-height: 28px; margin-right: var(--ndl-space-xs); }
+.brujula-side .brujula-newtab { padding-left: var(--ndl-space-xs); padding-right: var(--ndl-space-xs); }
+.brujula-newfolder { min-width: 20px; min-height: 28px; padding: 0 var(--ndl-space-xs); margin-right: var(--ndl-space-xs); }
 
 /* The mark of a private window: it keeps nothing. */
 .brujula-privatebadge{padding:2px 10px;margin-left:4px;margin-right:4px;border-radius:99px;background:alpha(#fff,0.22);color:#fff;font-weight:600;font-size:0.85em;}
