@@ -125,16 +125,6 @@ pub struct Folders {
     list: Vec<Folder>,
 }
 
-fn clean_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(MAX_NAME)
-        .collect()
-}
-
 impl Folders {
     /// Reads folders back from a saved session: ids unique and not zero, every folder in a space
     /// that exists (else the first one), names usable.
@@ -148,7 +138,7 @@ impl Folders {
         self.list.truncate(MAX_FOLDERS);
         let home = spaces.all()[0].id;
         for f in &mut self.list {
-            f.name = clean_name(&f.name);
+            f.name = crate::clean_name(&f.name, MAX_NAME);
             if f.name.is_empty() {
                 f.name = "Carpeta".to_owned();
             }
@@ -313,7 +303,7 @@ impl Folders {
             return None;
         }
         let id = self.list.iter().map(|f| f.id).max().unwrap_or(0) + 1;
-        let mut name = clean_name(name);
+        let mut name = crate::clean_name(name, MAX_NAME);
         if name.is_empty() {
             name = "Carpeta".to_owned();
         }
@@ -342,7 +332,7 @@ impl Folders {
 
     /// Changes name and rule; a blank name is kept as it was.
     pub fn edit(&mut self, id: u32, name: &str, rule: Rule) {
-        let name = clean_name(name);
+        let name = crate::clean_name(name, MAX_NAME);
         if let Some(f) = self.list.iter_mut().find(|f| f.id == id) {
             if !name.is_empty() {
                 f.name = name;

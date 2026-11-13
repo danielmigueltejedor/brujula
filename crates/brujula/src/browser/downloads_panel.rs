@@ -336,12 +336,7 @@ impl Browser {
                 }
                 return true;
             }
-            let mut path = dir.join(&name);
-            let mut n = 1;
-            while path.exists() {
-                path = dir.join(format!("{n}-{name}"));
-                n += 1;
-            }
+            let path = brujula_core::downloads::available_path(&dir, &name);
             d.set_destination(&path.to_string_lossy());
             *dest.borrow_mut() = Some(path);
             rf();

@@ -170,16 +170,6 @@ pub fn normalize(text: &str) -> Option<String> {
     (host.contains('.') || host == "localhost").then(|| parsed.to_string())
 }
 
-fn clean_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(MAX_NAME)
-        .collect()
-}
-
 impl Essentials {
     /// Reads the saved file; anything wrong in it is dropped.
     pub fn from_json(text: &str) -> Self {
@@ -190,7 +180,7 @@ impl Essentials {
                 return false;
             };
             e.url = url;
-            e.name = clean_name(&e.name);
+            e.name = crate::clean_name(&e.name, MAX_NAME);
             if e.name.is_empty() {
                 e.name = e.host();
             }
@@ -231,7 +221,7 @@ impl Essentials {
             return None;
         }
         let id = self.list.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-        let mut name = clean_name(name);
+        let mut name = crate::clean_name(name, MAX_NAME);
         if name.is_empty() {
             name = host_of(&url)
                 .unwrap_or_default()

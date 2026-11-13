@@ -334,22 +334,7 @@ impl Browser {
         pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         let col = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let entry = |label: &str, f: Handler| {
-            let btn = gtk::Button::builder()
-                .label(label)
-                .css_classes(["flat"])
-                .build();
-            if let Some(l) = btn.child().and_downcast::<gtk::Label>() {
-                l.set_xalign(0.0);
-            }
-            let this = Rc::downgrade(self);
-            let pop = pop.clone();
-            btn.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(b) = this.upgrade() {
-                    f(&b);
-                }
-            });
-            col.append(&btn);
+            append_popover_entry(self, &pop, &col, label, f);
         };
         entry(
             "Abrir en una pestaña nueva",

@@ -328,12 +328,7 @@ fn present(gapp: &gtk::Application, app: &WebApp) -> Rc<Filters> {
                     );
                     return true;
                 }
-                let mut path = dir.join(&name);
-                let mut n = 1;
-                while path.exists() {
-                    path = dir.join(format!("{n}-{name}"));
-                    n += 1;
-                }
+                let path = downloads::available_path(&dir, &name);
                 d.set_destination(&path.to_string_lossy());
                 true
             });
