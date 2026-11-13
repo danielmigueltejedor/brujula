@@ -12,8 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 brujula-core = { path = "../brujula-core" }
-nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "9dcfb076448f975005fe7595ef954994fc6e1c80" }
-nodalia-update = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "9dcfb076448f975005fe7595ef954994fc6e1c80" }
+nodalia-gtk = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "a3e378085e9027c8f0c7850a801892d2b2ba2314" }
+nodalia-update = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "a3e378085e9027c8f0c7850a801892d2b2ba2314" }
 webkit6 = "0.6"
 soup3 = "0.9"
 serde = { version = "1", features = ["derive"] }
