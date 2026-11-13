@@ -2,6 +2,10 @@
 
 Solo Linux (GTK 4.20 o más, WebKitGTK 6.0). Con **AppImage**.
 
+## Novedades
+
+- **Asistente de IA opcional, apagado por defecto**: si lo activas en Preferencias, un panel lateral habla con ChatGPT/OpenAI, Claude, Gemini, Ollama o cualquier servidor compatible con OpenAI, con la clave guardada en el llavero del sistema. Puede leer la pestaña, buscar y abrir o cerrar sus propias pestañas; antes de leer o actuar en un sitio te pide permiso, por sitio y por acción. Spotlight puede ofrecer «Preguntar a…».
+
 ## Arreglos
 
 - **La bienvenida ya no empieza de nuevo sola**: «Bienvenido a Brújula» se escribe una vez y se queda quieto hasta que pulses Siguiente. Antes, al terminar de descargarse las listas del bloqueador en el primer arranque, el navegador recargaba la página que tenías delante, y la bienvenida volvía a escribirse desde el principio (y perdía el paso en el que estabas). Ahora las páginas propias de Brújula (bienvenida, página nueva, preferencias, novedades) no se recargan solas.

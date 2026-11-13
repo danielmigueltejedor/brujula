@@ -1,0 +1,57 @@
+name: Release from main
+
+# Releases Brújula when a new version lands on main: bump [workspace.package] version in
+# Cargo.toml and add docs/release-X.Y.Z.md in the same pull request, then merge it. Foundation's
+# release-tag tags the merge and drafts the release with those notes, appimage.yml builds and
+# attaches the AppImage, and release-publish publishes it once that passed. A failed AppImage
+# leaves the release a draft. Any other push does nothing (a version already tagged only gets its
+# release text refreshed from the notes file).
+#
+# If the AppImage fails and its fix lands after the tag, run this by hand on main with
+# retag-draft: while the release is still a draft, its tag moves to the fixed commit and the
+# AppImage builds again.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      retag-draft:
+        description: "Move an unpublished draft's tag to this commit and build it again"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-auto
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    permissions:
+      contents: write
+    uses: getnodalia/foundation/.github/workflows/release-tag.yml@7964f20499fbbe78c855fee7e90d182aff4aae89 # foundation 2026-11-13 (retag-draft)
+    with:
+      name: Brújula
+      # Brújula's notes are docs/release-X.Y.Z.md (the news page reads them from there).
+      notes-command: 'f="docs/release-$VERSION.md"; if [ -f "$f" ]; then cat "$f"; fi'
+      notes-check: scripts/check-release-notes.sh
+      retag-draft: ${{ inputs.retag-draft == true }}
+
+  appimage:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/appimage.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+
+  publish:
+    needs: [tag, appimage]
+    permissions:
+      contents: write
+    uses: getnodalia/foundation/.github/workflows/release-publish.yml@7964f20499fbbe78c855fee7e90d182aff4aae89 # foundation 2026-11-13
+    with:
+      tag: ${{ needs.tag.outputs.tag }}

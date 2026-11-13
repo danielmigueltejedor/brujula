@@ -3,6 +3,13 @@ name: AppImage
 # It is built on Arch because Brújula needs GTK 4.20+ and WebKitGTK 6.0, which no Ubuntu runner
 # has; the image runs on distributions whose glibc is as new as Arch's (Arch, CachyOS, Nodalix).
 on:
+  # release-auto.yml calls it with the tag it just made (a tag made by a workflow starts nothing).
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release to attach the AppImage to (for example v0.5.1)"
+        type: string
+        required: true
   release:
     types: [published]
   workflow_dispatch:
