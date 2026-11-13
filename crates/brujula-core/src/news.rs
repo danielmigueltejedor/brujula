@@ -7,7 +7,7 @@ use crate::newtab::escape;
 pub const NEWS_URI: &str = "brujula://news";
 
 /// The notes of this version. A new release changes this path (and the test below says so).
-const NOTES: &str = include_str!("../../../docs/release-0.4.0.md");
+const NOTES: &str = include_str!("../../../docs/release-0.5.0.md");
 
 /// Sections of the notes that are not news.
 const SKIPPED: &[&str] = &["Instalar"];
