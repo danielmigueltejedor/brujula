@@ -42,6 +42,7 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 
 - **Rápido y ligero**: WebKit, pestañas que se duermen solas, la sesión se carga bajo demanda.
 - **Seguro**: HTTPS primero, certificados malos nunca se saltan, descargas ejecutables bloqueadas, permisos denegados por defecto, ITP activado.
+- **Esenciales**: los sitios de todos los días (YouTube, Discord, correo…) como iconos en la barra lateral, en todos los espacios.
 - **Bloqueador de anuncios** con listas EasyList, EasyPrivacy y uBlock (reglas de red de WebKit, reglas cosméticas y scriptlets), activable por sitio.
 - **Personalizable**: tema, acento, marco con degradados, redondeo, separación, disposición (islas, marco, vertical, horizontal), espacios con icono, Boosts (CSS por sitio), buscador a elegir.
 - **Extensiones de Chromium**: scripts de contenido, fondo, ventana emergente, opciones, almacenamiento, mensajes, reglas de bloqueo… Se instalan desde una carpeta, un `.crx` o la Chrome Web Store, con un aviso de permisos. No todas las extensiones funcionarán: ver [docs/brujula-rust.md](docs/brujula-rust.md).

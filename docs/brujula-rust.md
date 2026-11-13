@@ -157,6 +157,14 @@ Código: núcleo sin interfaz en `crates/brujula-core/src/ext/` (manifiesto, paq
 - Quitar una aplicación (Preferencias) borra su lanzador, su perfil y su entrada. El primer favicon que carga la aplicación pasa a ser el icono del lanzador si no había uno.
 - **Sin verificar**: cámara y micrófono en una videollamada real, que cada lanzador agrupe bien en un escritorio real (solo se probó la ventana y la creación en un X virtual), y el inicio de sesión con ventanas emergentes (las aplicaciones no abren ventanas emergentes de la web: un «Iniciar sesión con…» que las use no funcionará). No hay contraseñas guardadas, extensiones ni notificaciones dentro de las aplicaciones.
 
+## Esenciales, descargas y carpetas anidadas
+
+- **Esenciales** (`essentials.rs`, `browser/essentials.rs`): hasta 12 sitios web (solo `http(s)`, sin usuario en la dirección) guardados en `essentials.json`. Con las pestañas en la barra lateral salen como una cuadrícula de iconos bajo la barra de direcciones; con las pestañas arriba, como una columna a la izquierda de la página. Un clic va a la pestaña de ese sitio en el espacio actual, o la abre. Se añaden desde el menú («Añadir a esenciales»), el menú de una pestaña o Preferencias → Esenciales (con una lista de sitios habituales); clic derecho en un icono: abrir en pestaña nueva, mover o quitar. Mientras el icono del sitio no se conoce se dibuja una letra sobre el color de la marca; al visitar el sitio se guarda su icono. **No** ocultan la pestaña de la lista y no son una sola pestaña compartida entre espacios (cada espacio abre la suya).
+- **Descargas** (`browser/downloads_panel.rs`): botón abajo a la izquierda de la barra lateral (en la barra de arriba con las pestañas arriba) con la lista de lo descargado en la sesión: progreso, cancelar, abrir y mostrar en la carpeta. Las reglas de qué se guarda (nombre limpio, ejecutables bloqueados) siguen en `downloads.rs`. La lista no se guarda entre sesiones.
+- **Carpetas anidadas** (`folders.rs`): una carpeta puede estar dentro de otra hasta tres niveles (menú de la carpeta: «Nueva subcarpeta», «Meter en la carpeta…», «Sacar de la carpeta»). Plegar una carpeta oculta lo que tiene dentro; al borrarla, las de dentro suben un nivel. Un archivo de sesión dañado (bucles, padres que no existen) se corrige al leerlo. La sincronización no lleva la jerarquía.
+- **Iconos de aplicaciones web** (`tile.rs`): el icono del sitio va sobre un cuadrado redondeado (claro, u oscuro si el icono es casi blanco), como los iconos de aplicación de Colloid.
+- **Diálogos** (`dialogs.rs`): avisos y preguntas con los diálogos de Nodalia Design sobre la ventana, no los de GTK.
+
 ## Pendiente
 
 - Arrastrar para reordenar pestañas (el modelo ya lo soporta), grupos de pestañas.
