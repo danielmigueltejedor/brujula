@@ -138,6 +138,8 @@ pub struct AiSettings {
     pub open: Autonomy,
     /// The assistant may click and type in pages (every action is asked, always).
     pub interact: bool,
+    /// The assistant may tidy the tabs: pin, move, put in folders and spaces; closing asks.
+    pub organize: bool,
     /// Sites the assistant never sees nor touches.
     pub blocked: Vec<String>,
 }
@@ -154,6 +156,7 @@ impl Default for AiSettings {
             confirm_reads: true,
             open: Autonomy::Auto,
             interact: false,
+            organize: true,
             blocked: Vec::new(),
         }
     }
@@ -323,6 +326,7 @@ impl AiSettings {
                 }
             }
             "interact" => self.interact = flag(value)?,
+            "organize" => self.organize = flag(value)?,
             "blocked.add" => {
                 let host = crate::boosts::host_of(value).ok_or("not a site")?;
                 if !self.blocked.contains(&host) && self.blocked.len() < MAX_BLOCKED {

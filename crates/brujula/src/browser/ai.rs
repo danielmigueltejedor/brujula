@@ -12,6 +12,7 @@ use std::time::Duration;
 use super::ai_panel::{AiUi, Answer};
 use super::*;
 
+use brujula_core::ai::organize::{self, Op};
 use brujula_core::ai::policy::{self, Call, Decision, Grant, Target};
 use brujula_core::ai::wire::{self, Message, Part, Role, ToolCall};
 use brujula_core::ai::{page, prompt, AiSettings, Provider};
@@ -542,6 +543,7 @@ impl Browser {
                 self.ai.ui.add_note("Cerró una pestaña que había abierto.");
                 Ok("Hecho.".to_owned())
             }
+            policy::ORGANIZE => self.ai_organize(&settings, args),
             policy::CLICK | policy::TYPE_TEXT => self.ai_act(call, tab, run).await,
             _ => Err("Herramienta desconocida".to_owned()),
         }
@@ -612,6 +614,11 @@ impl Browser {
                 always,
             } => (title, detail, always),
         };
+        let detail = if call.name == policy::ORGANIZE {
+            self.ai_plan_text(&call.args)
+        } else {
+            detail
+        };
         let answer = self.ai.ui.ask(&title, &detail, always.is_some()).await;
         if self.ai_stale(run) {
             return Err("Cancelado".to_owned());
@@ -627,6 +634,177 @@ impl Browser {
         if call.name == policy::READ_PAGE {
             if let Some(h) = info.and_then(|(u, _)| policy::host_of(u)) {
                 self.ai.session.borrow_mut().read_hosts.insert(h);
+            }
+        }
+        Ok(())
+    }
+
+    /// The title of a tab, for showing a plan.
+    fn ai_title_of(&self, id: u64) -> String {
+        self.model.borrow().get(TabId(id)).map_or_else(
+            || format!("pestaña {id}"),
+            |t| {
+                // A page with no title yet is known by its address.
+                if t.title.trim().is_empty() {
+                    clip(&t.url, 60)
+                } else {
+                    clip(&t.title, 60)
+                }
+            },
+        )
+    }
+
+    /// A plan to tidy the tabs, in words: what the user is asked to allow.
+    fn ai_plan_text(&self, args: &serde_json::Value) -> String {
+        match organize::parse(args) {
+            Ok(plan) => plan.describe(|id| self.ai_title_of(id)).join("\n"),
+            Err(_) => String::new(),
+        }
+    }
+
+    /// Carries out a plan to tidy the tabs. Only tabs the assistant may see, in the order given;
+    /// a step that cannot be done is skipped and reported, and the rest go ahead.
+    fn ai_organize(
+        self: &Rc<Self>,
+        settings: &AiSettings,
+        args: &serde_json::Value,
+    ) -> Result<String, String> {
+        let plan = organize::parse(args)?;
+        let usable = |id: u64| -> Result<TabId, String> {
+            let m = self.model.borrow();
+            let t = m
+                .get(TabId(id))
+                .ok_or_else(|| format!("la pestaña {id} no existe"))?;
+            if t.essential.is_some() {
+                return Err(format!("la pestaña {id} es un esencial"));
+            }
+            policy::visible(settings, &t.url)
+                .map_err(|_| format!("la pestaña {id} no se puede tocar"))?;
+            Ok(t.id)
+        };
+        let (mut done, mut skipped) = (0usize, Vec::new());
+        for op in &plan.ops {
+            let result: Result<(), String> = match op {
+                Op::Pin(id) | Op::Unpin(id) => usable(*id).map(|id| {
+                    let pin = matches!(op, Op::Pin(_));
+                    let c = self.model.borrow_mut().set_pinned(id, pin);
+                    self.apply(c);
+                }),
+                Op::Close(id) => usable(*id).map(|id| {
+                    self.ai.session.borrow_mut().opened.remove(&id.0);
+                    self.ai.snapshots.borrow_mut().remove(&id);
+                    self.close_tab(id);
+                }),
+                Op::Move {
+                    tab,
+                    next_to,
+                    after,
+                } => usable(*tab).and_then(|id| {
+                    let other = usable(*next_to)?;
+                    let (pos, at) = {
+                        let m = self.model.borrow();
+                        (m.position(id), m.position(other))
+                    };
+                    let (Some(pos), Some(at)) = (pos, at) else {
+                        return Err("la pestaña ya no está".to_owned());
+                    };
+                    let to = match (pos < at, *after) {
+                        (true, false) => at - 1,
+                        (true, true) => at,
+                        (false, false) => at,
+                        (false, true) => at + 1,
+                    };
+                    let c = self.model.borrow_mut().move_to(id, to);
+                    self.apply(c);
+                    self.reorder_rows();
+                    Ok(())
+                }),
+                Op::Folder { name, tabs } => self.ai_file_tabs(&usable, name, tabs),
+                Op::Space { tab, space } => usable(*tab).and_then(|id| {
+                    let target = self
+                        .spaces
+                        .borrow()
+                        .all()
+                        .iter()
+                        .find(|s| s.name.eq_ignore_ascii_case(space))
+                        .map(|s| s.id)
+                        .ok_or_else(|| format!("no hay un espacio «{space}»"))?;
+                    self.move_tab_to_space(id, target);
+                    Ok(())
+                }),
+            };
+            match result {
+                Ok(()) => done += 1,
+                Err(why) => skipped.push(why),
+            }
+        }
+        self.reorder_rows();
+        let closed = plan.closes().len();
+        self.ai.ui.add_note(&format!(
+            "Organizó las pestañas: {done} de {} pasos{}.",
+            plan.ops.len(),
+            if closed > 0 {
+                format!(" ({closed} cerradas; Ctrl+Mayús+T las recupera)")
+            } else {
+                String::new()
+            }
+        ));
+        if skipped.is_empty() {
+            Ok(format!("Hecho: {done} pasos."))
+        } else {
+            Ok(format!(
+                "Hecho: {done} pasos. No se pudo: {}.",
+                skipped.join("; ")
+            ))
+        }
+    }
+
+    /// Puts tabs in the folder with this name (made in the space of the first tab if there is
+    /// none). Tabs of another space stay out: a folder belongs to one space.
+    fn ai_file_tabs(
+        self: &Rc<Self>,
+        usable: &dyn Fn(u64) -> Result<TabId, String>,
+        name: &str,
+        tabs: &[u64],
+    ) -> Result<(), String> {
+        let ids: Vec<TabId> = tabs.iter().filter_map(|t| usable(*t).ok()).collect();
+        let first = *ids
+            .first()
+            .ok_or("ninguna de las pestañas se puede tocar")?;
+        let space = self
+            .model
+            .borrow()
+            .get(first)
+            .map(|t| t.space)
+            .ok_or("la pestaña ya no está")?;
+        let existing = self
+            .folders
+            .borrow()
+            .in_space(space)
+            .find(|f| {
+                f.name.eq_ignore_ascii_case(name) && f.rule == brujula_core::folders::Rule::Manual
+            })
+            .map(|f| f.id);
+        let folder = match existing {
+            Some(f) => f,
+            None => {
+                let made =
+                    self.folders
+                        .borrow_mut()
+                        .add(space, name, brujula_core::folders::Rule::Manual);
+                let made = made.ok_or("ya hay demasiadas carpetas")?;
+                self.rebuild_folder_rows();
+                made
+            }
+        };
+        for id in ids {
+            let same = self
+                .model
+                .borrow()
+                .get(id)
+                .is_some_and(|t| t.space == space);
+            if same {
+                self.put_tab_in_folder(id, Some(folder));
             }
         }
         Ok(())
@@ -652,11 +830,20 @@ impl Browser {
             .filter(|t| policy::visible(settings, &t.url).is_ok())
             .take(60)
             .map(|t| {
+                let folder = self
+                    .folders
+                    .borrow()
+                    .folder_of(t.folder, t.space, &t.url, &t.title)
+                    .and_then(|f| self.folders.borrow().get(f).map(|f| clip(&f.name, 40)));
+                let space = self.spaces.borrow().get(t.space).map(|s| clip(&s.name, 40));
                 json!({
                     "id": t.id.0,
                     "title": clip(&t.title, 120),
                     "url": clip(&t.url, 300),
                     "active": Some(t.id) == selected,
+                    "pinned": t.pinned,
+                    "folder": folder,
+                    "space": space,
                 })
             })
             .collect();
@@ -940,6 +1127,7 @@ impl Browser {
         switch(&pane.confirm, "confirm_reads", "1", "0");
         switch(&pane.open_auto, "open", "auto", "ask");
         switch(&pane.interact, "interact", "1", "0");
+        switch(&pane.organize, "organize", "1", "0");
         switch(&pane.search, "search", "1", "0");
 
         let add = {

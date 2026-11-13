@@ -32,6 +32,7 @@ pub(super) struct AiPane {
     confirm_row: gtk::Box,
     pub open_auto: gtk::Switch,
     pub interact: gtk::Switch,
+    pub organize: gtk::Switch,
     pub search: gtk::Switch,
     pub blocked_entry: gtk::Entry,
     pub blocked_add: gtk::Button,
@@ -149,6 +150,7 @@ impl AiPane {
         let confirm = gtk::Switch::new();
         let open_auto = gtk::Switch::new();
         let interact = gtk::Switch::new();
+        let organize = gtk::Switch::new();
         let search = gtk::Switch::new();
         let confirm_row = switch_row(
             "Preguntar antes de leer un sitio",
@@ -221,6 +223,11 @@ impl AiPane {
             "Siempre pregunta antes de cada acción",
             &interact,
         ));
+        list.append(&switch_row(
+            "Organizar tus pestañas",
+            "Fijar, mover y meter en carpetas; si va a cerrar, pregunta",
+            &organize,
+        ));
         list.append(&heading("Buscador"));
         list.append(&switch_row(
             "Que la IA gestione el buscador",
@@ -259,6 +266,7 @@ impl AiPane {
             confirm_row,
             open_auto,
             interact,
+            organize,
             search,
             blocked_entry,
             blocked_add,
@@ -329,6 +337,7 @@ impl AiPane {
         self.confirm_row.set_visible(s.read);
         self.open_auto.set_active(s.open == Autonomy::Auto);
         self.interact.set_active(s.interact);
+        self.organize.set_active(s.organize);
         self.search.set_active(s.search);
 
         while let Some(child) = self.blocked_list.first_child() {
