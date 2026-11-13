@@ -423,6 +423,7 @@ impl Browser {
             if let Some(dm) = session.website_data_manager() {
                 dm.set_favicons_enabled(true);
             }
+            keep_cookies(&session, &paths::cookies_file());
         }
         // A bad certificate is a failure, never a click-through; trackers get no free ride.
         session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
@@ -788,9 +789,7 @@ impl Browser {
             history: RefCell::new(if private {
                 History::default()
             } else {
-                std::fs::read_to_string(paths::history_file())
-                    .map(|t| History::from_json(&t))
-                    .unwrap_or_default()
+                load_history()
             }),
             history_save_queued: Cell::new(false),
             pw: passwords::PwState::default(),
@@ -3044,4 +3043,32 @@ fn has_open_popover(widget: &gtk::Widget) -> bool {
 /// Whether a view shows one of the browser's own pages rather than a web page.
 fn shows_own_page(view: &WebView) -> bool {
     view.uri().is_some_and(|u| brujula_core::is_own_page(&u))
+}
+
+/// Gives a session a file for its cookies. Without one WebKit keeps them in memory only, and a
+/// restart (an update, a crash, closing the window) signs the person out of everything.
+pub(crate) fn keep_cookies(session: &NetworkSession, file: &std::path::Path) {
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Some(cookies) = session.cookie_manager() {
+        cookies.set_persistent_storage(
+            &file.to_string_lossy(),
+            webkit6::CookiePersistentStorage::Sqlite,
+        );
+    }
+}
+
+/// The saved history. A file that cannot be read is moved aside, never written over with an
+/// empty history, so the pages it holds can still be recovered.
+fn load_history() -> History {
+    let file = paths::history_file();
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return History::default();
+    };
+    History::parse(&text).unwrap_or_else(|| {
+        let aside = file.with_extension(format!("json.unreadable-{}", now_ms()));
+        let _ = std::fs::rename(&file, aside);
+        History::default()
+    })
 }
