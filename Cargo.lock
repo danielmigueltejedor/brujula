@@ -1098,7 +1098,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nodalia-gtk"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=ea0217db92af92c260e99cea0e849305dece4d97#ea0217db92af92c260e99cea0e849305dece4d97"
+source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=9dcfb076448f975005fe7595ef954994fc6e1c80#9dcfb076448f975005fe7595ef954994fc6e1c80"
 dependencies = [
  "gtk4",
  "pango",
@@ -1107,7 +1107,7 @@ dependencies = [
 [[package]]
 name = "nodalia-update"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=ea0217db92af92c260e99cea0e849305dece4d97#ea0217db92af92c260e99cea0e849305dece4d97"
+source = "git+https://github.com/danielmigueltejedor/nodalia-design?rev=9dcfb076448f975005fe7595ef954994fc6e1c80#9dcfb076448f975005fe7595ef954994fc6e1c80"
 dependencies = [
  "serde_json",
  "sha2",
