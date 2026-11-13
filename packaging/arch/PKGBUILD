@@ -1,8 +1,8 @@
 # Maintainer: Daniel Miguel Tejedor <danielmigueltejedor@icloud.com>
 pkgname=brujula
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
-pkgdesc='Brújula, el navegador de Nodalix: WebKit, pestañas verticales, bloqueador de anuncios y extensiones de Chromium'
+pkgdesc='Brújula, el navegador de Nodalix: WebKit, pestañas verticales, bloqueador de anuncios, contraseñas y extensiones de Chromium'
 arch=(x86_64)
 url='https://github.com/danielmigueltejedor/brujula'
 license=(GPL-3.0-or-later)
