@@ -40,6 +40,9 @@
 .brujula-spotlight { padding: var(--ndl-space-md); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); }
 .brujula-spotlight-entry { min-height: 44px; }
 .brujula-spotlight-row { min-height: 44px; }
+.brujula-marks { padding: var(--ndl-space-xs) 0; }
+.brujula-marks flowboxchild { padding: 0; background: none; }
+.brujula-mark-initial { font-weight: 700; font-size: 1.1em; color: var(--ndl-color-accent-default); }
 
 .brujula-progress { min-height: 2px; }
 

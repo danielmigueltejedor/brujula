@@ -20,6 +20,8 @@ pub struct Item {
 }
 
 type Query = Box<dyn Fn(&str) -> Vec<Item>>;
+type Tiles = Box<dyn Fn() -> Vec<Item>>;
+type Closed = Box<dyn Fn(bool)>;
 type Activate = Box<dyn Fn(Action)>;
 
 pub struct Spotlight {
@@ -28,10 +30,15 @@ pub struct Spotlight {
     entry: gtk::Entry,
     list: gtk::ListBox,
     results: gtk::ScrolledWindow,
+    /// The icons shown while nothing is typed (the bookmarks), and what each one does.
+    tiles: gtk::FlowBox,
+    tile_items: Tiles,
+    tile_actions: RefCell<Vec<Action>>,
     items: RefCell<Vec<Action>>,
     query: Query,
     activate: Activate,
-    on_closed: RefCell<Option<Box<dyn Fn()>>>,
+    /// Called when it closes; `true` if the person chose something.
+    on_closed: RefCell<Option<Closed>>,
     /// Ignore `changed` while we set the text ourselves.
     quiet: Cell<bool>,
 }
@@ -40,6 +47,7 @@ impl Spotlight {
     pub fn new(
         query: impl Fn(&str) -> Vec<Item> + 'static,
         activate: impl Fn(Action) + 'static,
+        tiles: impl Fn() -> Vec<Item> + 'static,
     ) -> Rc<Self> {
         let entry = gtk::Entry::builder()
             .placeholder_text("Buscar o escribir una dirección")
@@ -59,6 +67,19 @@ impl Spotlight {
             .visible(false)
             .build();
 
+        let flow = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .homogeneous(true)
+            .min_children_per_line(1)
+            .max_children_per_line(10)
+            .column_spacing(6)
+            .row_spacing(6)
+            .halign(gtk::Align::Center)
+            .activate_on_single_click(true)
+            .visible(false)
+            .build();
+        flow.add_css_class("brujula-marks");
+
         let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
         card.add_css_class("ndl-island");
         card.add_css_class("brujula-spotlight");
@@ -67,6 +88,7 @@ impl Spotlight {
         card.set_valign(gtk::Align::Start);
         card.set_margin_top(180);
         card.append(&entry);
+        card.append(&flow);
         card.append(&results);
 
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -82,6 +104,9 @@ impl Spotlight {
             entry,
             list,
             results,
+            tiles: flow,
+            tile_items: Box::new(tiles),
+            tile_actions: RefCell::new(Vec::new()),
             items: RefCell::new(Vec::new()),
             query: Box::new(query),
             activate: Box::new(activate),
@@ -92,12 +117,12 @@ impl Spotlight {
         this
     }
 
-    pub fn set_on_closed(&self, f: impl Fn() + 'static) {
+    pub fn set_on_closed(&self, f: impl Fn(bool) + 'static) {
         *self.on_closed.borrow_mut() = Some(Box::new(f));
     }
 
     /// Shows the Spotlight with `initial` selected, so typing replaces it.
-    pub fn open(&self, initial: &str) {
+    pub fn open(self: &Rc<Self>, initial: &str) {
         self.quiet.set(true);
         self.entry.set_text(initial);
         self.quiet.set(false);
@@ -128,20 +153,25 @@ impl Spotlight {
     }
 
     pub fn close(&self) {
+        self.close_with(false);
+    }
+
+    fn close_with(&self, chosen: bool) {
         if !self.root.is_visible() {
             return;
         }
         self.root.set_visible(false);
         if let Some(f) = self.on_closed.borrow().as_ref() {
-            f();
+            f(chosen);
         }
     }
 
-    fn refresh(&self) {
+    fn refresh(self: &Rc<Self>) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
         let text = self.entry.text();
+        self.refresh_tiles(text.trim().is_empty());
         let items = (self.query)(&text);
         let mut actions = Vec::with_capacity(items.len());
         for item in items {
@@ -155,6 +185,37 @@ impl Spotlight {
             }
         }
         *self.items.borrow_mut() = actions;
+    }
+
+    /// Shows the bookmarks as icons while nothing is typed, and hides them as soon as there is
+    /// something to search for.
+    fn refresh_tiles(self: &Rc<Self>, idle: bool) {
+        while let Some(child) = self.tiles.first_child() {
+            self.tiles.remove(&child);
+        }
+        let items = if idle {
+            (self.tile_items)()
+        } else {
+            Vec::new()
+        };
+        let mut actions = Vec::with_capacity(items.len());
+        for (i, item) in items.iter().enumerate() {
+            let button = tile(item);
+            let this = Rc::downgrade(self);
+            button.connect_clicked(move |_| {
+                if let Some(s) = this.upgrade() {
+                    let action = s.tile_actions.borrow().get(i).cloned();
+                    if let Some(action) = action {
+                        s.close_with(true);
+                        (s.activate)(action);
+                    }
+                }
+            });
+            self.tiles.append(&button);
+            actions.push(item.action.clone());
+        }
+        self.tiles.set_visible(!actions.is_empty());
+        *self.tile_actions.borrow_mut() = actions;
     }
 
     fn move_selection(&self, delta: i32) {
@@ -174,7 +235,7 @@ impl Spotlight {
             .and_then(|i| usize::try_from(i).ok())
             .and_then(|i| self.items.borrow().get(i).cloned());
         let Some(action) = action else { return };
-        self.close();
+        self.close_with(true);
         (self.activate)(action);
     }
 
@@ -243,6 +304,40 @@ impl Spotlight {
         });
         self.root.add_controller(click);
     }
+}
+
+/// A bookmark as an icon alone, in the manner of the essentials; its name is the tooltip.
+fn tile(item: &Item) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .css_classes(["flat", "brujula-ess"])
+        .tooltip_text(&item.title)
+        .halign(gtk::Align::Center)
+        .build();
+    let face: gtk::Widget = match &item.texture {
+        Some(texture) => crate::favicons::picture_sized(texture, 24),
+        None => {
+            let letter = gtk::Label::new(Some(&initial(&item.title, &item.detail)));
+            letter.add_css_class("brujula-mark-initial");
+            letter.upcast()
+        }
+    };
+    button.set_child(Some(&face));
+    button
+}
+
+/// The first letter of a bookmark's name, or of its address when the name is empty.
+fn initial(title: &str, url: &str) -> String {
+    let source = if title.trim().is_empty() {
+        url.trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+    } else {
+        title.trim()
+    };
+    source
+        .chars()
+        .next()
+        .map_or_else(|| "?".to_owned(), |c| c.to_uppercase().collect())
 }
 
 fn row(item: &Item) -> gtk::ListBoxRow {

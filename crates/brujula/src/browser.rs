@@ -363,7 +363,8 @@ pub struct Browser {
     progress: gtk::ProgressBar,
     chromes: Vec<Chrome>,
     spotlight: Rc<Spotlight>,
-    /// Where the Spotlight sends its result: the current tab, or a new one.
+    /// The blank tab a new-tab Spotlight opened, until the user has chosen something in it.
+    fresh_tab: Cell<Option<TabId>>,
     session: NetworkSession,
     ucm: UserContentManager,
     /// A private window: nothing it does is written to disk, and it has its own session.
@@ -692,6 +693,7 @@ impl Browser {
         let weak: Rc<RefCell<Option<std::rc::Weak<Browser>>>> = Rc::new(RefCell::new(None));
         let w1 = weak.clone();
         let w2 = weak.clone();
+        let w3 = weak.clone();
         let spotlight = Spotlight::new(
             move |text| {
                 w1.borrow()
@@ -704,6 +706,13 @@ impl Browser {
                 if let Some(b) = w2.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
                     b.run_action(action);
                 }
+            },
+            move || {
+                w3.borrow()
+                    .as_ref()
+                    .and_then(std::rc::Weak::upgrade)
+                    .map(|b| b.bookmark_icons())
+                    .unwrap_or_default()
             },
         );
         let overlay = gtk::Overlay::new();
@@ -778,6 +787,7 @@ impl Browser {
             progress,
             chromes: vec![side_chrome, slim_chrome, top_chrome],
             spotlight,
+            fresh_tab: Cell::new(None),
             session,
             ucm,
             private,
@@ -849,12 +859,7 @@ impl Browser {
             });
             w.add_action(&a);
         };
-        action(
-            "new-tab",
-            Box::new(|b| {
-                b.open_tab(newtab::NEWTAB_URI, None, true);
-            }),
-        );
+        action("new-tab", Box::new(|b| b.new_tab(false)));
         action(
             "close-tab",
             Box::new(|b| {
@@ -1061,8 +1066,12 @@ impl Browser {
 
         // Closing the Spotlight hands the keyboard back to the page.
         let this = Rc::downgrade(self);
-        self.spotlight.set_on_closed(move || {
+        self.spotlight.set_on_closed(move |chosen| {
             if let Some(b) = this.upgrade() {
+                // Left without choosing: the blank tab the new-tab Spotlight opened goes again.
+                if !chosen {
+                    b.cancel_new_tab();
+                }
                 if let Some(v) = b.current_view() {
                     v.grab_focus();
                 }
@@ -1439,7 +1448,13 @@ impl Browser {
             // The first thing a person sees; the new-tab page waits behind it.
             self.open_tab(WELCOME_URI, None, true);
         } else if self.model.borrow().is_empty() {
-            self.open_tab(newtab::NEWTAB_URI, None, true);
+            let this = Rc::downgrade(self);
+            // The window is not on the screen yet: the Spotlight opens once it is.
+            glib::idle_add_local_once(move || {
+                if let Some(b) = this.upgrade() {
+                    b.new_tab(true);
+                }
+            });
         }
         // After an update the first thing to see is what is new; then the check for the next.
         self.show_news_once();
@@ -1820,9 +1835,7 @@ impl Browser {
             if page != newtab::NEWTAB_URI {
                 return true;
             }
-            if let Some(tab) = newtab::parse_tab(&uri) {
-                b.switch_from_newtab(tab);
-            } else if uri == newtab::CHOOSE_ENGINE_URI {
+            if uri == newtab::CHOOSE_ENGINE_URI {
                 b.render_newtab(v, true);
             } else if let Some(engine) = newtab::parse_set_engine(&uri) {
                 {
@@ -2536,7 +2549,6 @@ impl Browser {
 
     fn newtab_html(&self, choosing: bool) -> String {
         let settings = self.settings.borrow();
-        let engine = search::engine_or_default(&settings.search_engine);
         let choosing = choosing || !settings.search_engine_chosen;
         let lang = glib::language_names()
             .first()
@@ -2546,107 +2558,99 @@ impl Browser {
             .ok()
             .and_then(|d| u32::try_from(d.hour()).ok())
             .unwrap_or(12);
-        let link = |title: &str, href: String, site: &str, tag: &'static str| newtab::Link {
-            title: title.to_owned(),
-            href,
-            site: site.to_owned(),
-            icon: favicons::data_uri(site),
-            tag,
-        };
-        let bookmarks: Vec<newtab::Link> = self
-            .bookmarks
-            .borrow()
-            .items()
-            .iter()
-            .map(|b| link(&b.title, b.url.clone(), &b.url, ""))
-            .collect();
-        let model = self.model.borrow();
-        let blank = |url: &str| {
-            url.is_empty()
-                || url == "about:blank"
-                || url == newtab::NEWTAB_URI
-                || url == prefs::SETTINGS_URI
-                || url == WELCOME_URI
-                || url == NEWS_URI
-        };
-        // Tabs open in this space (newest first), then the ones closed lately.
-        let mut recent: Vec<newtab::Link> = model
-            .in_space(model.current_space())
-            .filter(|t| !blank(&t.url))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(3)
-            .map(|t| {
-                link(
-                    &t.title,
-                    format!("{}{}", newtab::TAB_PREFIX, t.id.0),
-                    &t.url,
-                    "Abierta",
-                )
-            })
-            .collect();
-        recent.extend(
-            model
-                .recently_closed(8)
-                .into_iter()
-                .filter(|(_, url)| !blank(url))
-                .take(3)
-                .map(|(title, url)| link(title, url.to_owned(), url, "Cerrada")),
-        );
-        let devices = self.devices_for_newtab(&link);
-        // Pages archived for lack of use come after the closed ones, which they also are.
-        let archive = self.archive.borrow();
-        recent.retain(|r| archive.items().iter().all(|e| e.url != r.href));
-        recent.extend(
-            archive
-                .items()
-                .iter()
-                .take(3)
-                .map(|e| link(&e.title, e.url.clone(), &e.url, "Archivada")),
-        );
         let theme = match settings.appearance.theme {
             Theme::System => "system",
             Theme::Light => "light",
             Theme::Dark => "dark",
         };
         newtab::render(&newtab::Page {
-            engine,
             choosing,
             lang: &lang,
             theme,
             accent: &settings.appearance.accent,
             hour,
-            bookmarks: &bookmarks,
-            recent: &recent,
-            devices: &devices,
         })
     }
 
-    /// Shows the open tab a link on the new-tab page points at, and drops the blank tab that was
-    /// showing the page.
-    fn switch_from_newtab(self: &Rc<Self>, target: u64) {
-        let target = TabId(target);
-        if self.model.borrow().get(target).is_none() {
+    /// A new tab: a blank page in front and the Spotlight over it, with the bookmarks as icons.
+    /// Leaving the Spotlight without choosing anything takes the blank tab away again, unless
+    /// `keep` says it is all there is to show (the browser has just opened).
+    fn new_tab(self: &Rc<Self>, keep: bool) {
+        let blank = self
+            .current_tab_url()
+            .is_some_and(|u| u == newtab::NEWTAB_URI)
+            .then(|| self.model.borrow().selected())
+            .flatten();
+        let reused = blank.is_some();
+        let id = blank.unwrap_or_else(|| self.open_tab(newtab::NEWTAB_URI, None, true));
+        // Until a search engine is chosen the page shows the picker; the Spotlight would hide it.
+        if !self.settings.borrow().search_engine_chosen {
             return;
         }
-        let blank = self.model.borrow().selected();
-        let changes = self.model.borrow_mut().select(target);
-        self.apply(changes);
-        if let Some(blank) = blank.filter(|b| *b != target) {
-            let is_newtab = self
-                .model
-                .borrow()
-                .get(blank)
-                .is_some_and(|t| t.url == newtab::NEWTAB_URI);
-            if is_newtab {
-                self.close_tab(blank);
-            }
+        self.fresh_tab.set((!keep && !reused).then_some(id));
+        self.spotlight.open("");
+    }
+
+    fn current_tab_url(&self) -> Option<String> {
+        let m = self.model.borrow();
+        m.selected().and_then(|id| m.get(id).map(|t| t.url.clone()))
+    }
+
+    /// The Spotlight of a new tab was closed with nothing chosen: the blank tab goes, and the
+    /// one before it is shown again. A lone blank tab stays.
+    fn cancel_new_tab(self: &Rc<Self>) {
+        let Some(id) = self.fresh_tab.take() else {
+            return;
+        };
+        let blank = self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.url == newtab::NEWTAB_URI);
+        if blank && self.model.borrow().selected() == Some(id) && self.model.borrow().len() > 1 {
+            self.close_tab(id);
         }
+    }
+
+    /// The tab a new-tab Spotlight opened, if it is still blank and not the one in front: the
+    /// user went somewhere else, so it has no reason to stay.
+    fn drop_fresh_tab(self: &Rc<Self>) {
+        let Some(id) = self.fresh_tab.take() else {
+            return;
+        };
+        let blank = self
+            .model
+            .borrow()
+            .get(id)
+            .is_some_and(|t| t.url == newtab::NEWTAB_URI);
+        if blank && self.model.borrow().selected() != Some(id) {
+            self.close_tab(id);
+        }
+    }
+
+    /// The bookmarks as the icons the Spotlight shows while nothing is typed.
+    fn bookmark_icons(&self) -> Vec<Item> {
+        self.bookmarks
+            .borrow()
+            .items()
+            .iter()
+            .take(24)
+            .map(|b| Item {
+                action: Action::Go(b.url.clone()),
+                title: b.title.clone(),
+                detail: b.url.clone(),
+                icon: "ndl-bookmark-symbolic",
+                texture: favicons::lookup(&b.url),
+            })
+            .collect()
     }
 
     /// What the Spotlight lists for `text`.
     fn spotlight_items(&self, text: &str) -> Vec<Item> {
+        // Nothing typed: the Spotlight shows the bookmarks as icons, not as rows.
+        if text.trim().is_empty() {
+            return Vec::new();
+        }
         let settings = self.settings.borrow();
         let engine = search::engine_or_default(&settings.search_engine);
         let model = self.model.borrow();
@@ -2732,6 +2736,7 @@ impl Browser {
                 self.navigate(url.as_str());
             }
         }
+        self.drop_fresh_tab();
     }
 
     fn navigate(self: &Rc<Self>, url: &str) {
