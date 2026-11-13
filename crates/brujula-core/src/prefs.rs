@@ -859,7 +859,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
             stacked(
                 "Degradado del marco",
                 "Varios colores que se funden; se usa en lugar del color liso. Elige uno hecho o monta el tuyo.",
-                &gradient_picker(&a),
+                &gradient_picker(a),
             ),
             row(
                 "Opacidad de la barra y el marco",
