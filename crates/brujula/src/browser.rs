@@ -56,6 +56,7 @@ mod extras;
 mod float;
 mod folders;
 mod history;
+mod history_panel;
 mod notes;
 mod page_action;
 mod passwords;
@@ -121,6 +122,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-tab", &["<Ctrl>Tab", "<Ctrl>Page_Down"]);
     app.set_accels_for_action("win.prev-tab", &["<Ctrl><Shift>Tab", "<Ctrl>Page_Up"]);
     app.set_accels_for_action("win.toggle-sidebar", &["<Ctrl>b"]);
+    app.set_accels_for_action("win.toggle-history", &["<Ctrl>h"]);
     app.set_accels_for_action("win.open-settings", &["<Ctrl>comma"]);
     app.set_accels_for_action("win.toggle-bookmark", &["<Ctrl>d"]);
     app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
@@ -300,6 +302,7 @@ pub struct Browser {
     ess: essentials::EssentialsUi,
     /// The downloads button and its panel.
     dl: downloads_panel::DownloadsUi,
+    hist: history_panel::HistoryUi,
     /// Opens the notepad of the space in front.
     notes_button: gtk::Button,
     notes: RefCell<brujula_core::notes::Notes>,
@@ -525,7 +528,10 @@ impl Browser {
         side.append(&side_chrome.url_button);
         let ess = essentials::EssentialsUi::new();
         side.append(&ess.grid);
-        side.append(&scroller);
+        let hist = history_panel::HistoryUi::new(&scroller);
+        side.append(&hist.stack);
+        // Next to the notes, in the top row.
+        side_header.pack_start(&hist.side_button);
         let folder_button = gtk::Button::builder()
             .icon_name("ndl-folder-plus-symbolic")
             .css_classes(["flat", "brujula-newfolder"])
@@ -622,6 +628,7 @@ impl Browser {
         top_nav.append(&top_chrome.ext);
         top_nav.append(&top_chrome.shield);
         top_nav.append(&dl.slot_top);
+        top_nav.append(&hist.top_button);
         top_nav.append(&top_chrome.menu);
         let top_header = ndl::HeaderBar::new();
         top_header.set_show_start_title_buttons(false);
@@ -719,6 +726,7 @@ impl Browser {
             essentials: RefCell::new(essentials::load()),
             ess,
             dl,
+            hist,
             notes_button,
             notes: RefCell::new(notes::load()),
             notes_save_queued: Cell::new(false),
@@ -796,6 +804,7 @@ impl Browser {
         this.apply_layout();
         this.wire();
         this.wire_downloads();
+        this.wire_history_panel();
         this.refresh_essentials();
         this
     }
@@ -901,6 +910,7 @@ impl Browser {
         action("open-settings", Box::new(|b| b.open_settings(None)));
         action("about", Box::new(|b| b.show_about()));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
+        action("toggle-history", Box::new(|b| b.toggle_history()));
         action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
             "open-extensions",
@@ -2429,6 +2439,7 @@ impl Browser {
         drop(s);
         self.set_action_enabled("toggle-sidebar", !horizontal);
         self.dl.place(horizontal);
+        self.place_history(horizontal);
         let has_essentials = !self.essentials.borrow().is_empty();
         self.ess.grid.set_visible(has_essentials && !horizontal);
         self.ess.rail.set_visible(has_essentials && horizontal);

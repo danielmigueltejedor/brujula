@@ -128,13 +128,14 @@ pub fn render(theme: &str, accent: &str) -> String {
 <html lang="es" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Novedades</title>
-<style>{css}</style></head>
+<style>{faces}{css}</style></head>
 <body style="--accent:{accent}"><main>
 <p class="kicker">Brújula se ha actualizado</p>
 <h1>Novedades de la {version}</h1>
 {notes}
 </main></body></html>
 "#,
+        faces = crate::fonts::FACES,
         css = CSS,
         version = env!("CARGO_PKG_VERSION"),
         notes = body(NOTES),
@@ -147,7 +148,7 @@ const CSS: &str = r#"
 :root[data-theme=light]{color-scheme:light;--bg:#f5f6f8;--fg:#12161a;--muted:#617079;--card:#fff;--line:#e3e7ec;--chip:#edf0f3}
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:radial-gradient(70rem 30rem at 50% -10%,color-mix(in srgb,var(--accent) 15%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+body{margin:0;min-height:100vh;font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:radial-gradient(70rem 30rem at 50% -10%,color-mix(in srgb,var(--accent) 15%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 main{width:min(42rem,calc(100% - 3rem));margin:0 auto;padding:4rem 0 5rem}
 .kicker{margin:0 0 .4rem;color:var(--accent);font-weight:650;font-size:.85rem;letter-spacing:.04em;text-transform:uppercase}
 h1{margin:0 0 1.6rem;font-size:2.1rem;letter-spacing:-.02em}

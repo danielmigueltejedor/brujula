@@ -141,6 +141,8 @@ impl Browser {
     /// Registers the extension pages' scheme and starts the extensions that are on.
     pub(super) fn start_extensions(self: &Rc<Self>) {
         if let Some(context) = WebContext::default() {
+            // The typefaces of Nodalia Design for the browser's own pages.
+            context.register_uri_scheme(crate::fonts::SCHEME, crate::fonts::serve);
             let this = Rc::downgrade(self);
             context.register_uri_scheme("brujula-ext", move |req| match this.upgrade() {
                 Some(b) => b.serve_ext(req),

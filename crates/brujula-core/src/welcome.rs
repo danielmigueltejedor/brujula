@@ -461,7 +461,7 @@ pub fn render(page: &Page) -> String {
 <html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<style>{css}</style></head>
+<style>{faces}{css}</style></head>
 <body style="--accent:{accent}"><main>
 <div class="stage">
 <section class="step intro" data-step="intro">{mascot}<h1 id="type" aria-label="{title}"></h1><p class="tagline">{tagline}</p></section>
@@ -482,6 +482,7 @@ const T={{welcome:{welcome_js},next:{next_js},skip:{skip_js},done:{done_js}}};
 "##,
         lang = escape(w.code),
         title = escape(w.t(Text::Welcome)),
+        faces = crate::fonts::FACES,
         css = CSS,
         mascot = crate::newtab::MASCOT,
         tagline = escape(w.t(Text::Tagline)),
@@ -514,7 +515,7 @@ const CSS: &str = r#"
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 17%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+body{font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 17%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 main{height:100%;width:min(38rem,calc(100% - 3rem));margin:0 auto;display:flex;flex-direction:column;padding:0 0 1.6rem}
 .stage{flex:1;min-height:0;position:relative;overflow-y:auto;display:flex;flex-direction:column;justify-content:center}
 .step{display:none;animation:in .35s ease both;padding:1.5rem 0}

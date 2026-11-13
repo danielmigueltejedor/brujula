@@ -1438,7 +1438,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <html lang="es" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Preferencias</title>
-<style>{css}</style></head>
+<style>{faces}{css}</style></head>
 <body style="--accent:{accent};--on-accent:{on_accent}">
 <div class="shell">
 <nav class="nav" aria-label="Secciones"><h1>Preferencias</h1>{nav}</nav>
@@ -1447,6 +1447,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
 <script>{js}</script>
 </body></html>
 "##,
+        faces = crate::fonts::FACES,
         css = CSS,
         js = JS,
         accent = escape(&a.accent),
@@ -1508,7 +1509,7 @@ const CSS: &str = r#"
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--mf:#1a1f23;--sb:#252b30;--pg:#2f363c;--line2:#454d54;--shadow:0 1px 2px rgba(0,0,0,.3)}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
+body{margin:0;font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45;-webkit-font-smoothing:antialiased}
 .shell{display:grid;grid-template-columns:14.5rem minmax(0,44rem);justify-content:center;gap:3.5rem;padding:3.25rem 2rem 8rem}
 .nav{position:sticky;top:3rem;align-self:start;display:flex;flex-direction:column;gap:.15rem}
 .nav h1{font-size:1.65rem;font-weight:700;letter-spacing:-.03em;margin:0 0 1.1rem .8rem}

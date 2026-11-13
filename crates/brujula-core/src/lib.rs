@@ -15,6 +15,7 @@ pub mod edge;
 pub mod essentials;
 pub mod ext;
 pub mod folders;
+pub mod fonts;
 pub mod history;
 pub mod https;
 pub mod icons;

@@ -286,7 +286,7 @@ pub fn render(page: &Page) -> String {
 <html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<style>{css}</style></head>
+<style>{faces}{css}</style></head>
 <body style="--accent:{accent}"><main>
 <header>{mascot}
 <h1>{greeting}</h1></header>
@@ -300,6 +300,7 @@ pub fn render(page: &Page) -> String {
             page.lang
         }),
         title = escape(s.title),
+        faces = crate::fonts::FACES,
         css = CSS,
         greeting = greeting(page.hour, spanish),
     )
@@ -370,7 +371,7 @@ const CSS: &str = r#"
 :root[data-theme=dark]{color-scheme:dark;--bg:#0f1214;--fg:#eef1f3;--muted:#98a5ae;--card:#171c1f;--line:#262d32;--chip:#20272b;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6)}
 *{box-sizing:border-box}
 html,body{min-height:100%;margin:0}
-body{font-family:"Adwaita Sans",Inter,system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 15%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+body{font-family:Inter,"Adwaita Sans",system-ui,sans-serif;background:radial-gradient(70rem 36rem at 50% -12%,color-mix(in srgb,var(--accent) 15%,transparent),transparent),var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 main{width:min(40rem,calc(100% - 3rem));margin:0 auto;padding:15vh 0 4rem}
 header{text-align:center;margin-bottom:2rem}
 header h1{margin-top:.4rem}

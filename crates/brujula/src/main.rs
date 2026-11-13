@@ -2,6 +2,7 @@ mod browser;
 mod dialogs;
 mod favicons;
 mod filters;
+mod fonts;
 mod icons;
 mod paths;
 mod profiles;
