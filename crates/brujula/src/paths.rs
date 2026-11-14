@@ -128,6 +128,10 @@ pub fn notes_file() -> PathBuf {
     data_dir().join("notes.json")
 }
 
+pub fn zoom_file() -> PathBuf {
+    data_dir().join("zoom.json")
+}
+
 pub fn boosts_file() -> PathBuf {
     data_dir().join("boosts.json")
 }

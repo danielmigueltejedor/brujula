@@ -12,6 +12,7 @@ pub mod bookmarks;
 pub mod boosts;
 pub mod browser_data;
 pub mod cloud;
+pub mod commands;
 pub mod csp;
 pub mod downloads;
 pub mod drm;
@@ -45,6 +46,7 @@ pub mod useragent;
 pub mod vault;
 pub mod webapps;
 pub mod welcome;
+pub mod zoom;
 
 /// Where a profile (or a web app) keeps its cookies: a SQLite file in its own data folder.
 /// WebKit keeps cookies in memory unless it is given a file, so without it every restart, and

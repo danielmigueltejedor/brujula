@@ -271,3 +271,12 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(127, 127, 127, 0.18);
 }
 .brujula-toast-icon { color: var(--ndl-color-accent-default); }
+
+/* Find in page. */
+.brujula-find {
+  background: var(--ndl-color-surface-panel);
+  border-radius: 14px;
+  padding: 6px 6px 6px 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(127, 127, 127, 0.18);
+}
+.brujula-find-count { font-size: var(--ndl-font-size-small); min-width: 80px; }

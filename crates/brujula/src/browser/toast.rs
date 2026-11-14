@@ -10,6 +10,8 @@ pub(super) struct Toast {
     text: gtk::Label,
     actions: gtk::Box,
     tab: Cell<Option<TabId>>,
+    /// Counts the notices shown, so a timer only closes the one it was set for.
+    serial: Cell<u32>,
 }
 
 /// A button of a notice: label, whether it is the main one, what it does.
@@ -61,6 +63,7 @@ impl Toast {
             text,
             actions,
             tab: Cell::new(None),
+            serial: Cell::new(0),
         });
         let weak = Rc::downgrade(&this);
         close.connect_clicked(move |_| {
@@ -104,11 +107,27 @@ impl Toast {
             self.actions.append(&button);
         }
         self.tab.set(tab);
+        self.serial.set(self.serial.get().wrapping_add(1));
         self.root.set_can_target(true);
         self.root.set_reveal_child(true);
     }
 
+    /// A short note with no buttons that goes away by itself ("Enlace copiado").
+    pub(super) fn flash(self: &Rc<Self>, icon: &str, text: &str) {
+        self.show(None, icon, text, Vec::new());
+        let serial = self.serial.get();
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1800), move || {
+            if let Some(t) = weak.upgrade() {
+                if t.serial.get() == serial {
+                    t.hide();
+                }
+            }
+        });
+    }
+
     pub(super) fn hide(&self) {
+        self.serial.set(self.serial.get().wrapping_add(1));
         self.tab.set(None);
         self.root.set_reveal_child(false);
         self.root.set_can_target(false);

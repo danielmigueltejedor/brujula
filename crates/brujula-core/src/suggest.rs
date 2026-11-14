@@ -17,6 +17,8 @@ pub enum Action {
     Settings(String),
     /// Hand this text to the AI assistant (only when the user made it the search box).
     Ask(String),
+    /// Run a command of the window (`win.find`); see `commands`.
+    Command(String),
 }
 
 /// Where a suggestion comes from, so the Spotlight can pick its icon.
