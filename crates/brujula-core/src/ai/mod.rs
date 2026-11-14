@@ -13,6 +13,7 @@ pub mod page;
 pub mod policy;
 pub mod prompt;
 pub mod settings;
+pub mod tasks;
 pub mod wire;
 
 pub use settings::{AiSettings, Autonomy, Provider};
