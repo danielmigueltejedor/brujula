@@ -2171,6 +2171,14 @@ impl Browser {
         self.wire_tab_drag(&row, id);
 
         self.list.append(&row);
+        // A tab that has just been opened slides in once (see the CSS); the class goes after.
+        if !self.restoring.get() {
+            row.add_css_class("brujula-new");
+            let row_w = row.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                row_w.remove_css_class("brujula-new");
+            });
+        }
         self.rows.borrow_mut().insert(
             id,
             Row {

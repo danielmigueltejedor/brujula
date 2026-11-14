@@ -110,6 +110,14 @@ compila listas reales y comprueba que el JSON resultante es válido.
 - **Spotlight**: se abre en el centro de la ventana y se queda ahí mientras salen los resultados; muestra el icono de cada sitio (caché en disco por dominio) y encuentra ajustes por
   nombre o palabra clave («transparencia», «pestañas arriba»…).
 
+## Herramientas de página y movimiento
+
+- **Acciones de la ventana** (`browser/pagetools.rs`, `browser/find.rs`): `win.find`, `win.zoom-in|out|reset`, `win.copy-link`, `win.screenshot`, `win.print`, `win.toggle-mute`, `win.inspector`, `win.fullscreen`, `win.goto-tab(n)`. Los atajos están en `install_app_actions`; el menú, el Spotlight y los atajos ejecutan la misma acción.
+- **Zoom por sitio** (`zoom.rs`): `zoom.json` en los datos del perfil (host → %, máx. 500 sitios); se aplica al empezar a cargar una página; no se guarda en ventanas privadas ni para páginas propias (`brujula://`).
+- **Comandos del Spotlight** (`commands.rs`): con al menos dos letras que empiecen una palabra del título o de las palabras clave (sin acentos), salen hasta 3 comandos tras la primera fila. Cada uno lleva el nombre de la acción (`Action::Command`).
+- **Avisos** (`browser/toast.rs`): una nota que sube sobre el pie de la página, atada a una pestaña (se va al cambiar) o efímera (`flash`). La usan el DRM, el zoom, copiar el enlace y las capturas.
+- **Movimiento**: solo CSS (`@keyframes` y `transition` al final de `style.css`): tarjetas que suben y se aclaran al abrirse (Spotlight, Peek, avisos, buscar), pestañas nuevas que entran desde el lado, fundidos de color y levitación suave en esenciales y espacios. GTK lo apaga solo si el escritorio pide sin animaciones. **Sin verlo en pantalla**: se comprobó que el CSS nuevo se lee sin errores en GTK 4.14, no cómo se ve en 4.20.
+
 ## Extensiones de Chromium
 
 Código: núcleo sin interfaz en `crates/brujula-core/src/ext/` (manifiesto, paquetes `.crx`/zip, patrones de coincidencia, textos `_locales`, reglas `declarativeNetRequest`, registro, `shim.js` con la API `chrome.*`, `css.rs`) y motor en `crates/brujula/src/browser/ext*.rs`.

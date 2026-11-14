@@ -280,3 +280,46 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(127, 127, 127, 0.18);
 }
 .brujula-find-count { font-size: var(--ndl-font-size-small); min-width: 80px; }
+
+/* ---- Motion ----------------------------------------------------------------------------------
+   Short and soft: things ease between states and arrive with a small rise and fade instead of
+   appearing. GTK turns all of it off when the desktop asks for no animations. */
+@keyframes brujula-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes brujula-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes brujula-row-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Cards that open over the page. */
+.brujula-spotlight { animation: brujula-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-scrim { animation: brujula-fade 160ms ease-out; }
+.brujula-peek { animation: brujula-fade 160ms ease-out; }
+.brujula-peek-card { animation: brujula-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-toast, .brujula-find { animation: brujula-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Tabs arrive from the side, and every colour change is a short ease. */
+.brujula-row { transition: background-color 140ms ease, opacity 140ms ease; }
+.brujula-row.brujula-new { animation: brujula-row-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-tab-close { transition: opacity 120ms ease, background-color 120ms ease; }
+.brujula-tab-favicon { transition: opacity 140ms ease; }
+.brujula-chip { transition: background-color 140ms ease; }
+.brujula-urlbutton { transition: background-color 140ms ease; }
+
+/* Tiles and buttons lift a little under the pointer and press in on click. */
+.brujula-ess { transition: background-color 140ms ease, transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-ess:hover { transform: translateY(-1px) scale(1.04); }
+.brujula-ess:active { transform: scale(0.96); }
+.brujula-space:hover { transform: scale(1.08); }
+.brujula-space { transition: background-color 160ms ease, transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-newtab, .brujula-newfolder { transition: background-color 140ms ease, transform 120ms ease; }
+.brujula-newtab:active, .brujula-newfolder:active { transform: scale(0.97); }
+
+/* The loading line fills smoothly instead of jumping. */
+.brujula-progress progress { transition: min-width 200ms ease; }
