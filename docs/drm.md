@@ -55,12 +55,12 @@ Por eso **Brújula no puede prometer DRM dentro de la ventana** con el motor act
 
 Se apaga en Preferencias → Seguridad → «Avisar del contenido con DRM».
 
-## Camino a DRM dentro de Brújula (pendiente de decidir)
+## Camino a DRM dentro de Brújula
 
-Ninguna es barata; ver el hilo del proyecto para elegir.
+Ninguna es barata. Lo comprobado hasta ahora:
 
-| Vía | Qué exige | Resultado |
+| Vía | Qué exige | Estado |
 | --- | --- | --- |
-| **WebKitGTK propio de Nodalix** (paquete `webkitgtk-6.0` con `ENABLE_ENCRYPTED_MEDIA` + `ENABLE_THUNDER`) con Thunder/OpenCDM y el CDM de Widevine | Mantener un WebKit compilado a mano; licencia de Widevine de Google para redistribuir; sin garantía de que Netflix o Disney+ lo acepten fuera de Chrome | Brújula sigue siendo WebKit; DRM L3 si todo sale |
-| **Motor Chromium (CEF) solo para pestañas con DRM** | Integrar CEF en la app GTK (ventana aparte o incrustada), unos 300 MB más; Widevine lo puede aportar el Chrome/Firefox del usuario (`libwidevinecdm.so`) | DRM L3 con Chromium; el resto de Brújula igual |
+| **WebKitGTK propio de Nodalix** (`ENABLE_ENCRYPTED_MEDIA` + `ENABLE_THUNDER`, Thunder/OpenCDM y un plugin Widevine) | Compilar WebKit entero (horas, mucha RAM). El plugin de Widevine que usa Thunder en RDK/WPE (`widevine-rdk`) carga la biblioteca de **Widevine CE** (`widevine_ce_cdm_shared`), que Google entrega **con contrato** y con identidad de dispositivo (keybox, aprovisionamiento). No es el `libwidevinecdm.so` de Chrome. ([Documentación de RDK](https://developer.rdkcentral.com/documentation/documentation/rdk_video_documentation/components/widevine-rdk/)) | **Bloqueada sin un acuerdo con Google**: sin esa biblioteca no hay qué cargar, por mucho WebKit propio que se compile. Sin verificar contra Netflix o Disney+ |
+| **Motor Chromium (CEF) solo para pestañas con DRM** | Integrar CEF en la app GTK (ventana aparte o incrustada), unos 300 MB más. CEF no trae Widevine: se usa el `libwidevinecdm.so` del Chrome o Firefox del usuario (`--widevine-cdm-path`), como hacen Electron y otros | Técnicamente posible; hay que revisar los términos de Widevine de uso con un CDM copiado |
 | **El camino actual** (abrir en otro navegador) | Nada | Funciona hoy |
