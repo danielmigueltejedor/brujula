@@ -9,11 +9,13 @@
 
 use std::time::Duration;
 
+use super::ai_pane::TaskAct;
 use super::ai_panel::{AiUi, Answer};
 use super::*;
 
 use brujula_core::ai::organize::{self, Op};
 use brujula_core::ai::policy::{self, Call, Decision, Grant, Target};
+use brujula_core::ai::tasks::{self, Task, Tasks};
 use brujula_core::ai::wire::{self, Message, Part, Role, ToolCall};
 use brujula_core::ai::{page, prompt, AiSettings, Provider};
 use glib::translate::IntoGlib;
@@ -41,6 +43,14 @@ pub(super) struct AiState {
     key_set: Cell<bool>,
     /// The result of the last «Probar conexión», for the preferences page.
     status: RefCell<String>,
+    /// The scheduled tasks of this profile.
+    tasks: RefCell<Tasks>,
+    /// The task that is running now, if any.
+    running: RefCell<Option<Task>>,
+    /// How the running task ended: what it answered, or why it could not.
+    outcome: RefCell<Option<Result<String, String>>>,
+    /// Tabs the running task opened, so they are closed when it ends.
+    task_tabs: RefCell<Vec<TabId>>,
 }
 
 impl AiState {
@@ -64,8 +74,31 @@ impl AiState {
             http: RefCell::new(None),
             key_set: Cell::new(false),
             status: RefCell::new(String::new()),
+            tasks: RefCell::new(if private {
+                Tasks::default()
+            } else {
+                load_tasks()
+            }),
+            running: RefCell::new(None),
+            outcome: RefCell::new(None),
+            task_tabs: RefCell::new(Vec::new()),
         }
     }
+}
+
+fn load_tasks() -> Tasks {
+    std::fs::read_to_string(paths::ai_tasks_file())
+        .map(|t| Tasks::from_json(&t))
+        .unwrap_or_default()
+}
+
+/// Now, in seconds since 1970, and how far local time is from UTC, in seconds.
+fn clock() -> (u64, i64) {
+    let now = u64::try_from(glib::real_time() / 1_000_000).unwrap_or(0);
+    let offset = glib::DateTime::now_local()
+        .map(|d| d.utc_offset().as_seconds())
+        .unwrap_or(0);
+    (now, offset)
 }
 
 fn clip(text: &str, max: usize) -> String {
@@ -138,6 +171,15 @@ impl Browser {
         if self.ai_enabled() {
             self.ai_refresh_key(false);
         }
+        // Tasks are looked at once a minute while the browser is open.
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_seconds_local(60, move || match weak.upgrade() {
+            Some(this) => {
+                this.ai_tick();
+                glib::ControlFlow::Continue
+            }
+            None => glib::ControlFlow::Break,
+        });
     }
 
     /// Shows or hides the buttons and the panel to match the switch in the preferences.
@@ -213,6 +255,9 @@ impl Browser {
             s.abort();
         }
         self.ai_repair_history();
+        // Stopping a task ends it: what comes next is the user's own conversation.
+        *self.ai.running.borrow_mut() = None;
+        self.ai.session.borrow_mut().task_hosts = None;
         self.ai.ui.add_note("Detenido.");
     }
 
@@ -236,6 +281,7 @@ impl Browser {
             s.abort();
         }
         self.ai.history.borrow_mut().clear();
+        *self.ai.running.borrow_mut() = None;
         *self.ai.session.borrow_mut() = policy::Session::default();
         self.ai.snapshots.borrow_mut().clear();
         self.ai.ui.clear();
@@ -308,6 +354,14 @@ impl Browser {
         }
         self.ai_repair_history();
         self.ai.ui.add_error(why);
+        self.ai_end(Err(why.to_owned()));
+    }
+
+    /// Writes down how the running task ended (nothing, for a conversation).
+    fn ai_end(&self, result: Result<String, String>) {
+        if self.ai.running.borrow().is_some() {
+            *self.ai.outcome.borrow_mut() = Some(result);
+        }
     }
 
     /// The key of the provider in use, if it has one.
@@ -341,8 +395,16 @@ impl Browser {
                 .and_then(|d| d.format("%A %e de %B de %Y").ok())
                 .map(|s| s.trim().to_owned())
                 .unwrap_or_default();
-            let system = prompt::system(&settings, &today, engine);
-            let tools = policy::specs(&settings);
+            let (system, tools) = match self.ai.running.borrow().as_ref() {
+                Some(t) => (
+                    prompt::task_system(&t.name, &t.prompt, &t.hosts, &today),
+                    policy::task_specs(),
+                ),
+                None => (
+                    prompt::system(&settings, &today, engine),
+                    policy::specs(&settings),
+                ),
+            };
             let history = {
                 let mut h = self.ai.history.borrow_mut();
                 wire::trim_results(&mut h, HISTORY_BUDGET);
@@ -382,6 +444,7 @@ impl Browser {
             parts.extend(reply.calls.iter().cloned().map(Part::Call));
             if parts.is_empty() {
                 self.ai.ui.add_note("La IA no respondió nada.");
+                self.ai_end(Err("La IA no respondió nada".to_owned()));
                 return;
             }
             self.ai.history.borrow_mut().push(Message {
@@ -389,6 +452,7 @@ impl Browser {
                 parts,
             });
             if reply.calls.is_empty() {
+                self.ai_end(Ok(reply.text.clone()));
                 return;
             }
             let mut results = Vec::new();
@@ -410,6 +474,7 @@ impl Browser {
                 self.ai
                     .ui
                     .add_note("La IA llegó al límite de acciones y se detuvo.");
+                self.ai_end(Err("Llegó al límite de acciones".to_owned()));
                 self.ai_repair_history();
                 return;
             }
@@ -544,6 +609,7 @@ impl Browser {
                 Ok("Hecho.".to_owned())
             }
             policy::ORGANIZE => self.ai_organize(&settings, args),
+            policy::SCHEDULE => self.ai_schedule(args),
             policy::CLICK | policy::TYPE_TEXT => self.ai_act(call, tab, run).await,
             _ => Err("Herramienta desconocida".to_owned()),
         }
@@ -817,6 +883,9 @@ impl Browser {
         let mut s = self.ai.session.borrow_mut();
         s.opened.insert(id.0);
         s.known_urls.insert(url.to_owned());
+        if s.task_hosts.is_some() {
+            self.ai.task_tabs.borrow_mut().push(id);
+        }
         id
     }
 
@@ -885,6 +954,14 @@ impl Browser {
         let snapshot = page::parse_snapshot(&value.to_str())?;
         // The page may have moved on (a redirect) to somewhere the assistant must not see.
         policy::visible(settings, &snapshot.url)?;
+        if let Some(hosts) = &self.ai.session.borrow().task_hosts {
+            let host = policy::host_of(&snapshot.url).unwrap_or_default();
+            if !policy::in_task_hosts(hosts, &host) {
+                return Err(format!(
+                    "La página acabó en {host}, que no es de los sitios de la tarea"
+                ));
+            }
+        }
         let sent = snapshot.sent_chars();
         {
             let mut s = self.ai.session.borrow_mut();
@@ -970,6 +1047,186 @@ impl Browser {
     // ---- The preferences page ----
 
     /// What the preferences page shows about the assistant.
+    /// Reads the tasks from the disk, changes them and writes them back if they changed: several
+    /// windows share the file, so none works from a copy that has gone stale.
+    fn tasks_edit<R>(&self, f: impl FnOnce(&mut Tasks) -> R) -> R {
+        let mut fresh = load_tasks();
+        let before = fresh.to_json();
+        let r = f(&mut fresh);
+        if !self.private && fresh.to_json() != before {
+            let _ = paths::write_atomic(&paths::ai_tasks_file(), &fresh.to_json());
+        }
+        *self.ai.tasks.borrow_mut() = fresh;
+        r
+    }
+
+    /// The model proposed a task and the user said yes: keep it.
+    fn ai_schedule(self: &Rc<Self>, args: &serde_json::Value) -> Result<String, String> {
+        let (now, _) = clock();
+        let task = tasks::parse(args, now)?;
+        let when = task.schedule.describe();
+        let id = self.tasks_edit(|t| t.add(task)).ok_or_else(|| {
+            format!(
+                "Ya hay {} tareas: el usuario tiene que borrar alguna",
+                tasks::MAX_TASKS
+            )
+        })?;
+        self.ai_sync_pane();
+        self.ai.ui.add_note("Guardó una tarea programada.");
+        Ok(format!(
+            "Tarea guardada (nº {id}): {when}. Se ejecuta con Brújula abierto."
+        ))
+    }
+
+    /// Once a minute: runs the task whose time has come, if the assistant has nothing else to do.
+    /// A task never interrupts a conversation, nor takes over one that is open.
+    fn ai_tick(self: &Rc<Self>) {
+        if !self.ai_enabled() || self.ai.busy.get() || !self.ai.history.borrow().is_empty() {
+            return;
+        }
+        {
+            let s = self.ai.settings.borrow();
+            if !(s.read && s.tasks) {
+                return;
+            }
+        }
+        let (now, offset) = clock();
+        let due = self.tasks_edit(|t| {
+            let id = t.due(now, offset)?;
+            t.start(id, now);
+            t.get(id).cloned()
+        });
+        if let Some(task) = due {
+            let this = self.clone();
+            glib::spawn_future_local(async move { this.ai_run_task(task).await });
+        }
+    }
+
+    /// Runs a task: the assistant reads its sites with nothing else of the browser, writes what it
+    /// found, and the tabs it opened are closed. Whatever happens is kept with the task.
+    async fn ai_run_task(self: &Rc<Self>, task: Task) {
+        let settings = self.ai.settings.borrow().clone();
+        if !settings.read {
+            self.ai_show_panel();
+            self.ai
+                .ui
+                .add_note("Para las tareas hace falta que la IA pueda leer páginas.");
+            return;
+        }
+        self.ai_reset();
+        self.ai.session.borrow_mut().task_hosts = Some(task.hosts.clone());
+        *self.ai.running.borrow_mut() = Some(task.clone());
+        *self.ai.outcome.borrow_mut() = None;
+        self.ai.task_tabs.borrow_mut().clear();
+        self.ai.ui.add_note(&format!(
+            "Tarea programada: «{}». Solo abre y lee {}.",
+            task.name,
+            task.hosts.join(", ")
+        ));
+        self.ai.ui.add_note(&if settings.is_remote() {
+            format!(
+                "Se envía a {} ({}).",
+                settings.provider.short(),
+                settings.model()
+            )
+        } else {
+            format!("Se queda en este equipo ({}).", settings.model())
+        });
+        self.ai
+            .history
+            .borrow_mut()
+            .push(Message::user("Haz la tarea ahora."));
+        self.ai.busy.set(true);
+        self.ai.ui.set_busy(true);
+        let run = self.ai.run.get();
+        self.ai_loop(run).await;
+        let stopped = self.ai_stale(run);
+        let result = self
+            .ai
+            .outcome
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| Err("Se interrumpió".to_owned()));
+        let tabs: Vec<TabId> = self.ai.task_tabs.borrow_mut().drain(..).collect();
+        for id in tabs {
+            if self.model.borrow().get(id).is_some() {
+                self.close_tab(id);
+            }
+        }
+        let (text, ok) = match result {
+            Ok(t) if !t.trim().is_empty() => (clip(t.trim(), 4000), true),
+            Ok(_) => ("La IA no escribió nada.".to_owned(), false),
+            Err(why) => (format!("No se pudo hacer: {why}"), false),
+        };
+        let (now, _) = clock();
+        self.tasks_edit(|t| t.record(task.id, now, &text));
+        if stopped {
+            // The user stopped it or started something else: what is on screen is theirs.
+            self.ai_sync_pane();
+            return;
+        }
+        let watching = self.ai.ui.panel.is_visible();
+        self.ai_reset();
+        if watching {
+            self.ai
+                .ui
+                .add_note(&format!("Tarea «{}» terminada.", task.name));
+            if ok {
+                self.ai.ui.add_assistant(&text);
+            } else {
+                self.ai.ui.add_error(&text);
+            }
+        } else {
+            self.ai_notify_task(&task, &text, ok);
+        }
+        self.ai_sync_pane();
+    }
+
+    /// Tells the user, outside the browser, what a task found.
+    fn ai_notify_task(&self, task: &Task, text: &str, ok: bool) {
+        let Some(app) = self.window.application() else {
+            return;
+        };
+        let n = gio::Notification::new(&if ok {
+            task.name.clone()
+        } else {
+            format!("{} no se pudo hacer", task.name)
+        });
+        n.set_body(Some(&clip(text, 240)));
+        n.set_priority(gio::NotificationPriority::Normal);
+        app.send_notification(Some(&format!("brujula-task-{}", task.id)), &n);
+    }
+
+    /// What the user did to a task in the list of the panel.
+    fn ai_task_act(self: &Rc<Self>, id: u32, act: TaskAct) {
+        match act {
+            TaskAct::Enable(on) => {
+                self.tasks_edit(|t| t.set_enabled(id, on));
+                return;
+            }
+            TaskAct::Delete => {
+                self.tasks_edit(|t| t.remove(id));
+            }
+            TaskAct::Run => {
+                if self.ai.busy.get() {
+                    self.ai
+                        .ui
+                        .add_note("Espera a que termine lo anterior, o pulsa Detener.");
+                    self.ai.ui.show_settings(false);
+                    return;
+                }
+                let task = self.tasks_edit(|t| t.get(id).cloned());
+                if let Some(task) = task {
+                    self.ai.ui.show_settings(false);
+                    let this = self.clone();
+                    glib::spawn_future_local(async move { this.ai_run_task(task).await });
+                }
+                return;
+            }
+        }
+        self.ai_sync_pane();
+    }
+
     pub(super) fn ai_view(&self) -> prefs::AiView {
         prefs::AiView {
             settings: self.ai.settings.borrow().clone(),
@@ -1053,6 +1310,7 @@ impl Browser {
 
     fn ai_sync_pane(&self) {
         self.ai.ui.pane.sync(&self.ai_view());
+        self.ai.ui.pane.sync_tasks(self.ai.tasks.borrow().all());
     }
 
     /// Connects the settings inside the panel to the same changes the preferences page makes.
@@ -1128,6 +1386,7 @@ impl Browser {
         switch(&pane.open_auto, "open", "auto", "ask");
         switch(&pane.interact, "interact", "1", "0");
         switch(&pane.organize, "organize", "1", "0");
+        switch(&pane.tasks, "tasks", "1", "0");
         switch(&pane.search, "search", "1", "0");
 
         let add = {
@@ -1147,6 +1406,8 @@ impl Browser {
         pane.blocked_add.connect_clicked(move |_| add());
         let this = self.clone();
         pane.set_on_remove(move |host| this.change_ai("blocked.remove", host));
+        let this = self.clone();
+        pane.set_on_task(move |id, act| this.ai_task_act(id, act));
 
         let this = self.clone();
         pane.off

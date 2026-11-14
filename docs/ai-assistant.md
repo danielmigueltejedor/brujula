@@ -18,9 +18,21 @@ Solo lo que le das y lo que el panel muestra en la línea «Puede ver…»:
 | Buscar en la web | la consulta | nunca pregunta: abre una pestaña con tu buscador |
 | Abrir / cambiar / cerrar pestaña | una dirección | por defecto sin preguntar (se puede cambiar a «Preguntar siempre»); una dirección que no salía en lo que leyó se pregunta siempre; solo cierra las pestañas que abrió ella |
 | Organizar pestañas (fijar, mover, carpetas, espacios, cerrar) | los números de las pestañas y los nombres que ponga | sin preguntar, salvo que el plan cierre pestañas: entonces enseña la lista y pregunta (Ctrl+Mayús+T recupera las cerradas); se apaga en los ajustes |
+| Proponer una tarea programada | nombre, qué hacer, sitios y horario | **siempre** pregunta, enseñando todo; se apaga en los ajustes. Ver «Tareas programadas» |
 | Pulsar / escribir en una página | el elemento y el texto | desactivado por defecto; si lo activas, **siempre** pregunta |
 
 Nunca se envían: contraseñas, campos de pago, campos ocultos, el valor de ningún campo de formulario, ventanas privadas, páginas `brujula://` ni `file:`, ni los sitios que excluyas. Las direcciones privadas (localhost, red local) no se pueden abrir desde la IA.
+
+## Tareas programadas
+
+Le puedes pedir «cada mañana mira Ágora y dime si hay novedades». La IA propone la tarea (nombre, qué hacer, los sitios que puede abrir y cuándo: cada N horas, cada día o ciertos días de la semana) y **no se guarda hasta que dices que sí**, viéndola entera. Se guardan en `ai-tasks.json` (en la carpeta del perfil), hasta 12 por perfil.
+
+Una tarea se ejecuta sola, solo con Brújula abierto, cada vez que llega su hora y la IA no está ocupada ni hay una conversación abierta (nunca te interrumpe ni la toma). Si estaba cerrado a su hora, se hace al abrir. Mientras corre:
+
+- **Solo abre y lee los sitios que nombra** (y sus subdominios). Una página que acaba en otro sitio (una redirección) no se lee.
+- No ve tus pestañas, no busca, no pulsa, no escribe, no inicia sesión, no organiza y no crea otras tareas: lo demás se rechaza sin preguntar, porque nadie está mirando.
+- Cierra las pestañas que abrió y guarda lo que encontró con la tarea; si el panel está abierto lo ves ahí, y si no, sale un aviso del escritorio.
+- Lo que lee se envía al proveedor que elegiste, igual que en una conversación. En Ajustes del asistente ves cada tarea con su último resultado, y puedes activarla o apagarla, ejecutarla ya o borrarla.
 
 ## Seguridad
 
@@ -33,7 +45,7 @@ Nunca se envían: contraseñas, campos de pago, campos ocultos, el valor de ning
 
 ## Ajustes
 
-`ai.json` en la carpeta del perfil (sin la clave). Los mismos ajustes están dentro del panel (botón de los controles de la cabecera, que desliza los ajustes sobre la conversación) y en Preferencias → IA: proveedor, modelo, dirección (solo «Otro servidor»), clave (Poner/Cambiar/Quitar), «Probar conexión», permisos, buscador y sitios excluidos.
+`ai.json` en la carpeta del perfil (sin la clave). Los mismos ajustes están dentro del panel (botón de los controles de la cabecera, que desliza los ajustes sobre la conversación) y en Preferencias → IA: proveedor, modelo, dirección (solo «Otro servidor»), clave (Poner/Cambiar/Quitar), «Probar conexión», permisos, tareas programadas, buscador y sitios excluidos.
 
 ## Qué no está verificado
 

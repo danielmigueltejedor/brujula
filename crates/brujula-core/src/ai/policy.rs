@@ -502,7 +502,15 @@ pub fn decide(
             match super::tasks::parse(call.args, 0) {
                 Ok(task) => Decision::Ask {
                     title: "¿Crear esta tarea programada?".to_owned(),
-                    detail: task.describe(),
+                    // After reading a page, the proposal could be what that page asked for.
+                    detail: if session.tainted {
+                        format!(
+                            "{}\nLa IA leyó una página antes de proponer esto: mira bien los sitios.",
+                            task.describe()
+                        )
+                    } else {
+                        task.describe()
+                    },
                     always: None,
                 },
                 Err(why) => Decision::Deny(why),
@@ -513,7 +521,7 @@ pub fn decide(
 }
 
 /// Whether `host` is one of the task's sites or a subdomain of one.
-fn in_task_hosts(hosts: &[String], host: &str) -> bool {
+pub fn in_task_hosts(hosts: &[String], host: &str) -> bool {
     hosts.iter().any(|h| {
         host == h
             || host
@@ -955,6 +963,14 @@ mod tests {
             decide(&off, &session, &call(SCHEDULE, &good), None),
             Decision::Deny(_)
         ));
+        let read = Session {
+            tainted: true,
+            ..Session::default()
+        };
+        match decide(&s, &read, &call(SCHEDULE, &good), None) {
+            Decision::Ask { detail, .. } => assert!(detail.contains("leyó una página")),
+            other => panic!("{other:?}"),
+        }
         assert!(!specs(&off).iter().any(|t| t.name == SCHEDULE));
         assert!(specs(&s).iter().any(|t| t.name == SCHEDULE));
     }

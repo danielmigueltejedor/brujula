@@ -311,6 +311,13 @@ impl Tasks {
         }
     }
 
+    /// Writes down that a task is starting now, so no other window starts it too.
+    pub fn start(&mut self, id: u32, now: u64) {
+        if let Some(t) = self.list.iter_mut().find(|t| t.id == id) {
+            t.last_run = now;
+        }
+    }
+
     /// Writes down that a task ran and what it answered.
     pub fn record(&mut self, id: u32, now: u64, result: &str) {
         if let Some(t) = self.list.iter_mut().find(|t| t.id == id) {
@@ -477,5 +484,8 @@ mod tests {
         tasks.set_enabled(id, true);
         tasks.record(id, 10_000, "");
         assert_eq!(tasks.due(10_100, 0), None);
+        // Starting counts as having run, so a second window does not take it too.
+        tasks.start(id, 10_000 + 4000);
+        assert_eq!(tasks.due(10_000 + 3600, 0), None);
     }
 }

@@ -7,12 +7,22 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use brujula_core::ai::tasks::Task;
 use brujula_core::ai::{Autonomy, Provider};
 use brujula_core::prefs::AiView;
 
 use super::*;
 
 type Remove = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
+
+/// What the user did to a scheduled task in the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TaskAct {
+    Enable(bool),
+    Run,
+    Delete,
+}
+type OnTask = Rc<RefCell<Option<Box<dyn Fn(u32, TaskAct)>>>>;
 
 pub(super) struct AiPane {
     pub root: gtk::Box,
@@ -33,6 +43,8 @@ pub(super) struct AiPane {
     pub open_auto: gtk::Switch,
     pub interact: gtk::Switch,
     pub organize: gtk::Switch,
+    pub tasks: gtk::Switch,
+    tasks_list: gtk::Box,
     pub search: gtk::Switch,
     pub blocked_entry: gtk::Entry,
     pub blocked_add: gtk::Button,
@@ -42,6 +54,7 @@ pub(super) struct AiPane {
     /// True while `sync` sets the controls: what they report then is not the user's doing.
     syncing: Cell<bool>,
     on_remove: Remove,
+    on_task: OnTask,
 }
 
 fn small(text: &str, class: &str) -> gtk::Label {
@@ -151,6 +164,8 @@ impl AiPane {
         let open_auto = gtk::Switch::new();
         let interact = gtk::Switch::new();
         let organize = gtk::Switch::new();
+        let tasks = gtk::Switch::new();
+        let tasks_list = gtk::Box::new(gtk::Orientation::Vertical, 6);
         let search = gtk::Switch::new();
         let confirm_row = switch_row(
             "Preguntar antes de leer un sitio",
@@ -228,6 +243,13 @@ impl AiPane {
             "Fijar, mover y meter en carpetas; si va a cerrar, pregunta",
             &organize,
         ));
+        list.append(&heading("Tareas programadas"));
+        list.append(&switch_row(
+            "Dejar que la IA proponga tareas",
+            "Las confirmas tú. Solo leen los sitios que nombran, con Brújula abierto",
+            &tasks,
+        ));
+        list.append(&tasks_list);
         list.append(&heading("Buscador"));
         list.append(&switch_row(
             "Que la IA gestione el buscador",
@@ -267,6 +289,8 @@ impl AiPane {
             open_auto,
             interact,
             organize,
+            tasks,
+            tasks_list,
             search,
             blocked_entry,
             blocked_add,
@@ -275,6 +299,7 @@ impl AiPane {
             all,
             syncing: Cell::new(false),
             on_remove: Rc::new(RefCell::new(None)),
+            on_task: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -286,6 +311,94 @@ impl AiPane {
     /// Called with the site of an exclusion the user removed.
     pub fn set_on_remove(&self, f: impl Fn(&str) + 'static) {
         *self.on_remove.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Called with the id of a task and what the user did to it.
+    pub fn set_on_task(&self, f: impl Fn(u32, TaskAct) + 'static) {
+        *self.on_task.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Shows the scheduled tasks, each with what it last found and its controls.
+    pub fn sync_tasks(&self, tasks: &[Task]) {
+        self.syncing.set(true);
+        while let Some(child) = self.tasks_list.first_child() {
+            self.tasks_list.remove(&child);
+        }
+        if tasks.is_empty() {
+            self.tasks_list.append(&small(
+                "Aún no hay ninguna. Prueba a pedirle: «cada mañana mira Ágora y dime si hay novedades».",
+                "brujula-ai-row-hint",
+            ));
+        }
+        for task in tasks {
+            let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            card.add_css_class("brujula-ai-task");
+            let name = gtk::Label::builder()
+                .label(&task.name)
+                .xalign(0.0)
+                .hexpand(true)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .css_classes(["brujula-ai-row-title"])
+                .build();
+            let on = gtk::Switch::builder()
+                .active(task.enabled)
+                .valign(gtk::Align::Center)
+                .tooltip_text("Activada")
+                .build();
+            let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            top.append(&name);
+            top.append(&on);
+            card.append(&top);
+            card.append(&small(
+                &format!("{} · {}", task.schedule.describe(), task.hosts.join(", ")),
+                "brujula-ai-row-hint",
+            ));
+            let last = if task.last_result.is_empty() {
+                String::new()
+            } else {
+                let when =
+                    glib::DateTime::from_unix_local(i64::try_from(task.last_run).unwrap_or(0))
+                        .ok()
+                        .and_then(|d| d.format("%d/%m %H:%M").ok())
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                let text: String = task.last_result.chars().take(400).collect();
+                format!("{when}: {text}")
+            };
+            if !last.is_empty() {
+                let l = small(&last, "brujula-ai-task-result");
+                l.set_selectable(true);
+                card.append(&l);
+            }
+            let run = gtk::Button::builder()
+                .label("Ejecutar ahora")
+                .css_classes(["pill"])
+                .build();
+            let del = gtk::Button::builder()
+                .icon_name("ndl-close-symbolic")
+                .css_classes(["flat", "circular"])
+                .tooltip_text("Borrar la tarea")
+                .build();
+            let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            buttons.append(&run);
+            buttons.append(&gtk::Box::builder().hexpand(true).build());
+            buttons.append(&del);
+            card.append(&buttons);
+            let id = task.id;
+            let cb = move |act: TaskAct, on_task: &OnTask| {
+                if let Some(f) = on_task.borrow().as_ref() {
+                    f(id, act);
+                }
+            };
+            let t = self.on_task.clone();
+            on.connect_active_notify(move |sw| cb(TaskAct::Enable(sw.is_active()), &t));
+            let t = self.on_task.clone();
+            run.connect_clicked(move |_| cb(TaskAct::Run, &t));
+            let t = self.on_task.clone();
+            del.connect_clicked(move |_| cb(TaskAct::Delete, &t));
+            self.tasks_list.append(&card);
+        }
+        self.syncing.set(false);
     }
 
     /// A line under «Probar la conexión».
@@ -338,6 +451,7 @@ impl AiPane {
         self.open_auto.set_active(s.open == Autonomy::Auto);
         self.interact.set_active(s.interact);
         self.organize.set_active(s.organize);
+        self.tasks.set_active(s.tasks);
         self.search.set_active(s.search);
 
         while let Some(child) = self.blocked_list.first_child() {
