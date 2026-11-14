@@ -51,11 +51,13 @@ mod archive;
 mod boosts;
 mod cloudsync;
 mod downloads_panel;
+mod drm;
 mod essentials;
 mod ext;
 mod ext_api;
 mod ext_install;
 mod extras;
+mod find;
 mod float;
 mod folders;
 mod history;
@@ -63,6 +65,7 @@ mod history_panel;
 mod import;
 mod notes;
 mod page_action;
+mod pagetools;
 mod passkeys;
 mod passwords;
 mod peek;
@@ -71,6 +74,7 @@ mod sleep;
 mod split;
 mod system_theme;
 mod tab_drag;
+mod toast;
 mod updates;
 mod webapps;
 mod welcome;
@@ -134,6 +138,23 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.next-space", &["<Alt>Down"]);
     app.set_accels_for_action("win.prev-space", &["<Alt>Up"]);
     app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
+    app.set_accels_for_action("win.find", &["<Ctrl>f"]);
+    app.set_accels_for_action("win.clear-tabs", &["<Ctrl><Shift>k"]);
+    app.set_accels_for_action("win.copy-link", &["<Ctrl><Shift>c"]);
+    app.set_accels_for_action("win.screenshot", &["<Ctrl><Shift>s"]);
+    app.set_accels_for_action("win.toggle-mute", &["<Ctrl>m"]);
+    app.set_accels_for_action(
+        "win.zoom-in",
+        &["<Ctrl>plus", "<Ctrl>equal", "<Ctrl>KP_Add"],
+    );
+    app.set_accels_for_action("win.zoom-out", &["<Ctrl>minus", "<Ctrl>KP_Subtract"]);
+    app.set_accels_for_action("win.zoom-reset", &["<Ctrl>0", "<Ctrl>KP_0"]);
+    app.set_accels_for_action("win.print", &["<Ctrl>p"]);
+    app.set_accels_for_action("win.fullscreen", &["F11"]);
+    app.set_accels_for_action("win.inspector", &["F12", "<Ctrl><Shift>i"]);
+    for n in 1..=9 {
+        app.set_accels_for_action(&format!("win.goto-tab({n})"), &[&format!("<Ctrl>{n}")]);
+    }
     // A window that keeps nothing: no history, no cookies, no saved tabs.
     let private = gio::SimpleAction::new("new-private-window", None);
     let weak = app.downgrade();
@@ -158,8 +179,18 @@ pub fn present(app: &gtk::Application, urls: &[String]) {
     let existing = BROWSER.with(|b| b.borrow().clone());
     if let Some(b) = existing {
         b.window.present();
-        for u in urls {
-            b.open_tab(u, None, true);
+        // A link from another application: a card over the page first, like Arc's Little Arc.
+        let quick = b.settings.borrow().quick_links;
+        for (i, u) in urls.iter().enumerate() {
+            if quick
+                && i == 0
+                && urls.len() == 1
+                && (u.starts_with("http://") || u.starts_with("https://"))
+            {
+                b.peek(u);
+            } else {
+                b.open_tab(u, None, true);
+            }
         }
         return;
     }
@@ -322,6 +353,16 @@ pub struct Browser {
     /// The sites the user restyled, and the style sheets that carry it to the pages.
     boosts: RefCell<brujula_core::boosts::Boosts>,
     boost_sheets: RefCell<Vec<webkit6::UserStyleSheet>>,
+    /// The colour of the space in front, as a rule for the sidebar.
+    space_tint: gtk::CssProvider,
+    /// The notice over the foot of the page.
+    toast: Rc<toast::Toast>,
+    /// Find in page.
+    find: Rc<find::FindBar>,
+    /// The zoom the person set for each site.
+    zooms: RefCell<brujula_core::zoom::Zooms>,
+    /// The protected sites already told about in this session.
+    drm_told: RefCell<std::collections::HashSet<String>>,
     /// The card that shows a link in a preview, and the page in it.
     peek: peek::PeekCard,
     peek_view: RefCell<Option<WebView>>,
@@ -636,6 +677,10 @@ impl Browser {
         page.add_overlay(&progress);
         let peek = peek::build_peek();
         page.add_overlay(&peek.layer);
+        let toast = toast::Toast::new();
+        page.add_overlay(&toast.root);
+        let find = find::FindBar::new();
+        page.add_overlay(&find.root);
 
         // The tab bar for the horizontal layout: the tabs and the window controls on one row, the
         // navigation and the address on the next. Hidden while the tabs are in the sidebar.
@@ -778,6 +823,15 @@ impl Browser {
             floats: RefCell::new(HashMap::new()),
             boosts: RefCell::new(boosts::load()),
             boost_sheets: RefCell::new(Vec::new()),
+            space_tint: gtk::CssProvider::new(),
+            toast,
+            find,
+            zooms: RefCell::new(
+                std::fs::read_to_string(paths::zoom_file())
+                    .map(|t| brujula_core::zoom::Zooms::from_json(&t))
+                    .unwrap_or_default(),
+            ),
+            drm_told: RefCell::new(std::collections::HashSet::new()),
             peek,
             peek_view: RefCell::new(None),
             paired: RefCell::new(None),
@@ -845,6 +899,13 @@ impl Browser {
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
             );
         }
+        if let Some(display) = gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &this.space_tint,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
         this.apply_appearance();
         this.watch_system_theme();
         this.apply_layout();
@@ -875,6 +936,7 @@ impl Browser {
         self.wire_peek();
         self.apply_boosts();
         self.wire_notes();
+        self.wire_page_tools();
 
         let action = |name: &str, f: Handler| {
             let a = gio::SimpleAction::new(name, None);
@@ -952,6 +1014,7 @@ impl Browser {
         action("open-settings", Box::new(|b| b.open_settings(None)));
         action("about", Box::new(|b| b.show_about()));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
+        action("open-drm", Box::new(|b| b.drm_open_current()));
         action("toggle-history", Box::new(|b| b.toggle_history()));
         action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
@@ -1703,6 +1766,8 @@ impl Browser {
                     if let Some(id) = b.id_of(v) {
                         b.ext_committed(id, v);
                     }
+                    b.apply_zoom(v);
+                    b.drm_check(v);
                 }
                 if ev == LoadEvent::Finished {
                     if let Some(id) = b.id_of(v) {
@@ -2069,6 +2134,18 @@ impl Browser {
         let audio = gtk::Image::from_icon_name("ndl-volume-symbolic");
         audio.set_pixel_size(14);
         audio.set_visible(false);
+        // A click on the speaker mutes the tab, as in Arc and every browser with sound.
+        let mute_click = gtk::GestureClick::builder()
+            .button(gdk::BUTTON_PRIMARY)
+            .build();
+        let this = Rc::downgrade(self);
+        mute_click.connect_pressed(move |g, _, _, _| {
+            g.set_state(gtk::EventSequenceState::Claimed);
+            if let Some(b) = this.upgrade() {
+                b.toggle_mute(id);
+            }
+        });
+        audio.add_controller(mute_click);
         let pin = gtk::Image::from_icon_name("ndl-pin-symbolic");
         pin.set_pixel_size(14);
         pin.set_visible(false);
@@ -2115,6 +2192,14 @@ impl Browser {
         self.wire_tab_drag(&row, id);
 
         self.list.append(&row);
+        // A tab that has just been opened slides in once (see the CSS); the class goes after.
+        if !self.restoring.get() {
+            row.add_css_class("brujula-new");
+            let row_w = row.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                row_w.remove_css_class("brujula-new");
+            });
+        }
         self.rows.borrow_mut().insert(
             id,
             Row {
@@ -2257,7 +2342,18 @@ impl Browser {
         r.spinner.set_visible(tab.loading);
         r.spinner.set_spinning(tab.loading);
         r.favicon.set_visible(!tab.loading);
-        r.audio.set_visible(tab.audible);
+        let muted = self.views.borrow().get(&id).is_some_and(|v| v.is_muted());
+        r.audio.set_visible(tab.audible || muted);
+        r.audio.set_icon_name(Some(if muted {
+            "ndl-mute-symbolic"
+        } else {
+            "ndl-volume-symbolic"
+        }));
+        r.audio.set_tooltip_text(Some(if muted {
+            "Dar sonido a la pestaña"
+        } else {
+            "Silenciar la pestaña"
+        }));
         r.close.set_visible(!tab.pinned);
         r.pin.set_visible(tab.pinned);
         if let Some(v) = self.views.borrow().get(&id) {
@@ -2320,6 +2416,8 @@ impl Browser {
             c.url_icon.set_icon_name(Some(icon));
             c.reload.set_icon_name(reload_icon);
         }
+        self.toast.hide_unless(self.model.borrow().selected());
+        self.find.close_unless(self.current_view().as_ref());
         self.update_nav();
         self.sync_progress();
         self.refresh_site_action();
@@ -2832,6 +2930,20 @@ impl Browser {
             }
         })
         .collect::<Vec<Item>>();
+        let mut items = items;
+        // Commands that match what was typed (Arc's command bar), right after the first row.
+        let commands: Vec<Item> = brujula_core::commands::search(text, 3)
+            .into_iter()
+            .map(|c| Item {
+                title: c.title.to_owned(),
+                detail: c.shortcut.to_owned(),
+                icon: c.icon,
+                texture: None,
+                action: Action::Command(c.action.to_owned()),
+            })
+            .collect();
+        let at = items.len().min(1);
+        items.splice(at..at, commands);
         // With the assistant running the search box, a question or a task comes first.
         Self::with_ask(items, ask)
     }
@@ -2853,6 +2965,13 @@ impl Browser {
             Action::Go(url) => self.navigate(&url),
             Action::Settings(section) => self.open_settings(Some(&section)),
             Action::Ask(text) => self.ai_ask(&text),
+            Action::Command(name) => {
+                // After the Spotlight has gone, so the focus lands where the command works.
+                let window = self.window.clone();
+                glib::idle_add_local_once(move || {
+                    let _ = gtk::prelude::WidgetExt::activate_action(&window, &name, None);
+                });
+            }
             Action::Search(q) => {
                 let template = self.settings.borrow().search_template().to_owned();
                 let url = omnibox::search_url(&q, &template);
@@ -2909,6 +3028,15 @@ impl Browser {
                 Box::new(move |b| b.float_tab(id)),
             );
         }
+        let muted = self.views.borrow().get(&id).is_some_and(|v| v.is_muted());
+        add(
+            if muted {
+                "Dar sonido a la pestaña"
+            } else {
+                "Silenciar pestaña"
+            },
+            Box::new(move |b| b.toggle_mute(id)),
+        );
         add(
             "Boost de este sitio…",
             Box::new(move |b| b.boost_site_of(id)),
@@ -3078,6 +3206,12 @@ pub(crate) fn harden_settings(view: &WebView) {
         s.set_allow_universal_access_from_file_urls(false);
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
+        // Distribution builds of WebKitGTK leave Encrypted Media out and ignore this; a build
+        // that has it (Clear Key, or a Widevine module someone wired in) gets it switched on.
+        s.set_enable_encrypted_media(true);
+        // Smooth wheel and touchpad scrolling, and pages kept for Back and Forward.
+        s.set_enable_smooth_scrolling(true);
+        s.set_enable_page_cache(true);
         // Linux, always: WebKitGTK would say Macintosh to some sites.
         s.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
     }
@@ -3107,17 +3241,34 @@ fn main_menu() -> gio::Menu {
     let tabs = gio::Menu::new();
     tabs.append(Some("Nueva pestaña"), Some("win.new-tab"));
     tabs.append(Some("Reabrir pestaña cerrada"), Some("win.reopen-tab"));
+    tabs.append(Some("Limpiar pestañas sin anclar"), Some("win.clear-tabs"));
     tabs.append(
         Some("Nueva ventana privada"),
         Some("app.new-private-window"),
     );
     m.append_section(None, &tabs);
+    let page = gio::Menu::new();
+    page.append(Some("Buscar en la página"), Some("win.find"));
+    page.append(Some("Copiar el enlace"), Some("win.copy-link"));
+    page.append(Some("Capturar la página"), Some("win.screenshot"));
+    page.append(Some("Silenciar o dar sonido"), Some("win.toggle-mute"));
+    page.append(Some("Imprimir…"), Some("win.print"));
+    page.append(Some("Acercar"), Some("win.zoom-in"));
+    page.append(Some("Alejar"), Some("win.zoom-out"));
+    page.append(Some("Zoom normal"), Some("win.zoom-reset"));
+    page.append(Some("Pantalla completa"), Some("win.fullscreen"));
+    page.append(Some("Inspeccionar"), Some("win.inspector"));
+    m.append_submenu(Some("Página"), &page);
     let opts = gio::Menu::new();
     opts.append(Some("Barra lateral"), Some("win.toggle-sidebar"));
     opts.append(Some("Bloqueador de anuncios"), Some("win.toggle-adblock"));
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     opts.append(Some("Extensiones"), Some("win.open-extensions"));
     opts.append(Some("Añadir a esenciales"), Some("win.add-essential"));
+    opts.append(
+        Some("Abrir con soporte de DRM (Netflix…)"),
+        Some("win.open-drm"),
+    );
     opts.append(
         Some("Instalar como aplicación web…"),
         Some("win.install-webapp"),
@@ -3224,4 +3375,17 @@ fn load_history() -> History {
         let _ = std::fs::rename(&file, aside);
         History::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CSS;
+
+    #[test]
+    fn every_colour_of_the_palette_has_a_swatch_in_the_style_sheet() {
+        for c in brujula_core::spaces::PALETTE {
+            let rule = format!(".brujula-swatch-{} {{ background: {c}; }}", &c[1..]);
+            assert!(CSS.contains(&rule), "{c}");
+        }
+    }
 }

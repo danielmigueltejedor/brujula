@@ -50,6 +50,8 @@ Solo Linux (GTK 4.20 o más y WebKitGTK 6.0).
 - **Aplicaciones web**: cualquier sitio en su propia ventana, con icono en el lanzador y perfil aparte (menú → «Instalar como aplicación web…», o el botón que aparece en la barra cuando el sitio lo permite).
 - **Historial** local, con búsqueda en el Spotlight y borrado por horas o completo, y **ventana privada** (Ctrl+Mayús+N o `brujula --private`) que no guarda historial, cookies ni pestañas.
 - **Asistente de IA opcional** (apagado por defecto): ChatGPT, Claude, Gemini, Ollama o tu propio servidor, con tu clave en el llavero. Puede ver tus pestañas, leer páginas y abrir sitios solo con tu permiso, y puede encargarse del buscador. Ver [docs/ai-assistant.md](docs/ai-assistant.md).
+- **DRM (Netflix, Disney+, Spotify…)**: WebKitGTK no lo puede reproducir; Brújula avisa y abre la página en un navegador con Widevine (Chrome, Edge, Firefox…). Ver [docs/drm.md](docs/drm.md).
+- **Herramientas de página**: buscar en la página (Ctrl+F), zoom que se recuerda por sitio (Ctrl +/−/0), silenciar una pestaña (clic en el altavoz o Ctrl+M), limpiar las pestañas sin anclar (Ctrl+Mayús+K), copiar el enlace (Ctrl+Mayús+C), capturar la página (Ctrl+Mayús+S, a Imágenes y al portapapeles), imprimir (Ctrl+P), pantalla completa (F11), inspector (F12) y Ctrl+1…9 para ir a una pestaña. Todo está también en el Spotlight como comandos («capt», «zoom»…) y en el menú → Página.
 - Arc-isms: archivo automático, vista dividida, Peek (Mayús+clic), notas por espacio, ventana flotante.
 
 ## Instalar

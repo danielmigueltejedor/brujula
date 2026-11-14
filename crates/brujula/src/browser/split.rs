@@ -23,7 +23,17 @@ impl Browser {
         } else {
             format!("tab-{}", id.0)
         };
+        let before = self.stack.visible_child_name();
         self.stack.set_visible_child_name(&name);
+        // A page coming to the front eases in (the CSS has the animation).
+        if before.as_deref() != Some(name.as_str()) {
+            if let Some(page) = self.stack.visible_child() {
+                page.add_css_class("brujula-enter");
+                glib::timeout_add_local_once(std::time::Duration::from_millis(260), move || {
+                    page.remove_css_class("brujula-enter");
+                });
+            }
+        }
     }
 
     /// Puts `a` and `b` side by side and selects `b`.
