@@ -139,6 +139,7 @@ pub fn install_app_actions(app: &gtk::Application) {
     app.set_accels_for_action("win.prev-space", &["<Alt>Up"]);
     app.set_accels_for_action("win.toggle-site-adblock", &["<Ctrl><Shift>b"]);
     app.set_accels_for_action("win.find", &["<Ctrl>f"]);
+    app.set_accels_for_action("win.clear-tabs", &["<Ctrl><Shift>k"]);
     app.set_accels_for_action("win.copy-link", &["<Ctrl><Shift>c"]);
     app.set_accels_for_action("win.screenshot", &["<Ctrl><Shift>s"]);
     app.set_accels_for_action("win.toggle-mute", &["<Ctrl>m"]);
@@ -3217,6 +3218,7 @@ fn main_menu() -> gio::Menu {
     let tabs = gio::Menu::new();
     tabs.append(Some("Nueva pestaña"), Some("win.new-tab"));
     tabs.append(Some("Reabrir pestaña cerrada"), Some("win.reopen-tab"));
+    tabs.append(Some("Limpiar pestañas sin anclar"), Some("win.clear-tabs"));
     tabs.append(
         Some("Nueva ventana privada"),
         Some("app.new-private-window"),

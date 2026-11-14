@@ -33,6 +33,7 @@ impl Browser {
         action("zoom-in", Box::new(|b| b.zoom_by(true)));
         action("zoom-out", Box::new(|b| b.zoom_by(false)));
         action("zoom-reset", Box::new(|b| b.zoom_to(zoom::DEFAULT)));
+        action("clear-tabs", Box::new(|b| b.clear_tabs()));
         action("copy-link", Box::new(|b| b.copy_link()));
         action("screenshot", Box::new(|b| b.capture_page()));
         action("print", Box::new(|b| b.print_page()));

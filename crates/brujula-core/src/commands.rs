@@ -100,6 +100,13 @@ pub const COMMANDS: &[Command] = &[
         icon: "ndl-history-symbolic",
     },
     Command {
+        action: "win.clear-tabs",
+        title: "Limpiar pestañas sin anclar",
+        keywords: "archivar cerrar todas ordenar clear",
+        shortcut: "Ctrl+Mayús+K",
+        icon: "ndl-archive-symbolic",
+    },
+    Command {
         action: "app.new-private-window",
         title: "Nueva ventana privada",
         keywords: "incognito navegacion",
