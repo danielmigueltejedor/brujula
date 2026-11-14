@@ -42,7 +42,7 @@ formato de manifiesto: sin comprobar que sirva.)
    sin redistribuir el binario, el riesgo es el de la copia, no el del reparto.
 3. **Comprobación del anfitrión**. El CDM comprueba quién lo carga en algunos casos; Electron y
    CEF lo cargan hoy, pero un cambio de Google puede romperlo sin aviso.
-4. **Calidad**. Será Widevine **L3**: hasta 720p en la mayoría de plataformas, sin 4K ni HDR.
+4. **Calidad**. Será Widevine **L3**, sin 4K ni HDR. Netflix da 1080p en Chrome y Firefox de Linux, pero decide por el navegador: un CEF propio puede no recibirlo. Disney+ (720p) y Prime (SD) limitan en cualquier navegador de escritorio de Linux. Ver [drm.md](drm.md#calidad-máxima-investigado-2026-11-14).
 5. **Tamaño**: unos 300 MB de CEF más la aplicación.
 
 ## Fases

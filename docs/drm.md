@@ -25,10 +25,33 @@ typeof MediaKeys                               →  "undefined"
   disponible con Chrome, Edge, Firefox y los navegadores que han firmado un acuerdo con Google.
   Redistribuirlo con Brújula necesita ese acuerdo. Además, en un navegador que no es Chrome,
   el módulo comprueba que quien lo carga está firmado por Google.
-- En el mejor de los casos sería Widevine **L3** (por software): hasta 720p en la mayoría de
-  plataformas.
+- En Linux de escritorio Widevine solo llega a **L3** (por software), sea cual sea el navegador;
+  la calidad máxima la fija cada servicio (ver «Calidad máxima» más abajo).
 
 Por eso **Brújula no puede prometer DRM dentro de la ventana** con el motor actual. Lo que sí hace:
+
+## Calidad máxima (investigado 2026-11-14)
+
+- **L1 (hardware) no existe en Linux de escritorio**: ningún navegador de Linux lo consigue; exige
+  un entorno de ejecución de confianza certificado por Google (Android certificado, Android TV,
+  Chromebooks con DRM por hardware). Waydroid solo da L3 porque L1 se certifica por dispositivo
+  ([issue de Waydroid](https://github.com/waydroid/waydroid/issues/1408),
+  [explicación de los niveles](https://www.forasoft.com/learn/video-streaming/articles-streaming/widevine-l1-l2-l3)).
+- **Netflix**: según su [ayuda oficial](https://help.netflix.com/en/node/30081), Chrome, Firefox y
+  Edge en **Linux llegan a 1080p** (4K solo en Windows que cumpla requisitos, Safari en Mac y
+  ChromeOS compatible). Así que con L3 ya se ve a 1080p, en un navegador de esa lista.
+- **Disney+**: los navegadores de ordenador se quedan en 720p
+  ([fuente](https://www.starryhope.com/chromebooks/netflix-chromebook-streaming-caps/)); el 4K es
+  de las apps. Es política del servicio, no del navegador.
+- **Prime Video**: en Linux, definición estándar; el HD se promete en Windows y macOS (hay un
+  proyecto que lo consigue ejecutando el Brave de Windows con Wine,
+  [prime-wine](https://github.com/NelloKudo/prime-wine); no lo recomendamos: está en el límite de
+  las condiciones del servicio).
+- Lo que sube de verdad la calidad es **ver en otro dispositivo**: Android TV/Google TV/Chromecast,
+  Fire TV, televisores, Chromebook Plus (Netflix 4K), Windows (4K con PlayReady) o macOS (Safari).
+
+Por eso, para Netflix en Linux, **un Chrome o Firefox de verdad ya da el máximo posible**; un motor
+Chromium propio no daría más y podría dar menos (el servicio decide por el navegador).
 
 ## Lo que hace Brújula
 
