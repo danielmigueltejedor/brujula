@@ -17,6 +17,7 @@ Solo lo que le das y lo que el panel muestra en la línea «Puede ver…»:
 | Leer una página | el texto visible (hasta un límite) y los enlaces/botones | la página que estás mirando y las pestañas que abrió la propia IA no preguntan; otro sitio, una vez por sitio y conversación |
 | Buscar en la web | la consulta | nunca pregunta: abre una pestaña con tu buscador |
 | Abrir / cambiar / cerrar pestaña | una dirección | por defecto sin preguntar (se puede cambiar a «Preguntar siempre»); una dirección que no salía en lo que leyó se pregunta siempre; solo cierra las pestañas que abrió ella |
+| Organizar pestañas (fijar, mover, carpetas, espacios, cerrar) | los números de las pestañas y los nombres que ponga | sin preguntar, salvo que el plan cierre pestañas: entonces enseña la lista y pregunta (Ctrl+Mayús+T recupera las cerradas); se apaga en los ajustes |
 | Pulsar / escribir en una página | el elemento y el texto | desactivado por defecto; si lo activas, **siempre** pregunta |
 
 Nunca se envían: contraseñas, campos de pago, campos ocultos, el valor de ningún campo de formulario, ventanas privadas, páginas `brujula://` ni `file:`, ni los sitios que excluyas. Las direcciones privadas (localhost, red local) no se pueden abrir desde la IA.

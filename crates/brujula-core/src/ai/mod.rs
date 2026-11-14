@@ -8,6 +8,7 @@
 //! The assistant is off until the user turns it on, and nothing leaves the computer before that.
 
 pub mod markup;
+pub mod organize;
 pub mod page;
 pub mod policy;
 pub mod prompt;

@@ -31,6 +31,13 @@ usuario que lo haga él.\n\
     } else if !s.interact {
         p.push_str("- No puedes pulsar ni escribir en las páginas: solo leerlas y abrirlas.\n");
     }
+    if s.read && s.organize {
+        p.push_str(
+            "- Si el usuario pide ordenar sus pestañas (agrupar, fijar, mover, cerrar duplicadas), mira list_tabs \
+y manda un solo plan con organize_tabs. Cerrar pestañas se le pregunta al usuario: cierra solo duplicadas o las \
+que pidió. Las carpetas se nombran con el tema común, en pocas palabras.\n",
+        );
+    }
     p.push_str(&format!(
         "\nHoy es {today}. El buscador del usuario es {engine}."
     ));

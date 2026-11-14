@@ -30,6 +30,7 @@ pub const SWITCH_TAB: &str = "switch_tab";
 pub const CLOSE_TAB: &str = "close_tab";
 pub const CLICK: &str = "click";
 pub const TYPE_TEXT: &str = "type_text";
+pub use super::organize::ORGANIZE;
 
 /// How many tool calls one question may make, so a model that loops cannot go on forever.
 pub const MAX_STEPS: usize = 14;
@@ -83,6 +84,15 @@ pub fn specs(s: &AiSettings) -> Vec<ToolSpec> {
             "tab_id": {"type": "integer"}
         }, "required": ["tab_id"]}),
     });
+    if s.read && s.organize {
+        v.push(ToolSpec {
+            name: ORGANIZE,
+            description: "Tidies the user's tabs in one go. Send every step in `actions`, each an object with `do`: pin or unpin {tab}; move {tab, before|after: another tab}; folder {name, tabs: [ids]} (makes the folder if it does not exist); space {tab, space: name of an existing space}; close {tab}. Use ids from list_tabs. Closing asks the user first, so close only what is clearly a duplicate or what they asked to close. Look at list_tabs first and keep the plan short.",
+            parameters: json!({"type": "object", "properties": {
+                "actions": {"type": "array", "maxItems": 40, "items": {"type": "object"}}
+            }, "required": ["actions"]}),
+        });
+    }
     if s.read && s.interact {
         v.push(ToolSpec {
             name: CLICK,
@@ -306,6 +316,31 @@ pub fn decide(
                         clip(t.title, 100),
                         s.provider.short()
                     ),
+                    always: None,
+                }
+            }
+        }
+        ORGANIZE => {
+            if !s.read || !s.organize {
+                return Decision::Deny("El usuario no permite organizar las pestañas".to_owned());
+            }
+            let plan = match super::organize::parse(call.args) {
+                Ok(p) => p,
+                Err(why) => return Decision::Deny(why),
+            };
+            let closes = plan.closes().len();
+            if closes == 0 {
+                // Pinning, moving and filing change nothing that cannot be put back by hand.
+                Decision::Allow
+            } else {
+                // The app writes the detail: only it knows the titles.
+                Decision::Ask {
+                    title: if closes == 1 {
+                        "¿Cerrar una pestaña y reorganizar?".to_owned()
+                    } else {
+                        format!("¿Cerrar {closes} pestañas y reorganizar?")
+                    },
+                    detail: String::new(),
                     always: None,
                 }
             }
@@ -609,6 +644,38 @@ mod tests {
             decide(&s, &session, &call(SEARCH, &q), None),
             Decision::Allow
         );
+    }
+
+    #[test]
+    fn tidying_asks_only_when_it_closes_something() {
+        let s = on();
+        let session = Session::default();
+        let tidy = json!({"actions": [
+            {"do": "pin", "tab": 1},
+            {"do": "folder", "name": "Viajes", "tabs": [2, 3]}
+        ]});
+        assert_eq!(
+            decide(&s, &session, &call(ORGANIZE, &tidy), None),
+            Decision::Allow
+        );
+        let closing = json!({"actions": [{"do": "close", "tab": 4}, {"do": "close", "tab": 5}]});
+        assert!(matches!(
+            decide(&s, &session, &call(ORGANIZE, &closing), None),
+            Decision::Ask { always: None, .. }
+        ));
+        let bad = json!({"actions": [{"do": "wipe"}]});
+        assert!(matches!(
+            decide(&s, &session, &call(ORGANIZE, &bad), None),
+            Decision::Deny(_)
+        ));
+        let mut off = on();
+        off.organize = false;
+        assert!(matches!(
+            decide(&off, &session, &call(ORGANIZE, &tidy), None),
+            Decision::Deny(_)
+        ));
+        assert!(!specs(&off).iter().any(|t| t.name == ORGANIZE));
+        assert!(specs(&s).iter().any(|t| t.name == ORGANIZE));
     }
 
     #[test]

@@ -952,6 +952,11 @@ fn ai_section(view: &AiView) -> String {
             "Apagado por defecto. Encendido, la IA puede proponer pulsar un botón o rellenar un campo, y cada vez te lo pregunta enseñándote qué va a hacer. Nunca escribe en campos de contraseña ni de pago.",
             &switch("ai.interact", s.interact),
         ),
+        row(
+            "Organizar mis pestañas",
+            "La IA puede fijar, mover, meter en carpetas y pasar de espacio tus pestañas. Si va a cerrar alguna, te enseña la lista y te pregunta antes; una pestaña cerrada se recupera con Ctrl+Mayús+T.",
+            &switch("ai.organize", s.organize),
+        ),
     ]
     .concat();
     let search = row(
@@ -2492,6 +2497,7 @@ mod tests {
             "ai.confirm_reads",
             "ai.open",
             "ai.interact",
+            "ai.organize",
             "ai.search",
             "ai.blocked.add",
         ] {
