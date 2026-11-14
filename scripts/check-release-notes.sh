@@ -1,18 +1,71 @@
 #!/usr/bin/env bash
 # Fails unless the release notes of a version are written by hand and complete.
 #
-# Usage: scripts/check-release-notes.sh [vX.Y.Z]
-# Without an argument it checks the version in [workspace.package] of Cargo.toml.
+# Usage:
+#   scripts/check-release-notes.sh             the version in the manifest (a -dev version passes)
+#   scripts/check-release-notes.sh vX.Y.Z      that version's notes
+#   scripts/check-release-notes.sh --changed BASE
+#       what a pull request or push changed since commit BASE: the new version when the change
+#       bumps it to a release version, and every notes file it adds or edits. This is the check
+#       the "Release notes are written" job runs.
 #
-# The notes of every version live in docs/release-X.Y.Z.md. The release workflow publishes that
-# file as the release body, and the app shows it on its news page (brujula://news), which reads
-# the `## ` sections and skips «Instalar». So a version never ships with a generated list or a stub.
+# Why: a release must never go out with GitHub's generated list or a one-line stub. The notes of
+# every version live in docs/release-notes/vX.Y.Z.md, in the format described in that folder's
+# README, and Foundation's release-tag workflow publishes that file as the release body. Brújula
+# also shows it on its news page.
 set -euo pipefail
 
+# What differs between apps: the packages' file prefix, as named in the downloads table
+# (APP-X.Y.Z-…), and the file that holds the version, read from stdin by read_version.
+app=Brujula
+manifest=Cargo.toml
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+self="$root/scripts/check-release-notes.sh"
+
+# [workspace.package] version, or [package] version, of a Cargo.toml.
+read_version() {
+  awk '
+    /^\[/ { sec = $0; next }
+    $1 == "version" && (sec == "[workspace.package]" || sec == "[package]") {
+      v = $0; sub(/^[^=]*=[[:space:]]*"/, "", v); sub(/".*$/, "", v)
+      if (sec == "[workspace.package]") { print v; found = 1; exit }
+      if (pkg == "") pkg = v
+    }
+    END { if (!found && pkg != "") print pkg }'
+}
+
+if [[ "${1:-}" == "--changed" ]]; then
+  base="${2:?--changed needs the base commit}"
+  head_version="$(read_version <"$root/$manifest")"
+  base_version="$(git -C "$root" show "$base:$manifest" 2>/dev/null | read_version || true)"
+  tags=()
+  if [[ -n "$head_version" && "$head_version" != "$base_version" && "$head_version" != *-dev* ]]; then
+    tags+=("v$head_version")
+  fi
+  while IFS= read -r changed; do
+    [[ -n "$changed" ]] && tags+=("$changed")
+  # Whole-tree diff, so a notes file that only moved here counts as renamed, not added.
+  done < <(git -C "$root" diff --name-only -M --diff-filter=AM "$base" HEAD \
+    | sed -n 's#^docs/release-notes/\(v[0-9][^/]*\)\.md$#\1#p')
+  if [[ "${#tags[@]}" -eq 0 ]]; then
+    echo "✓ No version bump and no notes changed: nothing to check."
+    exit 0
+  fi
+  status=0
+  for tag in $(printf '%s\n' "${tags[@]}" | sort -u); do
+    "$self" "$tag" || status=1
+  done
+  exit "$status"
+fi
+
 tag="${1:-}"
 if [[ -z "$tag" ]]; then
-  version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p && /^version[[:space:]]*=/{gsub(/[" ]/,"",$0); sub(/^version=/,"",$0); print; exit}' "$root/Cargo.toml")"
+  version="$(read_version <"$root/$manifest")"
+  if [[ "$version" == *-dev* ]]; then
+    echo "✓ Version $version is a development version: no notes needed."
+    exit 0
+  fi
   tag="v$version"
 fi
 if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
@@ -20,21 +73,19 @@ if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
   exit 2
 fi
 version="${tag#v}"
-if [[ "$version" == *-dev* ]]; then
-  echo "✓ $version is a development version: no notes needed yet."
-  exit 0
-fi
-rel="docs/release-$version.md"
-file="$root/$rel"
+file="$root/docs/release-notes/$tag.md"
+rel="docs/release-notes/$tag.md"
 
 fail=0
 problem() { echo "::error file=$rel::$1" >&2; echo "✗ $1" >&2; fail=1; }
 
 if [[ ! -f "$file" ]]; then
-  echo "::error::Missing $rel. Every version needs hand-written release notes (see docs/release-0.5.1.md for the shape)." >&2
+  echo "::error::Missing $rel. Every version needs hand-written release notes: see docs/release-notes/README.md" >&2
   exit 1
 fi
 
+# Brújula's notes are also its news page (crates/brujula-core/src/news.rs), which reads this
+# shape: a "# Brújula X.Y.Z" title, "## Novedades" and/or "## Arreglos", then "## Instalar".
 [[ "$(head -n1 "$file")" == "# Brújula $version" ]] \
   || problem "The first line must be '# Brújula $version'."
 
@@ -43,11 +94,11 @@ bullets="$(awk '/^## (Novedades|Arreglos)$/{on=1;next} /^## /{on=0} on && /^- /{
 [[ "$bullets" -ge 1 ]] || problem "'## Novedades' or '## Arreglos' needs at least one bullet."
 
 grep -qxF '## Instalar' "$file" || problem "Missing the '## Instalar' section."
-grep -qF "Brujula-$version-x86_64.AppImage" "$file" \
-  || problem "'## Instalar' must name this version's AppImage (Brujula-$version-x86_64.AppImage)."
+grep -qF "$app-$version-x86_64.AppImage" "$file" \
+  || problem "'## Instalar' must name this version's AppImage ($app-$version-x86_64.AppImage)."
 
 # Never generated notes, stubs or leftovers.
-if grep -inE "what's changed|full changelog|generated by|lorem ipsum" "$file" >/dev/null \
+if grep -inE "^#+ what's changed|^\*\*full changelog\*\*:|generated by|lorem ipsum" "$file" >/dev/null \
   || grep -nE '\b(TODO|TBD)\b' "$file" >/dev/null; then
   problem "Contains generated text or a placeholder."
 fi
@@ -57,7 +108,7 @@ fi
 [[ "$(wc -c <"$file")" -ge 400 ]] || problem "Too short to be curated notes (under 400 bytes)."
 
 if [[ "$fail" -ne 0 ]]; then
-  echo "Release notes for $tag are not ready." >&2
+  echo "Release notes for $tag are not ready. Format: docs/release-notes/README.md" >&2
   exit 1
 fi
 echo "✓ Release notes for $tag are complete."
