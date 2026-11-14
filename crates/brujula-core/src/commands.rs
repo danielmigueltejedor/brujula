@@ -14,134 +14,48 @@ pub struct Command {
     pub icon: &'static str,
 }
 
-pub const COMMANDS: &[Command] = &[
-    Command {
-        action: "win.find",
-        title: "Buscar en la página",
-        keywords: "encontrar texto palabra",
-        shortcut: "Ctrl+F",
-        icon: "ndl-search-symbolic",
-    },
-    Command {
-        action: "win.copy-link",
-        title: "Copiar el enlace de la página",
-        keywords: "url direccion portapapeles",
-        shortcut: "Ctrl+Mayús+C",
-        icon: "ndl-link-symbolic",
-    },
-    Command {
-        action: "win.screenshot",
-        title: "Capturar la página",
-        keywords: "captura pantallazo imagen foto screenshot",
-        shortcut: "Ctrl+Mayús+S",
-        icon: "ndl-camera-symbolic",
-    },
-    Command {
-        action: "win.toggle-mute",
-        title: "Silenciar o dar sonido a la pestaña",
-        keywords: "mute audio volumen sonido",
-        shortcut: "Ctrl+M",
-        icon: "ndl-mute-symbolic",
-    },
-    Command {
-        action: "win.zoom-in",
-        title: "Acercar la página",
-        keywords: "zoom aumentar mas grande",
-        shortcut: "Ctrl++",
-        icon: "ndl-plus-symbolic",
-    },
-    Command {
-        action: "win.zoom-out",
-        title: "Alejar la página",
-        keywords: "zoom reducir mas pequeña",
-        shortcut: "Ctrl+-",
-        icon: "ndl-minus-symbolic",
-    },
-    Command {
-        action: "win.zoom-reset",
-        title: "Zoom normal",
-        keywords: "restablecer 100 tamaño",
-        shortcut: "Ctrl+0",
-        icon: "ndl-fit-symbolic",
-    },
-    Command {
-        action: "win.print",
-        title: "Imprimir la página",
-        keywords: "pdf papel impresora",
-        shortcut: "Ctrl+P",
-        icon: "ndl-print-symbolic",
-    },
-    Command {
-        action: "win.fullscreen",
-        title: "Pantalla completa",
-        keywords: "ventana maximizar",
-        shortcut: "F11",
-        icon: "ndl-fullscreen-symbolic",
-    },
-    Command {
-        action: "win.inspector",
-        title: "Inspeccionar la página",
-        keywords: "desarrollador consola codigo devtools",
-        shortcut: "F12",
-        icon: "ndl-code-symbolic",
-    },
-    Command {
-        action: "win.new-tab",
-        title: "Nueva pestaña",
-        keywords: "abrir",
-        shortcut: "Ctrl+T",
-        icon: "ndl-plus-symbolic",
-    },
-    Command {
-        action: "win.reopen-tab",
-        title: "Reabrir la pestaña cerrada",
-        keywords: "restaurar deshacer cerrar",
-        shortcut: "Ctrl+Mayús+T",
-        icon: "ndl-history-symbolic",
-    },
-    Command {
-        action: "win.clear-tabs",
-        title: "Limpiar pestañas sin anclar",
-        keywords: "archivar cerrar todas ordenar clear",
-        shortcut: "Ctrl+Mayús+K",
-        icon: "ndl-archive-symbolic",
-    },
-    Command {
-        action: "app.new-private-window",
-        title: "Nueva ventana privada",
-        keywords: "incognito navegacion",
-        shortcut: "Ctrl+Mayús+N",
-        icon: "ndl-eye-off-symbolic",
-    },
-    Command {
-        action: "win.toggle-sidebar",
-        title: "Mostrar u ocultar la barra lateral",
-        keywords: "pestañas anclar",
-        shortcut: "Ctrl+B",
-        icon: "ndl-sidebar-symbolic",
-    },
-    Command {
-        action: "win.toggle-history",
-        title: "Historial",
-        keywords: "visitadas paginas",
-        shortcut: "Ctrl+H",
-        icon: "ndl-history-symbolic",
-    },
-    Command {
-        action: "win.add-essential",
-        title: "Añadir a esenciales",
-        keywords: "fijar favoritos",
-        shortcut: "",
-        icon: "ndl-pin-symbolic",
-    },
-    Command {
-        action: "win.open-drm",
-        title: "Abrir con soporte de DRM (Netflix…)",
-        keywords: "widevine netflix disney spotify video protegido",
-        shortcut: "",
-        icon: "ndl-shield-check-symbolic",
-    },
-];
+/// The commands, one per line: action, title, other words that find it, shortcut and icon,
+/// separated by `|`. Kept as plain data so adding one is a line, not a block of code.
+const TABLE: &str = "\
+win.find|Buscar en la página|encontrar texto palabra|Ctrl+F|ndl-search-symbolic\n\
+win.copy-link|Copiar el enlace de la página|url direccion portapapeles|Ctrl+Mayús+C|ndl-link-symbolic\n\
+win.screenshot|Capturar la página|captura pantallazo imagen foto screenshot|Ctrl+Mayús+S|ndl-camera-symbolic\n\
+win.toggle-mute|Silenciar o dar sonido a la pestaña|mute audio volumen sonido|Ctrl+M|ndl-mute-symbolic\n\
+win.zoom-in|Acercar la página|zoom aumentar mas grande|Ctrl++|ndl-plus-symbolic\n\
+win.zoom-out|Alejar la página|zoom reducir mas pequeña|Ctrl+-|ndl-minus-symbolic\n\
+win.zoom-reset|Zoom normal|restablecer 100 tamaño|Ctrl+0|ndl-fit-symbolic\n\
+win.print|Imprimir la página|pdf papel impresora|Ctrl+P|ndl-print-symbolic\n\
+win.fullscreen|Pantalla completa|ventana maximizar|F11|ndl-fullscreen-symbolic\n\
+win.inspector|Inspeccionar la página|desarrollador consola codigo devtools|F12|ndl-code-symbolic\n\
+win.new-tab|Nueva pestaña|abrir|Ctrl+T|ndl-plus-symbolic\n\
+win.reopen-tab|Reabrir la pestaña cerrada|restaurar deshacer cerrar|Ctrl+Mayús+T|ndl-history-symbolic\n\
+win.clear-tabs|Limpiar pestañas sin anclar|archivar cerrar todas ordenar clear|Ctrl+Mayús+K|ndl-archive-symbolic\n\
+app.new-private-window|Nueva ventana privada|incognito navegacion|Ctrl+Mayús+N|ndl-eye-off-symbolic\n\
+win.toggle-sidebar|Mostrar u ocultar la barra lateral|pestañas anclar|Ctrl+B|ndl-sidebar-symbolic\n\
+win.toggle-history|Historial|visitadas paginas|Ctrl+H|ndl-history-symbolic\n\
+win.add-essential|Añadir a esenciales|fijar favoritos||ndl-pin-symbolic\n\
+win.open-drm|Abrir con soporte de DRM (Netflix…)|widevine netflix disney spotify video protegido||ndl-shield-check-symbolic";
+
+static ALL: std::sync::OnceLock<Vec<Command>> = std::sync::OnceLock::new();
+
+/// Every command, in the order they are listed.
+pub fn all() -> &'static [Command] {
+    ALL.get_or_init(|| {
+        TABLE
+            .lines()
+            .filter_map(|line| {
+                let mut f = line.split('|');
+                Some(Command {
+                    action: f.next()?,
+                    title: f.next()?,
+                    keywords: f.next()?,
+                    shortcut: f.next()?,
+                    icon: f.next()?,
+                })
+            })
+            .collect()
+    })
+}
 
 /// Lower case, without accents, so "pagina" finds "página".
 fn plain(text: &str) -> String {
@@ -167,7 +81,7 @@ pub fn search(text: &str, limit: usize) -> Vec<&'static Command> {
         return Vec::new();
     }
     let words: Vec<&str> = query.split_whitespace().collect();
-    let mut hits: Vec<(usize, &'static Command)> = COMMANDS
+    let mut hits: Vec<(usize, &'static Command)> = all()
         .iter()
         .filter_map(|c| {
             let title = plain(c.title);
@@ -237,9 +151,19 @@ mod tests {
     }
 
     #[test]
+    fn every_line_of_the_table_is_a_command() {
+        assert_eq!(all().len(), TABLE.lines().count());
+        assert!(all().len() >= 18);
+        for c in all() {
+            assert!(!c.title.is_empty() && !c.icon.is_empty(), "{c:?}");
+            assert!(!c.title.contains('|') && !c.icon.contains('|'));
+        }
+    }
+
+    #[test]
     fn actions_are_unique_and_prefixed() {
         let mut seen = std::collections::HashSet::new();
-        for c in COMMANDS {
+        for c in all() {
             assert!(c.action.starts_with("win.") || c.action.starts_with("app."));
             assert!(seen.insert(c.action), "{}", c.action);
             assert!(!c.title.is_empty() && !c.icon.is_empty());
