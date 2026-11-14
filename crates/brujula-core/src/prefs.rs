@@ -239,6 +239,18 @@ impl Settings {
             "passkeys_enabled" => {
                 self.passkeys_enabled = flag(value)?;
             }
+            "drm_notice" => {
+                self.drm_notice = flag(value)?;
+            }
+            "drm_browser" => {
+                if !value.is_empty() && !crate::drm::known_browser(value) {
+                    return Err(format!("unknown browser: {value}"));
+                }
+                self.drm_browser = value.to_owned();
+            }
+            "drm_unsilence" => {
+                self.drm_silenced.retain(|h| h != value);
+            }
             "sleep_after" => {
                 let minutes = number(value)?;
                 if !crate::settings::SLEEP_CHOICES.contains(&minutes) {
@@ -422,6 +434,50 @@ fn tiles(key: &str, current: &str, options: &[(&str, &str, &str)]) -> String {
     format!(r#"<div class="tiles" role="group">{buttons}</div>"#)
 }
 
+/// DRM: the notice, the browser that takes protected pages, and the sites silenced.
+fn drm_rows(s: &Settings, view: &Extras) -> String {
+    let mut choices = format!(
+        r#"<button type="button" class="seg{}" data-k="drm_browser" data-v="">Automático</button>"#,
+        if s.drm_browser.is_empty() { " on" } else { "" }
+    );
+    for (id, name) in &view.drm_browsers {
+        let on = if *id == s.drm_browser { " on" } else { "" };
+        choices.push_str(&format!(
+            r#"<button type="button" class="seg{on}" data-k="drm_browser" data-v="{id}">{name}</button>"#,
+            id = escape(id),
+            name = escape(name)
+        ));
+    }
+    let silenced: String = s
+        .drm_silenced
+        .iter()
+        .map(|h| {
+            let h = escape(h);
+            format!(
+                r#"<div class="row"><div class="what"><b>{h}</b><p>Sin avisos de DRM.</p></div><div class="ctl"><button type="button" class="seg plain" data-k="drm_unsilence" data-v="{h}" data-remove="1">Volver a avisar</button></div></div>"#
+            )
+        })
+        .collect();
+    [
+        row(
+            "Avisar del contenido con DRM",
+            "Netflix, Disney+, Prime Video, Spotify… cifran el vídeo con Widevine y el motor de Brújula (WebKitGTK) no puede reproducirlo. Brújula te avisa y puede abrir la página en otro navegador que sí lo haga.",
+            &switch("drm_notice", s.drm_notice),
+        ),
+        stacked(
+            "Navegador para el DRM",
+            if view.drm_summary.is_empty() {
+                "Elige cuál abre las páginas protegidas."
+            } else {
+                &view.drm_summary
+            },
+            &format!(r#"<div class="segs" role="group" style="flex-wrap:wrap">{choices}</div>"#),
+        ),
+        silenced,
+    ]
+    .concat()
+}
+
 fn switch(key: &str, on: bool) -> String {
     format!(
         r#"<button type="button" class="switch{cls}" role="switch" aria-checked="{on}" data-k="{key}" data-toggle="1"><i></i></button>"#,
@@ -514,6 +570,10 @@ pub struct Extras {
     pub update_version: String,
     /// The AI assistant: what the user chose and whether the keyring holds a key.
     pub ai: AiView,
+    /// The browsers installed that can play protected content: id and name.
+    pub drm_browsers: Vec<(String, String)>,
+    /// What protected pages will do, in words.
+    pub drm_summary: String,
 }
 
 /// What the preferences page shows of the AI assistant. Never a key.
@@ -1685,6 +1745,7 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                 "Las direcciones http:// de sitios públicos se prueban antes como https://. Si el sitio no responde en HTTPS, se abre la dirección original; un certificado malo nunca se salta.",
                 &switch("https_first", s.https_first),
             ),
+            drm_rows(s, sync),
             notifications_rows(sync),
             r#"<ul class="facts">
 <li>Los programas y scripts (.AppImage, .sh, .deb…) piden confirmación antes de bajarse y se guardan sin permiso de ejecución; los nombres de archivo se limpian.</li>
@@ -2566,6 +2627,45 @@ mod tests {
         // Settings saved before the keyring existed get it on.
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert!(old.passwords_keyring);
+    }
+
+    #[test]
+    fn drm_notice_browser_and_silenced_sites_are_settings() {
+        let mut s = Settings::default();
+        assert!(s.drm_notice);
+        s.apply("drm_notice", "0").unwrap();
+        assert!(!s.drm_notice);
+        assert!(s.apply("drm_notice", "quizá").is_err());
+        s.apply("drm_browser", "firefox").unwrap();
+        assert_eq!(s.drm_browser, "firefox");
+        assert!(s.apply("drm_browser", "netscape").is_err());
+        s.apply("drm_browser", "").unwrap();
+        assert!(s.drm_browser.is_empty());
+        s.drm_silenced = vec!["netflix.com".to_owned()];
+        let extras = Extras {
+            drm_browsers: vec![("firefox".to_owned(), "Firefox".to_owned())],
+            drm_summary: "Se abriría en Firefox.".to_owned(),
+            ..Extras::default()
+        };
+        let page = render(&s, &Bookmarks::default(), &Spaces::default(), &extras);
+        assert!(page.contains(r#"data-k="drm_notice""#));
+        assert!(page.contains(r#"data-k="drm_browser" data-v="firefox""#));
+        assert!(page.contains("Se abriría en Firefox."));
+        assert!(page.contains(r#"data-k="drm_unsilence" data-v="netflix.com""#));
+        s.apply("drm_unsilence", "netflix.com").unwrap();
+        assert!(s.drm_silenced.is_empty());
+    }
+
+    #[test]
+    fn drm_settings_saved_with_junk_are_cleaned_when_read() {
+        let s = Settings::from_json(
+            r#"{"drm_browser":"netscape","drm_sites":["Ok.Example","a b","x"],"drm_silenced":["netflix.com"]}"#,
+        );
+        assert!(s.drm_browser.is_empty());
+        assert_eq!(s.drm_sites, ["ok.example"]);
+        assert_eq!(s.drm_silenced, ["netflix.com"]);
+        // Settings saved before DRM existed get the notice.
+        assert!(Settings::from_json("{}").drm_notice);
     }
 
     #[test]

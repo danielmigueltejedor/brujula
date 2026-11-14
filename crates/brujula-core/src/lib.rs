@@ -14,6 +14,7 @@ pub mod browser_data;
 pub mod cloud;
 pub mod csp;
 pub mod downloads;
+pub mod drm;
 pub mod edge;
 pub mod essentials;
 pub mod ext;

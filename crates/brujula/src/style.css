@@ -262,3 +262,12 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
   background-color: alpha(#ffffff, 0.38);
   color: var(--ndl-color-text-on-accent);
 }
+
+/* A notice over the foot of the page (DRM, and the like). */
+.brujula-toast {
+  background: var(--ndl-color-surface-panel);
+  border-radius: 16px;
+  padding: 10px 10px 10px 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(127, 127, 127, 0.18);
+}
+.brujula-toast-icon { color: var(--ndl-color-accent-default); }

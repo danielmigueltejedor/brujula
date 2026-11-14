@@ -112,7 +112,10 @@ impl Browser {
         let home = home();
         let (history, history_total) = self.history_view();
         let (update_status, update_version) = self.update_view();
+        let (drm_browsers, drm_summary) = self.drm_view();
         prefs::Extras {
+            drm_browsers,
+            drm_summary,
             ai: self.ai_view(),
             update_status,
             update_version,

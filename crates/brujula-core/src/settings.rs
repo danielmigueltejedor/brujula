@@ -300,6 +300,15 @@ pub struct Settings {
     pub passwords_keyring: bool,
     /// Answer the pages that ask for a passkey, with the phone as the authenticator (a QR code).
     pub passkeys_enabled: bool,
+    /// Say so when a page needs DRM (Widevine), which the engine cannot play, and offer another
+    /// browser that can.
+    pub drm_notice: bool,
+    /// The browser to hand protected pages to (an id of `drm::CANDIDATES`); empty picks one.
+    pub drm_browser: String,
+    /// Hosts the person marked as needing DRM, on top of the built-in list.
+    pub drm_sites: Vec<String>,
+    /// Hosts the person asked not to be told about again.
+    pub drm_silenced: Vec<String>,
     /// The welcome page has been gone through. True for settings saved before it existed; a
     /// first run starts it false.
     pub welcome_done: bool,
@@ -356,6 +365,10 @@ impl Default for Settings {
             passwords_enabled: true,
             passwords_keyring: true,
             passkeys_enabled: true,
+            drm_notice: true,
+            drm_browser: String::new(),
+            drm_sites: Vec::new(),
+            drm_silenced: Vec::new(),
             welcome_done: true,
             update_check: true,
             update_checked_at: 0,
@@ -379,6 +392,16 @@ impl Settings {
             if !is_version(version) {
                 version.clear();
             }
+        }
+        if !s.drm_browser.is_empty() && !crate::drm::known_browser(&s.drm_browser) {
+            s.drm_browser.clear();
+        }
+        for list in [&mut s.drm_sites, &mut s.drm_silenced] {
+            let mut clean = Vec::new();
+            for host in list.iter() {
+                crate::drm::remember(&mut clean, host);
+            }
+            *list = clean;
         }
         if !ARCHIVE_CHOICES.contains(&s.archive_after_hours) {
             s.archive_after_hours = 24;

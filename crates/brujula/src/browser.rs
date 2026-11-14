@@ -51,6 +51,7 @@ mod archive;
 mod boosts;
 mod cloudsync;
 mod downloads_panel;
+mod drm;
 mod essentials;
 mod ext;
 mod ext_api;
@@ -71,6 +72,7 @@ mod sleep;
 mod split;
 mod system_theme;
 mod tab_drag;
+mod toast;
 mod updates;
 mod webapps;
 mod welcome;
@@ -322,6 +324,10 @@ pub struct Browser {
     /// The sites the user restyled, and the style sheets that carry it to the pages.
     boosts: RefCell<brujula_core::boosts::Boosts>,
     boost_sheets: RefCell<Vec<webkit6::UserStyleSheet>>,
+    /// The notice over the foot of the page.
+    toast: Rc<toast::Toast>,
+    /// The protected sites already told about in this session.
+    drm_told: RefCell<std::collections::HashSet<String>>,
     /// The card that shows a link in a preview, and the page in it.
     peek: peek::PeekCard,
     peek_view: RefCell<Option<WebView>>,
@@ -636,6 +642,8 @@ impl Browser {
         page.add_overlay(&progress);
         let peek = peek::build_peek();
         page.add_overlay(&peek.layer);
+        let toast = toast::Toast::new();
+        page.add_overlay(&toast.root);
 
         // The tab bar for the horizontal layout: the tabs and the window controls on one row, the
         // navigation and the address on the next. Hidden while the tabs are in the sidebar.
@@ -778,6 +786,8 @@ impl Browser {
             floats: RefCell::new(HashMap::new()),
             boosts: RefCell::new(boosts::load()),
             boost_sheets: RefCell::new(Vec::new()),
+            toast,
+            drm_told: RefCell::new(std::collections::HashSet::new()),
             peek,
             peek_view: RefCell::new(None),
             paired: RefCell::new(None),
@@ -952,6 +962,7 @@ impl Browser {
         action("open-settings", Box::new(|b| b.open_settings(None)));
         action("about", Box::new(|b| b.show_about()));
         action("install-webapp", Box::new(|b| b.install_webapp_dialog()));
+        action("open-drm", Box::new(|b| b.drm_open_current()));
         action("toggle-history", Box::new(|b| b.toggle_history()));
         action("add-essential", Box::new(|b| b.add_current_to_essentials()));
         action(
@@ -1703,6 +1714,7 @@ impl Browser {
                     if let Some(id) = b.id_of(v) {
                         b.ext_committed(id, v);
                     }
+                    b.drm_check(v);
                 }
                 if ev == LoadEvent::Finished {
                     if let Some(id) = b.id_of(v) {
@@ -2320,6 +2332,7 @@ impl Browser {
             c.url_icon.set_icon_name(Some(icon));
             c.reload.set_icon_name(reload_icon);
         }
+        self.toast.hide_unless(self.model.borrow().selected());
         self.update_nav();
         self.sync_progress();
         self.refresh_site_action();
@@ -3078,6 +3091,9 @@ pub(crate) fn harden_settings(view: &WebView) {
         s.set_allow_universal_access_from_file_urls(false);
         s.set_allow_modal_dialogs(false);
         s.set_enable_write_console_messages_to_stdout(false);
+        // Distribution builds of WebKitGTK leave Encrypted Media out and ignore this; a build
+        // that has it (Clear Key, or a Widevine module someone wired in) gets it switched on.
+        s.set_enable_encrypted_media(true);
         // Linux, always: WebKitGTK would say Macintosh to some sites.
         s.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
     }
@@ -3118,6 +3134,10 @@ fn main_menu() -> gio::Menu {
     opts.append(Some("Cambiar buscador"), Some("win.change-engine"));
     opts.append(Some("Extensiones"), Some("win.open-extensions"));
     opts.append(Some("Añadir a esenciales"), Some("win.add-essential"));
+    opts.append(
+        Some("Abrir con soporte de DRM (Netflix…)"),
+        Some("win.open-drm"),
+    );
     opts.append(
         Some("Instalar como aplicación web…"),
         Some("win.install-webapp"),
