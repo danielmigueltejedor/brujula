@@ -1,5 +1,5 @@
 //! The page of what is new, shown once after Brújula was updated. The notes are the ones of the
-//! release (`docs/release-<version>.md`), built into the program, so they need no network.
+//! release (`docs/release-notes/v<version>.md`), built into the program, so they need no network.
 
 use crate::newtab::escape;
 
@@ -7,7 +7,7 @@ use crate::newtab::escape;
 pub const NEWS_URI: &str = "brujula://news";
 
 /// The notes of this version. A new release changes this path (and the test below says so).
-const NOTES: &str = include_str!("../../../docs/release-0.7.0.md");
+const NOTES: &str = include_str!("../../../docs/release-notes/v0.7.0.md");
 
 /// Sections of the notes that are not news.
 const SKIPPED: &[&str] = &["Instalar"];
@@ -171,7 +171,7 @@ mod tests {
         let title = NOTES.lines().next().unwrap_or_default();
         assert!(
             title.contains(env!("CARGO_PKG_VERSION")),
-            "docs/release-<version>.md for {} must exist and be the path in news.rs (it has: {title})",
+            "docs/release-notes/v<version>.md for {} must exist and be the path in news.rs (it has: {title})",
             env!("CARGO_PKG_VERSION")
         );
     }

@@ -1,4 +1,4 @@
-name: AppImage
+name: Release Linux
 # Builds the Linux AppImage of a release and attaches it, with its SHA-256, to that release.
 # It is built on Arch because Brújula needs GTK 4.20+ and WebKitGTK 6.0, which no Ubuntu runner
 # has; the image runs on distributions whose glibc is as new as Arch's (Arch, CachyOS, Nodalix).
@@ -10,8 +10,6 @@ on:
         description: "Release to attach the AppImage to (for example v0.5.1)"
         type: string
         required: true
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:

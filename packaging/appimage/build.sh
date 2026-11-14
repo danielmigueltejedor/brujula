@@ -7,7 +7,7 @@
 # Needs on PATH (or in $TOOLS): linuxdeploy, linuxdeploy-plugin-gtk.sh and appimagetool, plus
 # the GTK 4 and WebKitGTK 6.0 the binary was built against (they are copied into the image).
 # The AppImage then runs on a distribution whose glibc is at least as new as the one it was
-# built on, so it is built on Arch (see .github/workflows/appimage.yml).
+# built on, so it is built on Arch (see .github/workflows/release-linux.yml).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
