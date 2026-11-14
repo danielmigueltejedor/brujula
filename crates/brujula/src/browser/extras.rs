@@ -81,6 +81,7 @@ impl Browser {
         self.model.borrow_mut().set_current_space(id);
         self.list.invalidate_filter();
         self.rebuild_spaces();
+        self.slide_rows_in(id);
         let target = {
             let m = self.model.borrow();
             self.last_in_space
@@ -136,8 +137,53 @@ impl Browser {
     }
 
     /// The switcher at the foot of the sidebar: one button per space and a plus.
+    /// The rows of the space that has just come in slide in, as new tabs do.
+    fn slide_rows_in(&self, space: u32) {
+        let rows: Vec<gtk::ListBoxRow> = {
+            let model = self.model.borrow();
+            self.rows
+                .borrow()
+                .iter()
+                .filter(|(id, _)| model.get(**id).is_some_and(|t| t.space == space))
+                .map(|(_, r)| r.row.clone())
+                .collect()
+        };
+        for row in rows {
+            row.add_css_class("brujula-new");
+            glib::timeout_add_local_once(std::time::Duration::from_millis(450), move || {
+                row.remove_css_class("brujula-new");
+            });
+        }
+    }
+
+    /// Tints the sidebar with the colour of the space in front. With `sweep` the gradient glides
+    /// in, which is what changing space looks like.
+    pub(super) fn apply_space_tint(&self, sweep: bool) {
+        let color = {
+            let s = self.spaces.borrow();
+            s.get(s.current())
+                .map(|x| x.color.clone())
+                .unwrap_or_default()
+        };
+        let css = brujula_core::spaces::tint_css(&color);
+        self.space_tint.load_from_string(&css);
+        if css.is_empty() || self.private {
+            self.side.remove_css_class("brujula-tinted");
+            return;
+        }
+        self.side.add_css_class("brujula-tinted");
+        if sweep {
+            self.side.add_css_class("brujula-sweep");
+            let side = self.side.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
+                side.remove_css_class("brujula-sweep");
+            });
+        }
+    }
+
     pub(super) fn rebuild_spaces(self: &Rc<Self>) {
         self.schedule_save();
+        self.apply_space_tint(true);
         while let Some(child) = self.space_bar.first_child() {
             self.space_bar.remove(&child);
         }
@@ -211,6 +257,7 @@ impl Browser {
         match field {
             "name" => self.spaces.borrow_mut().rename(id, value, &space.icon),
             "icon" => self.spaces.borrow_mut().rename(id, &space.name, value),
+            "color" => self.spaces.borrow_mut().set_color(id, value),
             _ => return,
         }
         self.rebuild_spaces();
@@ -319,8 +366,47 @@ impl Browser {
             .css_classes(["flat", "destructive-action"])
             .sensitive(self.spaces.borrow().all().len() > 1)
             .build();
+        // The colour that tints the sidebar while the space is in front.
+        let color = Rc::new(RefCell::new(space.color.clone()));
+        let dots = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        dots.set_halign(gtk::Align::Center);
+        let swatches: Rc<RefCell<Vec<(String, gtk::Button)>>> = Rc::new(RefCell::new(Vec::new()));
+        let mark_color = {
+            let swatches = swatches.clone();
+            move |current: &str| {
+                for (c, b) in swatches.borrow().iter() {
+                    if c == current {
+                        b.add_css_class("brujula-swatch-current");
+                    } else {
+                        b.remove_css_class("brujula-swatch-current");
+                    }
+                }
+            }
+        };
+        for hex in std::iter::once("").chain(brujula_core::spaces::PALETTE) {
+            let button = gtk::Button::builder()
+                .css_classes(["flat", "circular", "brujula-swatch"])
+                .tooltip_text(if hex.is_empty() { "Sin color" } else { hex })
+                .build();
+            if hex.is_empty() {
+                button.set_icon_name("ndl-close-symbolic");
+            } else {
+                // One class per colour of the palette, in the style sheet.
+                button.add_css_class(&format!("brujula-swatch-{}", hex.trim_start_matches('#')));
+            }
+            let color = color.clone();
+            let mark_color = mark_color.clone();
+            button.connect_clicked(move |_| {
+                *color.borrow_mut() = hex.to_owned();
+                mark_color(hex);
+            });
+            dots.append(&button);
+            swatches.borrow_mut().push((hex.to_owned(), button));
+        }
+        mark_color(&space.color);
         col.append(&name);
         col.append(&grid);
+        col.append(&dots);
         col.append(&save);
         col.append(&delete);
         pop.set_child(Some(&col));
@@ -329,12 +415,14 @@ impl Browser {
         let pop2 = pop.clone();
         let name2 = name.clone();
         let chosen2 = chosen.clone();
+        let color2 = color.clone();
         save.connect_clicked(move |_| {
             pop2.popdown();
             let Some(b) = this.upgrade() else { return };
             b.spaces
                 .borrow_mut()
                 .rename(id, &name2.text(), &chosen2.borrow());
+            b.spaces.borrow_mut().set_color(id, &color2.borrow());
             // After the popover has gone: its anchor is about to be replaced.
             glib::idle_add_local_once(move || b.rebuild_spaces());
         });

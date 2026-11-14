@@ -239,6 +239,9 @@ impl Settings {
             "passkeys_enabled" => {
                 self.passkeys_enabled = flag(value)?;
             }
+            "quick_links" => {
+                self.quick_links = flag(value)?;
+            }
             "drm_notice" => {
                 self.drm_notice = flag(value)?;
             }
@@ -1343,6 +1346,11 @@ fn archive_section(s: &Settings, view: &Extras) -> String {
         "archive",
         &[
             row(
+                "Enlaces de otras aplicaciones",
+                "Un enlace que abres desde otra aplicación mientras Brújula está abierta se ve primero en una tarjeta sobre la página (como Peek), con un botón para dejarlo en una pestaña.",
+                &switch("quick_links", s.quick_links),
+            ),
+            row(
                 "Dormir las pestañas sin usar",
                 "Su página sale de la memoria y se vuelve a cargar al abrirlas. Siguen en la barra; no se cierran. Las que suenan o cargan no duermen.",
                 &format!(r#"<div class="segs" role="group">{sleep}</div>"#),
@@ -1698,12 +1706,17 @@ pub fn render(s: &Settings, marks: &Bookmarks, spaces: &Spaces, sync: &Extras) -
                     icons::DEFAULT
                 };
                 format!(
-                    r#"<div class="space"><div class="spacehead"><button type="button" class="iconbtn" data-open="1" aria-label="Elegir icono" title="Elegir icono"><span class="cur">{cur}</span>{chev}</button><input type="text" class="field wide" data-k="space.name.{id}" value="{name}" maxlength="24" aria-label="Nombre del espacio">{remove}</div>{grid}</div>"#,
+                    r#"<div class="space"><div class="spacehead"><button type="button" class="iconbtn" data-open="1" aria-label="Elegir icono" title="Elegir icono"><span class="cur">{cur}</span>{chev}</button><input type="text" class="field wide" data-k="space.name.{id}" value="{name}" maxlength="24" aria-label="Nombre del espacio">{remove}</div>{grid}<div class="actions">{colors}<button type="button" class="seg plain" data-k="space.color.{id}" data-v="">Sin color</button></div></div>"#,
                     cur = icons::web_svg(chosen, 22),
                     chev = icons::web_svg("chevron-right", 14),
                     id = sp.id,
                     name = escape(&sp.name),
                     grid = icon_grid(sp.id, chosen),
+                    colors = swatches(
+                        &format!("space.color.{}", sp.id),
+                        &crate::spaces::PALETTE,
+                        &sp.color
+                    ),
                 )
             })
             .collect::<String>(),
@@ -2627,6 +2640,23 @@ mod tests {
         // Settings saved before the keyring existed get it on.
         let old: Settings = serde_json::from_str("{}").unwrap();
         assert!(old.passwords_keyring);
+    }
+
+    #[test]
+    fn links_from_other_apps_open_in_a_card_unless_switched_off() {
+        let mut s = Settings::default();
+        assert!(s.quick_links);
+        s.apply("quick_links", "0").unwrap();
+        assert!(!s.quick_links);
+        assert!(s.apply("quick_links", "x").is_err());
+        let page = render(
+            &s,
+            &Bookmarks::default(),
+            &Spaces::default(),
+            &Extras::default(),
+        );
+        assert!(page.contains(r#"data-k="quick_links""#));
+        assert!(Settings::from_json("{}").quick_links);
     }
 
     #[test]

@@ -16,6 +16,25 @@ pub struct Space {
     /// The id of one of the icons in [`crate::icons`]; empty takes the default one.
     #[serde(default)]
     pub icon: String,
+    /// `#rrggbb`: the colour that tints the sidebar while the space is in front; empty is none.
+    #[serde(default)]
+    pub color: String,
+}
+
+/// The colours offered for a space, as `#rrggbb`.
+pub const PALETTE: [&str; 8] = [
+    "#0c9a58", "#2f6fed", "#7a5af8", "#d6409f", "#e5484d", "#f08a24", "#d4a017", "#12a5a5",
+];
+
+/// The rule that tints the sidebar with `color` (empty when it is not a colour): a soft gradient
+/// that is stronger at the top. The window adds `brujula-tinted` to the sidebar to use it.
+pub fn tint_css(color: &str) -> String {
+    let Some(c) = crate::settings::parse_hex_color(color) else {
+        return String::new();
+    };
+    format!(
+        ".brujula-side.brujula-tinted {{ background-image: linear-gradient(165deg, alpha({c}, 0.34), alpha({c}, 0.12) 55%, alpha({c}, 0.03)); background-size: 100% 220%; background-position: 0 0; }}"
+    )
 }
 
 impl Space {
@@ -38,6 +57,7 @@ impl Default for Spaces {
                 id: FIRST_SPACE,
                 name: "Principal".to_owned(),
                 icon: "home".to_owned(),
+                color: String::new(),
             }],
             current: FIRST_SPACE,
         }
@@ -71,6 +91,7 @@ impl Spaces {
                 s.name = "Espacio".to_owned();
             }
             s.icon = icons::clean(&s.icon);
+            s.color = crate::settings::parse_hex_color(&s.color).unwrap_or_default();
         }
         if self.list.is_empty() {
             return Self::default();
@@ -119,6 +140,7 @@ impl Spaces {
             id,
             name,
             icon: String::new(),
+            color: String::new(),
         });
         Some(id)
     }
@@ -130,6 +152,13 @@ impl Spaces {
                 s.name = name;
             }
             s.icon = icons::clean(icon);
+        }
+    }
+
+    /// Sets the colour of a space; anything that is not `#rrggbb` clears it.
+    pub fn set_color(&mut self, id: u32, color: &str) {
+        if let Some(s) = self.list.iter_mut().find(|s| s.id == id) {
+            s.color = crate::settings::parse_hex_color(color).unwrap_or_default();
         }
     }
 
@@ -222,12 +251,33 @@ mod tests {
                 id: 1,
                 name: "Casa".into(),
                 icon: "🏠".into(),
+                color: String::new(),
             }],
             current: 1,
         }
         .sanitized();
         assert_eq!(old.get(1).unwrap().icon, "");
         assert_eq!(old.get(1).unwrap().icon_name(), "ndl-workspace-symbolic");
+    }
+
+    #[test]
+    fn a_space_colour_is_validated_and_makes_a_tint_rule() {
+        let mut s = Spaces::default();
+        s.set_color(FIRST_SPACE, "#2F6FED");
+        assert_eq!(s.get(FIRST_SPACE).unwrap().color, "#2f6fed");
+        assert!(tint_css("#2f6fed").contains("alpha(#2f6fed, 0.34)"));
+        s.set_color(FIRST_SPACE, "red; } body { display:none");
+        assert_eq!(s.get(FIRST_SPACE).unwrap().color, "");
+        assert_eq!(tint_css("url(x)"), "");
+        // Junk in a saved session is cleaned when it is read back.
+        let loaded: Spaces = serde_json::from_str(
+            r##"{"list":[{"id":1,"name":"A","color":"#12345"}],"current":1}"##,
+        )
+        .unwrap();
+        assert_eq!(loaded.sanitized().get(1).unwrap().color, "");
+        for c in PALETTE {
+            assert!(!tint_css(c).is_empty(), "{c}");
+        }
     }
 
     #[test]
@@ -238,16 +288,19 @@ mod tests {
                     id: 0,
                     name: "".into(),
                     icon: "".into(),
+                    color: String::new(),
                 },
                 Space {
                     id: 3,
                     name: "a\nb".into(),
                     icon: "".into(),
+                    color: String::new(),
                 },
                 Space {
                     id: 3,
                     name: "dup".into(),
                     icon: "".into(),
+                    color: String::new(),
                 },
             ],
             current: 99,

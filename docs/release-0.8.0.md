@@ -15,6 +15,10 @@ Nada de esto se ha visto en pantalla (ver la PR #41).
 - **Comandos en el Spotlight**: escribe «capt», «zoom», «imprimir», «limpiar»… y salen los comandos, con su atajo.
 - **Más atajos**: imprimir (Ctrl+P), pantalla completa (F11), inspector (F12 o Ctrl+Mayús+I) y Ctrl+1…9 para ir a una pestaña del espacio. Todo está también en el menú → Página.
 - **Contenido con DRM** (Netflix, Disney+, Prime, Spotify…): WebKitGTK no puede reproducirlo, así que Brújula avisa y abre la página en un navegador con Widevine (Chrome, Edge, Firefox…). Se configura en Preferencias → Seguridad. Ver `docs/drm.md`.
+- **Colores de espacio**: elige un color para cada espacio (clic derecho en su botón, o Preferencias → Espacios); la barra lateral se tiñe con un degradado suave que sube por la barra al cambiar de espacio.
+- **Cambiar de espacio o de pestaña, más fluido**: las pestañas del espacio que entra se deslizan y la página que pasa al frente se aclara.
+- **Enlaces de otras aplicaciones en una tarjeta** (como Little Arc): un enlace que abres desde fuera se ve primero sobre la página, con «Abrir en pestaña». Se apaga en Preferencias → Archivo.
+- **Desplazamiento suave y caché de páginas** de WebKit activados.
 - **Movimiento**: tarjetas que suben y se aclaran al abrirse (Spotlight, Peek, avisos, buscar), pestañas nuevas que entran desde el lado, fundidos suaves y esenciales y espacios que se elevan al pasar el ratón. Se apaga solo si el escritorio pide sin animaciones.
 
 ## Instalar

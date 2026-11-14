@@ -179,8 +179,18 @@ pub fn present(app: &gtk::Application, urls: &[String]) {
     let existing = BROWSER.with(|b| b.borrow().clone());
     if let Some(b) = existing {
         b.window.present();
-        for u in urls {
-            b.open_tab(u, None, true);
+        // A link from another application: a card over the page first, like Arc's Little Arc.
+        let quick = b.settings.borrow().quick_links;
+        for (i, u) in urls.iter().enumerate() {
+            if quick
+                && i == 0
+                && urls.len() == 1
+                && (u.starts_with("http://") || u.starts_with("https://"))
+            {
+                b.peek(u);
+            } else {
+                b.open_tab(u, None, true);
+            }
         }
         return;
     }
@@ -343,6 +353,8 @@ pub struct Browser {
     /// The sites the user restyled, and the style sheets that carry it to the pages.
     boosts: RefCell<brujula_core::boosts::Boosts>,
     boost_sheets: RefCell<Vec<webkit6::UserStyleSheet>>,
+    /// The colour of the space in front, as a rule for the sidebar.
+    space_tint: gtk::CssProvider,
     /// The notice over the foot of the page.
     toast: Rc<toast::Toast>,
     /// Find in page.
@@ -811,6 +823,7 @@ impl Browser {
             floats: RefCell::new(HashMap::new()),
             boosts: RefCell::new(boosts::load()),
             boost_sheets: RefCell::new(Vec::new()),
+            space_tint: gtk::CssProvider::new(),
             toast,
             find,
             zooms: RefCell::new(
@@ -883,6 +896,13 @@ impl Browser {
             gtk::style_context_add_provider_for_display(
                 &display,
                 &this.appearance_css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+        if let Some(display) = gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &this.space_tint,
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
             );
         }
@@ -3189,6 +3209,9 @@ pub(crate) fn harden_settings(view: &WebView) {
         // Distribution builds of WebKitGTK leave Encrypted Media out and ignore this; a build
         // that has it (Clear Key, or a Widevine module someone wired in) gets it switched on.
         s.set_enable_encrypted_media(true);
+        // Smooth wheel and touchpad scrolling, and pages kept for Back and Forward.
+        s.set_enable_smooth_scrolling(true);
+        s.set_enable_page_cache(true);
         // Linux, always: WebKitGTK would say Macintosh to some sites.
         s.set_user_agent(Some(brujula_core::useragent::USER_AGENT));
     }
@@ -3352,4 +3375,17 @@ fn load_history() -> History {
         let _ = std::fs::rename(&file, aside);
         History::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CSS;
+
+    #[test]
+    fn every_colour_of_the_palette_has_a_swatch_in_the_style_sheet() {
+        for c in brujula_core::spaces::PALETTE {
+            let rule = format!(".brujula-swatch-{} {{ background: {c}; }}", &c[1..]);
+            assert!(CSS.contains(&rule), "{c}");
+        }
+    }
 }

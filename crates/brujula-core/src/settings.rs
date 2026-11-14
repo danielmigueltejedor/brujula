@@ -300,6 +300,9 @@ pub struct Settings {
     pub passwords_keyring: bool,
     /// Answer the pages that ask for a passkey, with the phone as the authenticator (a QR code).
     pub passkeys_enabled: bool,
+    /// A link sent from another application opens in a card over the page (Peek) instead of a
+    /// new tab, with a button to keep it as a tab.
+    pub quick_links: bool,
     /// Say so when a page needs DRM (Widevine), which the engine cannot play, and offer another
     /// browser that can.
     pub drm_notice: bool,
@@ -365,6 +368,7 @@ impl Default for Settings {
             passwords_enabled: true,
             passwords_keyring: true,
             passkeys_enabled: true,
+            quick_links: true,
             drm_notice: true,
             drm_browser: String::new(),
             drm_sites: Vec::new(),

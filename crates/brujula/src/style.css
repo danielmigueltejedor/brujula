@@ -323,3 +323,28 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
 
 /* The loading line fills smoothly instead of jumping. */
 .brujula-progress progress { transition: min-width 200ms ease; }
+
+/* Changing space: the colour of the space glides up the sidebar. Changing tab: the page eases in. */
+@keyframes brujula-sweep {
+  from { background-position: 0 100%; }
+  to { background-position: 0 0; }
+}
+@keyframes brujula-page-in {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.brujula-side.brujula-sweep { animation: brujula-sweep 650ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.brujula-enter { animation: brujula-page-in 150ms ease-out; }
+
+/* The colours of the space editor. */
+.brujula-swatch { min-width: 22px; min-height: 22px; padding: 0; transition: transform 120ms ease; }
+.brujula-swatch:hover { transform: scale(1.12); }
+.brujula-swatch-0c9a58 { background: #0c9a58; }
+.brujula-swatch-2f6fed { background: #2f6fed; }
+.brujula-swatch-7a5af8 { background: #7a5af8; }
+.brujula-swatch-d6409f { background: #d6409f; }
+.brujula-swatch-e5484d { background: #e5484d; }
+.brujula-swatch-f08a24 { background: #f08a24; }
+.brujula-swatch-d4a017 { background: #d4a017; }
+.brujula-swatch-12a5a5 { background: #12a5a5; }
+.brujula-swatch-current { box-shadow: 0 0 0 2px var(--ndl-color-surface-panel), 0 0 0 4px var(--ndl-color-accent-default); }
