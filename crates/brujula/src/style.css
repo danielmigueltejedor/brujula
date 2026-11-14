@@ -251,6 +251,11 @@ ndl-overlay-split-view.collapsed > .ndl-content-pane { margin: 0; border-radius:
   font-size: 12.5px;
 }
 .brujula-ai-chip button.circular { min-width: 24px; min-height: 24px; padding: 0; }
+.brujula-ai-task {
+  padding: 10px 12px; border-radius: 14px;
+  background: var(--ndl-color-surface-sunken);
+}
+.brujula-ai-task-result { font-size: 12px; color: var(--ndl-color-text-secondary); }
 
 /* Selected text in the panel: a soft tint that leaves the letters readable (the default fills
    the lines solid in the accent colour and hides them). */

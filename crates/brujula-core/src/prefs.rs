@@ -957,6 +957,11 @@ fn ai_section(view: &AiView) -> String {
             "La IA puede fijar, mover, meter en carpetas y pasar de espacio tus pestañas. Si va a cerrar alguna, te enseña la lista y te pregunta antes; una pestaña cerrada se recupera con Ctrl+Mayús+T.",
             &switch("ai.organize", s.organize),
         ),
+        row(
+            "Tareas programadas",
+            "La IA puede proponer una tarea que se haga sola («cada mañana mira Ágora»). Siempre te enseña qué hará, cuándo y qué sitios puede abrir, y no se guarda hasta que dices que sí. Una tarea solo lee esos sitios: no pulsa, no escribe, no inicia sesión ni ve tus pestañas. Solo se ejecuta con Brújula abierto.",
+            &switch("ai.tasks", s.tasks),
+        ),
     ]
     .concat();
     let search = row(
@@ -2498,6 +2503,7 @@ mod tests {
             "ai.open",
             "ai.interact",
             "ai.organize",
+            "ai.tasks",
             "ai.search",
             "ai.blocked.add",
         ] {
